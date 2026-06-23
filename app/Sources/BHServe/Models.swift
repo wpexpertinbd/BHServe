@@ -17,6 +17,7 @@ struct EngineConfig: Codable, Sendable, Equatable {
     let defaultWeb: String
     let brewPrefix: String
     let sitesRoot: String
+    var autostart: Bool?
 }
 
 struct Service: Codable, Sendable, Identifiable, Equatable {

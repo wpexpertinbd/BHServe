@@ -24,6 +24,16 @@ struct SettingsView: View {
                 Text("Ports below 1024 (80/443) require an admin prompt when nginx restarts.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Startup") {
+                Toggle("Launch BHServe at login", isOn: Binding(
+                    get: { state.loginItemEnabled },
+                    set: { state.setLoginItem($0) }))
+                Toggle("Start services when BHServe launches", isOn: Binding(
+                    get: { state.autostartEnabled },
+                    set: { v in Task { await state.setAutostart(v) } }))
+                Text("Auto-start runs “Start All” on launch (prompts once for admin to bind :80/:443).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Defaults for new sites") {
                 Picker("PHP version", selection: $defaultPhp) {
                     ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import ServiceManagement
 
 @MainActor
 @Observable
@@ -235,6 +236,35 @@ final class AppState {
         await runUser(["site", "php", name, php], note: "switching \(name) → \(php)…")
         await control("restart", "nginx")  // re-rendered vhost needs a reload
     }
+
+    func setSiteServer(_ name: String, _ server: String) async {
+        await runUser(["site", "server", name, server], note: "switching \(name) → \(server)…")
+        await control("restart", "nginx")
+    }
+
+    // ── startup: login item (SMAppService) + autostart-on-launch ────────────
+    var autostartEnabled: Bool { snapshot?.config.autostart ?? false }
+
+    var loginItemEnabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    func setLoginItem(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+        } catch {
+            errorText = "Login item: \(error.localizedDescription) (run the built .app, not `swift run`)"
+        }
+    }
+
+    func setAutostart(_ on: Bool) async {
+        await runUser(["config", "set", "autostart", on ? "true" : "false"], note: "saving startup setting…")
+    }
+
+    // ── web tools (phpMyAdmin / Adminer / Mailpit) ──────────────────────────
+    func siteExists(_ name: String) -> Bool { snapshot?.sites.contains { $0.name == name } ?? false }
+    func installPma() async { await runUser(["pma", "install"], note: "installing phpMyAdmin…"); await control("restart", "nginx") }
+    func installAdminer() async { await runUser(["adminer", "install"], note: "installing Adminer…"); await control("restart", "nginx") }
+    func setupMailpit() async { await runUser(["mailpit", "setup"], note: "setting up Mailpit…"); await control("restart", "nginx") }
 
     func secure(domain: String) async {
         await runUser(["secure", domain], note: "securing \(domain)…")

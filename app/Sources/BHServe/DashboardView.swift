@@ -39,6 +39,9 @@ struct DashboardView: View {
 
                 // Websites
                 WebsitesPanel()
+
+                // Web tools
+                ToolsPanel()
             }
             .padding(20)
         }

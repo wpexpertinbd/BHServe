@@ -50,6 +50,47 @@ struct WebsitesPanel: View {
     }
 }
 
+struct ToolsPanel: View {
+    @Environment(AppState.self) private var state
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Web tools").font(.headline)
+            HStack(spacing: 10) {
+                ToolButton(name: "phpMyAdmin", site: "phpmyadmin", icon: "cylinder.split.1x2") { await state.installPma() }
+                ToolButton(name: "Adminer", site: "adminer", icon: "tablecells") { await state.installAdminer() }
+                ToolButton(name: "Mailpit", site: "mailpit", icon: "envelope") { await state.setupMailpit() }
+            }
+        }
+        .padding(16)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+struct ToolButton: View {
+    @Environment(AppState.self) private var state
+    let name: String, site: String, icon: String
+    let install: () async -> Void
+
+    var body: some View {
+        let exists = state.siteExists(site)
+        let tld = state.snapshot?.config.tld ?? "test"
+        VStack(spacing: 8) {
+            Image(systemName: icon).font(.title2).foregroundStyle(.blue)
+            Text(name).font(.subheadline.weight(.medium))
+            if exists {
+                Button("Open") {
+                    if let u = URL(string: "http://\(site).\(tld)") { NSWorkspace.shared.open(u) }
+                }.controlSize(.small)
+            } else {
+                Button("Install") { Task { await install() } }.controlSize(.small).tint(.green)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .disabled(state.busy)
+    }
+}
+
 struct WebsiteRow: View {
     @Environment(AppState.self) private var state
     let site: Site
@@ -124,6 +165,7 @@ struct EditSiteSheet: View {
     @Environment(\.dismiss) private var dismiss
     let site: Site
     @State private var php = ""
+    @State private var server = "nginx"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -131,6 +173,14 @@ struct EditSiteSheet: View {
             Text(site.domain).font(.caption).foregroundStyle(.secondary)
             Picker("PHP version", selection: $php) {
                 ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Web server", selection: $server) {
+                Text("nginx (fast)").tag("nginx")
+                Text(state.httpdInstalled ? "Apache (.htaccess)" : "Apache — needs httpd").tag("apache")
+            }
+            if server == "apache" && !state.httpdInstalled {
+                Label("Install httpd in Services first.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
             }
             LabeledContent("Root", value: site.root)
             HStack {
@@ -150,6 +200,9 @@ struct EditSiteSheet: View {
                 Button("Apply") {
                     Task {
                         if php != site.php { await state.setSitePHP(site.name, php: php) }
+                        if server != site.serverKind && !(server == "apache" && !state.httpdInstalled) {
+                            await state.setSiteServer(site.name, server)
+                        }
                         dismiss()
                     }
                 }
@@ -157,7 +210,7 @@ struct EditSiteSheet: View {
             }
         }
         .padding(20).frame(width: 420)
-        .onAppear { php = site.php }
+        .onAppear { php = site.php; server = site.serverKind }
     }
 }
 

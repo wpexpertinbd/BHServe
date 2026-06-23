@@ -31,6 +31,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(AppState.self) private var state
     @State private var selection: SidebarItem = .dashboard
+    @State private var didAutostart = false
 
     var body: some View {
         NavigationSplitView {
@@ -60,6 +61,13 @@ struct ContentView: View {
         }
         .task {
             await state.reload()
+            // auto-start services on launch if enabled (once, only when all stopped)
+            if !didAutostart {
+                didAutostart = true
+                if state.autostartEnabled && state.running.isEmpty {
+                    await state.control("start", "all")
+                }
+            }
             // live auto-refresh while the window is open (skip while an action runs)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(4))
