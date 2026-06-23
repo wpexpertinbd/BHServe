@@ -1,17 +1,40 @@
 import SwiftUI
 import AppKit
 
-/// Without a proper .app bundle (e.g. `swift run`), macOS may launch the process
-/// as an accessory app, so its window never becomes key → TextFields can't take
-/// keyboard input (mouse still works). Force a regular, activated app.
+/// Menu-bar-resident behavior: while the dashboard window is open the app is a
+/// regular app (Dock icon + can take keyboard focus); when it's closed the app
+/// drops to .accessory — no Dock icon, keeps running, reachable from the menu bar.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let mainTitle = "BHServe"
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        showInDock()
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            guard let w = note.object as? NSWindow,
+                  w.title == AppDelegate.mainTitle, !w.isSheet else { return }
+            // last dashboard window closing → menu-bar only
+            DispatchQueue.main.async {
+                let stillOpen = NSApp.windows.contains {
+                    $0 !== w && $0.title == AppDelegate.mainTitle && $0.isVisible
+                }
+                if !stillOpen { NSApp.setActivationPolicy(.accessory) }
+            }
+        }
+    }
+
+    // Don't quit when the window is closed — the menu bar keeps the app alive.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // Clicking the Dock icon (when visible) reopens.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showInDock()
+        return true
+    }
+
+    func showInDock() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-    }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { NSApp.activate(ignoringOtherApps: true) }
-        return true
     }
 }
 
@@ -93,6 +116,7 @@ struct MenuBarView: View {
             Divider()
             HStack {
                 Button("Open BHServe") {
+                    NSApp.setActivationPolicy(.regular)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }

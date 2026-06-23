@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case dashboard, services, sites, databases, node, logs, settings
@@ -51,6 +52,11 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 520, minHeight: 420)
+        }
+        .onAppear {
+            // window is showing → ensure a Dock icon (we drop to .accessory on close)
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
         }
         .task {
             await state.reload()

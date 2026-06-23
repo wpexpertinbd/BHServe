@@ -8,11 +8,10 @@ struct WebsitesPanel: View {
     @FocusState private var searchFocused: Bool
 
     private var allCount: Int { state.snapshot?.sites.count ?? 0 }
-    private var showSearch: Bool { allCount > 6 }
 
     private var sites: [Site] {
         let all = state.snapshot?.sites ?? []
-        guard showSearch, !query.isEmpty else { return all }
+        guard !query.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.domain.localizedCaseInsensitiveContains(query) }
     }
 
@@ -24,11 +23,9 @@ struct WebsitesPanel: View {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
                 Spacer()
-                if showSearch {
-                    TextField("Search", text: $query)
-                        .textFieldStyle(.roundedBorder).frame(width: 180)
-                        .focused($searchFocused)
-                }
+                TextField("Search", text: $query)
+                    .textFieldStyle(.roundedBorder).frame(width: 180)
+                    .focused($searchFocused)
                 Button { showingAdd = true } label: { Image(systemName: "plus") }
                     .help("Add site")
             }
