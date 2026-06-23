@@ -50,6 +50,18 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ▶️ Next: LaunchAgent (launch-at-login / autostart services), optional Developer-ID sign + notarize for clean distribution to other Macs.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
-## Later
-- Phase 3 (fold into GUI): DB start/stop + create/drop helpers, phpMyAdmin/Adminer/Mailpit/Node.
-- Phase 5: package the `.app` (Info.plist, LSUIElement, bundle the engine), LaunchAgent auto-start, sign/notarize.
+## Paused 2026-06-24 (all committed) — resume notes
+BHServe is feature-complete for daily use: Dashboard (live CPU/RAM/disk + sparkline,
+service cards, Websites list, Web-tools), Services (+★ auto-start), Sites, Databases,
+Node, Logs, Settings; menu-bar-resident; BH-blue icon; `.app` + `.dmg`/`.pkg`.
+Engine covers PHP 8.1–8.6 + FPM, nginx + Apache (.htaccess), MariaDB/PG + phpMyAdmin/
+Adminer, Mailpit, Node (fnm), HTTPS (mkcert), `*.test` (dnsmasq), 2GB uploads, ionCube
+(7.4/8.1), per-service auto-start set, and a privileged helper for password-less nginx.
+
+**To finish promptless auto-start:** Settings ▸ "Enable password-less control" (once) +
+Launch-at-login + Start-services-on-launch.
+
+### Next features (later)
+- Developer-ID sign + notarize so `.dmg`/`.pkg` open clean on other Macs.
+- Optional root LaunchDaemon so nginx starts before login (true headless boot).
+- GUI ionCube / php-status panel; per-app nginx rewrite presets; more polish.
