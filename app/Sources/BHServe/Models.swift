@@ -63,6 +63,13 @@ struct Database: Codable, Sendable, Identifiable, Equatable {
     var engineLabel: String { engine == "pg" ? "PostgreSQL" : "MySQL / MariaDB" }
 }
 
+struct NodeVersion: Codable, Sendable, Identifiable, Equatable {
+    let version: String
+    let isDefault: Bool
+    var id: String { version }
+    enum CodingKeys: String, CodingKey { case version; case isDefault = "default" }
+}
+
 enum PasswordGen {
     /// Unambiguous, shell/SQL-safe charset (no quotes, backslash, dollar, or O/0/l/1).
     static func make(_ length: Int = 16) -> String {

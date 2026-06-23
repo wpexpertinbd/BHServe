@@ -39,7 +39,7 @@ redis|redis|bin/redis-server|cache
 dnsmasq|dnsmasq|sbin/dnsmasq|dns
 mkcert|mkcert|bin/mkcert|tls
 mailpit|mailpit|bin/mailpit|mail
-node|node|bin/node|node
+fnm|fnm|bin/fnm|node
 EOF
 }
 
@@ -749,6 +749,60 @@ cmd_logs(){
   tail -n "$n" "$f"
 }
 
+# ── node (multi-version via fnm; versions live under ~/.bhserve/fnm) ─────────
+FNM_BIN(){ echo "$BREW_PREFIX/bin/fnm"; }
+fnm_run(){
+  local f; f="$(FNM_BIN)"; [ -x "$f" ] || die "fnm not installed — bhserve install fnm"
+  export FNM_DIR="$BH_HOME/fnm"; mkdir -p "$FNM_DIR"
+  "$f" --fnm-dir "$FNM_DIR" "$@"
+}
+
+cmd_node(){
+  need_init
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    list)  node_list "${1:-}" ;;
+    remote) fnm_run list-remote --lts 2>/dev/null | tail -40 ;;
+    install|i)  [ -n "${1:-}" ] || die "usage: bhserve node install <version>"
+                hdr "Installing Node $1"; fnm_run install "$1" && ok "node $1 installed" || die "install failed" ;;
+    use|default) [ -n "${1:-}" ] || die "usage: bhserve node use <version>"; node_use "$1" ;;
+    uninstall|rm|uni) [ -n "${1:-}" ] || die "usage: bhserve node uninstall <version>"
+                fnm_run uninstall "$1" && ok "node $1 uninstalled" || die "uninstall failed" ;;
+    *) die "usage: bhserve node {list|remote|install|use|uninstall} [version]" ;;
+  esac
+}
+
+node_list(){
+  local json="$1" out; out="$(fnm_run list 2>/dev/null || true)"
+  if [ "$json" = "--json" ]; then
+    local arr="" first=1 line v def
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      v="$(printf '%s' "$line" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+      [ -z "$v" ] && continue
+      def=false; printf '%s' "$line" | grep -q 'default' && def=true
+      local row; row="$(printf '{"version":"%s","default":%s}' "$v" "$def")"
+      [ "$first" = 1 ] && { arr="$row"; first=0; } || arr="$arr,$row"
+    done <<< "$out"
+    printf '[%s]\n' "$arr"
+    return
+  fi
+  hdr "Installed Node versions"; printf '%s\n' "$out"
+}
+
+# Set the default node + link node/npm/npx into ~/.bhserve/bin for PATH use.
+node_use(){
+  local ver="$1" path bindir b
+  fnm_run default "$ver" || die "set default failed (is $ver installed?)"
+  path="$(fnm_run exec --using="$ver" -- node -e 'console.log(process.execPath)' 2>/dev/null | tail -1)"
+  [ -n "$path" ] || die "could not resolve node $ver"
+  bindir="$(dirname "$path")"
+  mkdir -p "$BH_HOME/bin"
+  for b in node npm npx corepack; do [ -e "$bindir/$b" ] && ln -sf "$bindir/$b" "$BH_HOME/bin/$b"; done
+  ok "default node = $ver"
+  info "linked node/npm/npx into $BH_HOME/bin — add to PATH: export PATH=\"$BH_HOME/bin:\$PATH\""
+}
+
 # ── api (machine-readable JSON for the GUI) ──────────────────────────────────
 json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
@@ -838,6 +892,7 @@ BHServe — usage:
   bhserve site list|rm <name>
   bhserve site php <name> <ver>  switch a site's PHP version
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
+  bhserve node {list|remote|install|use|uninstall} [version]   (multi-version via fnm)
   bhserve secure <domain>        trusted HTTPS via mkcert
   bhserve dns                    set up *.test (dnsmasq + resolver)
   bhserve config {show|set <key> <value>}   (http_port/https_port/tld/sites_root/default_php/default_web)
@@ -855,6 +910,7 @@ case "${1:-doctor}" in
   install) shift; cmd_install "$@" ;;
   site)    shift; cmd_site "$@" ;;
   db)      shift; cmd_db "$@" ;;
+  node)    shift; cmd_node "$@" ;;
   config)  shift; cmd_config "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
   secure)  shift; cmd_secure "$@" ;;

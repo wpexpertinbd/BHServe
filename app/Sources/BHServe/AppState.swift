@@ -174,6 +174,35 @@ final class AppState {
         return (try? await Task.detached(operation: { try eng.run(["logs", name, String(lines)]) }).value) ?? ""
     }
 
+    // ── node (fnm) ────────────────────────────────────────────────────────
+    var nodeVersions: [NodeVersion] = []
+    var fnmInstalled: Bool { snapshot?.services.contains { $0.key == "fnm" && $0.installed } ?? false }
+
+    func reloadNode() async {
+        guard fnmInstalled else { nodeVersions = []; return }
+        let eng = engine
+        if let j = try? await Task.detached(operation: { try eng.run(["node", "list", "--json"]) }).value {
+            nodeVersions = (try? JSONDecoder().decode([NodeVersion].self, from: Data(j.utf8))) ?? []
+        }
+    }
+
+    func installNode(_ v: String) async {
+        let clean = v.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        await runUser(["node", "install", clean], note: "installing Node \(clean)… (downloading)")
+        await reloadNode()
+    }
+
+    func useNode(_ v: String) async {
+        await runUser(["node", "use", v], note: "setting Node \(v) as default…")
+        await reloadNode()
+    }
+
+    func uninstallNode(_ v: String) async {
+        await runUser(["node", "uninstall", v], note: "uninstalling Node \(v)…")
+        await reloadNode()
+    }
+
     func installService(_ key: String) async {
         await runUser(["install", key], note: "installing \(key)…")
     }

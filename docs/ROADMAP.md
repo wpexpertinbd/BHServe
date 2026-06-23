@@ -39,6 +39,7 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ Fixed mysql/mariadb collision: probe keg-specific `opt/<formula>/bin/...` (bin/mysql is a mariadb symlink, was falsely flagging mysql installed → broken Start).
 - ✅ Settings: engine `config {show|set <key> <value>}` (validates; tld/port changes regenerate all vhosts + nginx.conf) + GUI Settings tab (TLD, http/https port, sites_root, default PHP/web; Save restarts nginx on port/tld change via admin prompt).
 - ✅ Logs: engine `logs [file|--list] [lines]` + GUI Logs tab (pick a log, monospaced tail, reload).
+- ✅ Node multi-version: registry `node` → **fnm**; engine `node {list|remote|install|use|uninstall}` (versions under `~/.bhserve/fnm`; `use` sets fnm default + links node/npm/npx into `~/.bhserve/bin`). GUI Node tab: install by version/quick-buttons (18/20/22/24/lts/latest), installed list with default badge + Use/Uninstall.
 - ▶️ Next: Apache vhosts, phpMyAdmin/Adminer/Mailpit one-click panels.
 
 ## Phase 5 (packaging) — in progress
