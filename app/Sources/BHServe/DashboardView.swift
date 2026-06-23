@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(AppState.self) private var state
-    @Environment(Metrics.self) private var metrics
 
     private var web: Service? { state.snapshot?.services.first { $0.key == "nginx" } }
     private var phpRunning: [String] { state.services(role: .php).filter { $0.running }.map { $0.key.replacingOccurrences(of: "php@", with: "") } }
@@ -35,18 +34,8 @@ struct DashboardView: View {
                                on: cache?.running == true)
                 }
 
-                // System metrics
-                LazyVGrid(columns: cols, spacing: 14) {
-                    CPUCard()
-                    MetricCard(title: "Memory", icon: "memorychip",
-                               percent: metrics.memPercent,
-                               detail: "\(ByteFmt.giB(metrics.memUsed)) / \(ByteFmt.giB(metrics.memTotal)) GB",
-                               tint: .blue)
-                    MetricCard(title: "Storage", icon: "internaldrive",
-                               percent: metrics.diskPercent,
-                               detail: "\(ByteFmt.gB(metrics.diskUsed)) / \(ByteFmt.gB(metrics.diskTotal))",
-                               tint: .green)
-                }
+                // System metrics (isolated so 2s ticks don't re-render the rest)
+                SystemMetricsGrid(cols: cols)
 
                 // Websites
                 WebsitesPanel()
@@ -56,6 +45,26 @@ struct DashboardView: View {
         .navigationTitle("Dashboard")
         .toolbar {
             Button { Task { await state.reload() } } label: { Image(systemName: "arrow.clockwise") }
+        }
+    }
+}
+
+/// Owns the Metrics dependency so the live 2s sampling only re-renders these
+/// three cards — not the websites list (which was making the search box "dance").
+struct SystemMetricsGrid: View {
+    @Environment(Metrics.self) private var metrics
+    let cols: [GridItem]
+    var body: some View {
+        LazyVGrid(columns: cols, spacing: 14) {
+            CPUCard()
+            MetricCard(title: "Memory", icon: "memorychip",
+                       percent: metrics.memPercent,
+                       detail: "\(ByteFmt.giB(metrics.memUsed)) / \(ByteFmt.giB(metrics.memTotal)) GB",
+                       tint: .blue)
+            MetricCard(title: "Storage", icon: "internaldrive",
+                       percent: metrics.diskPercent,
+                       detail: "\(ByteFmt.gB(metrics.diskUsed)) / \(ByteFmt.gB(metrics.diskTotal))",
+                       tint: .green)
         }
         .task { metrics.startSampling() }
     }
