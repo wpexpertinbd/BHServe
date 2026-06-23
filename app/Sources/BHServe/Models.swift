@@ -7,6 +7,7 @@ struct Snapshot: Codable, Sendable, Equatable {
     let config: EngineConfig
     let services: [Service]
     let sites: [Site]
+    var helper: Bool?
 }
 
 struct EngineConfig: Codable, Sendable, Equatable {

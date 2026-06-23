@@ -923,6 +923,45 @@ db_drop(){
   esac
 }
 
+# ── privileged helper (password-less nginx control + autostart) ──────────────
+# A sudoers rule so the GUI/CLI can start/stop/reload nginx (binds :80/:443)
+# without a password prompt — the standard local-dev approach (à la Valet).
+SUDOERS_FILE="/etc/sudoers.d/bhserve"
+helper_installed(){ [ -f "$SUDOERS_FILE" ]; }
+helper_target_user(){ echo "${SUDO_USER:-$(stat -f%Su /dev/console 2>/dev/null)}"; }
+
+cmd_helper(){
+  need_init
+  case "${1:-status}" in
+    install)   helper_install ;;
+    uninstall) helper_uninstall ;;
+    status)    helper_installed && ok "privileged helper: installed" || info "privileged helper: not installed" ;;
+    *) die "usage: bhserve helper {install|uninstall|status}" ;;
+  esac
+}
+
+helper_install(){
+  [ "$(id -u)" = 0 ] || die "needs root: sudo bhserve helper install   (or use the GUI button)"
+  local u nginx tmp; u="$(helper_target_user)"; nginx="$BREW_PREFIX/bin/nginx"
+  [ -n "$u" ] || die "could not determine the login user"
+  tmp="$(mktemp)"
+  cat > "$tmp" <<SUDO
+# BHServe — let $u control nginx (binds :80/:443) without a password.
+# Remove with: sudo bhserve helper uninstall
+Defaults:$u !requiretty
+$u ALL=(root) NOPASSWD: $nginx
+SUDO
+  /usr/sbin/visudo -cf "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; die "sudoers validation failed — not installed"; }
+  install -m 0440 -o root -g wheel "$tmp" "$SUDOERS_FILE"; rm -f "$tmp"
+  ok "privileged helper installed — nginx start/stop/reload no longer needs a password"
+  info "with this + 'Launch at login' + autostart, BHServe comes up after reboot with no prompt"
+}
+
+helper_uninstall(){
+  [ "$(id -u)" = 0 ] || die "needs root: sudo bhserve helper uninstall"
+  rm -f "$SUDOERS_FILE" && ok "privileged helper removed" || die "remove failed"
+}
+
 # ── config (editable settings) ───────────────────────────────────────────────
 cmd_config(){
   need_init
@@ -1263,7 +1302,8 @@ cmd_api() {
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 
-  printf '{"config":%s,"services":[%s],"sites":[%s]}\n' "$(cat "$cfg")" "$svcs" "$sites"
+  local helper=false; helper_installed && helper=true
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper"
 }
 
 # ── doctor / status ─────────────────────────────────────────────────────────
@@ -1325,6 +1365,7 @@ BHServe — usage:
   bhserve config {show|set <key> <value>}   (http_port/https_port/tld/sites_root/default_php/default_web)
   bhserve logs [file.log|--list] [lines]
   bhserve start|stop|restart <svc|all>
+  bhserve helper {install|uninstall|status}   (password-less nginx control)
   bhserve status
 U
 }
@@ -1350,6 +1391,7 @@ case "${1:-doctor}" in
   stop)    shift; cmd_stop "$@" ;;
   restart) shift; cmd_restart "$@" ;;
   reload)  need_init; nginx_reload ;;
+  helper)  shift; cmd_helper "$@" ;;
   help|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac

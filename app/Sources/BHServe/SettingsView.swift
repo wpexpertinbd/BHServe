@@ -31,8 +31,23 @@ struct SettingsView: View {
                 Toggle("Start services when BHServe launches", isOn: Binding(
                     get: { state.autostartEnabled },
                     set: { v in Task { await state.setAutostart(v) } }))
-                Text("Auto-start runs “Start All” on launch (prompts once for admin to bind :80/:443).")
-                    .font(.caption).foregroundStyle(.secondary)
+
+                if state.helperInstalled {
+                    LabeledContent("Password-less control") {
+                        HStack {
+                            Label("Enabled", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                            Button("Remove") { Task { await state.uninstallHelper() } }.controlSize(.small)
+                        }
+                    }
+                } else {
+                    Button {
+                        Task { await state.installHelper() }
+                    } label: {
+                        Label("Enable password-less control (one-time)", systemImage: "lock.open")
+                    }
+                    Text("nginx binds :80/:443 (root), so Start/Stop asks for your password each time. This installs a one-time sudoers rule so it never asks again — and lets BHServe auto-start at login without a prompt.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("Defaults for new sites") {
                 Picker("PHP version", selection: $defaultPhp) {

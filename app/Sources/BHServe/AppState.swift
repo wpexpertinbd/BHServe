@@ -63,16 +63,36 @@ final class AppState {
         lastAction = "\(action) \(target)…"
         defer { busy = false; lastAction = nil }
         let eng = engine
-        let privileged = (target == "nginx" || target == "all" || target == "dns")
+        // nginx/all need root for :80/:443. With the privileged helper installed,
+        // the engine's internal `sudo nginx` is password-less → no osascript prompt.
+        let needsPrompt = (target == "nginx" || target == "all" || target == "dns") && !helperInstalled
         do {
             try await Task.detached {
-                if privileged { try eng.runPrivileged([action, target]) }
+                if needsPrompt { try eng.runPrivileged([action, target]) }
                 else { _ = try eng.run([action, target]) }
             }.value
             await reload()
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    var helperInstalled: Bool { snapshot?.helper ?? false }
+
+    func installHelper() async {
+        guard !busy else { return }
+        busy = true; lastAction = "installing helper…"; defer { busy = false; lastAction = nil }
+        let eng = engine
+        do { try await Task.detached { try eng.runPrivileged(["helper", "install"]) }.value; await reload() }
+        catch { errorText = error.localizedDescription }
+    }
+
+    func uninstallHelper() async {
+        guard !busy else { return }
+        busy = true; lastAction = "removing helper…"; defer { busy = false; lastAction = nil }
+        let eng = engine
+        do { try await Task.detached { try eng.runPrivileged(["helper", "uninstall"]) }.value; await reload() }
+        catch { errorText = error.localizedDescription }
     }
 
     var httpdInstalled: Bool { snapshot?.services.contains { $0.key == "httpd" && $0.installed } ?? false }
