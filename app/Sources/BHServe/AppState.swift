@@ -74,6 +74,8 @@ final class AppState {
         }
     }
 
+    var httpdInstalled: Bool { snapshot?.services.contains { $0.key == "httpd" && $0.installed } ?? false }
+
     var mysqlRunning: Bool {
         snapshot?.services.contains { ($0.key == "mariadb" || $0.key == "mysql") && $0.running } ?? false
     }
@@ -207,10 +209,10 @@ final class AppState {
         await runUser(["install", key], note: "installing \(key)…")
     }
 
-    func addSite(name: String, php: String) async {
+    func addSite(name: String, php: String, server: String = "nginx") async {
         let clean = name.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return }
-        await runUser(["site", "add", clean, "--php", php], note: "adding \(clean)…")
+        await runUser(["site", "add", clean, "--php", php, "--server", server], note: "adding \(clean)…")
     }
 
     func removeSite(_ name: String) async {

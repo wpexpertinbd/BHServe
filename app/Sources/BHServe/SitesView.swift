@@ -86,6 +86,7 @@ struct AddSiteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var php = ""
+    @State private var server = "nginx"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -99,6 +100,14 @@ struct AddSiteSheet: View {
             Picker("PHP version", selection: $php) {
                 ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
             }
+            Picker("Web server", selection: $server) {
+                Text("nginx (fast)").tag("nginx")
+                Text(state.httpdInstalled ? "Apache (.htaccess)" : "Apache — needs httpd").tag("apache")
+            }
+            if server == "apache" && !state.httpdInstalled {
+                Label("Install httpd in Services to use Apache.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
             if !name.isEmpty {
                 Label("Will be served at \(scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
                       systemImage: "info.circle")
@@ -108,10 +117,10 @@ struct AddSiteSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Add") {
-                    Task { await state.addSite(name: cleanName, php: php); dismiss() }
+                    Task { await state.addSite(name: cleanName, php: php, server: server); dismiss() }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(cleanName.isEmpty || php.isEmpty)
+                .disabled(cleanName.isEmpty || php.isEmpty || (server == "apache" && !state.httpdInstalled))
             }
         }
         .padding(20)

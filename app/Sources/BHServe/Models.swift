@@ -49,8 +49,10 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     let root: String
     let secure: Bool
     var enabled: Bool = true
+    var server: String?
     var id: String { name }
 
+    var serverKind: String { (server ?? "nginx") }
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }
 }
 

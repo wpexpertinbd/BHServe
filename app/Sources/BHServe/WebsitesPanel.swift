@@ -65,6 +65,10 @@ struct WebsiteRow: View {
                 Text(site.domain).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            Text(site.serverKind).font(.caption2.weight(.medium))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(site.serverKind == "apache" ? Color.orange.opacity(0.2) : Color.blue.opacity(0.15), in: Capsule())
+                .foregroundStyle(site.serverKind == "apache" ? .orange : .blue)
             Text(site.php).font(.caption2.monospaced()).foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(.quaternary, in: Capsule())
