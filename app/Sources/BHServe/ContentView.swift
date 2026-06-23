@@ -1,0 +1,74 @@
+import SwiftUI
+
+enum SidebarItem: String, CaseIterable, Identifiable {
+    case services, sites
+    var id: String { rawValue }
+    var title: String { self == .services ? "Services" : "Sites" }
+    var icon: String { self == .services ? "server.rack" : "globe" }
+}
+
+struct ContentView: View {
+    @Environment(AppState.self) private var state
+    @State private var selection: SidebarItem = .services
+
+    var body: some View {
+        NavigationSplitView {
+            List(SidebarItem.allCases, selection: $selection) { item in
+                Label(item.title, systemImage: item.icon).tag(item)
+            }
+            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+            .safeAreaInset(edge: .bottom) { StatusFooter() }
+        } detail: {
+            Group {
+                switch selection {
+                case .services: ServicesView()
+                case .sites: SitesView()
+                }
+            }
+            .frame(minWidth: 520, minHeight: 420)
+        }
+        .task { await state.reload() }
+        .alert("Engine error", isPresented: Binding(
+            get: { state.errorText != nil },
+            set: { if !$0 { state.errorText = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(state.errorText ?? "")
+        }
+    }
+}
+
+/// Bottom-of-sidebar control: overall status + Start/Stop All + refresh.
+struct StatusFooter: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Divider()
+            HStack {
+                Circle()
+                    .fill(state.running.isEmpty ? Color.secondary : Color.green)
+                    .frame(width: 9, height: 9)
+                Text(state.running.isEmpty ? "Stopped" : "\(state.running.count) running")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if state.busy { ProgressView().controlSize(.small) }
+            }
+            HStack(spacing: 6) {
+                Button { Task { await state.control("start", "all") } } label: {
+                    Label("Start All", systemImage: "play.fill").frame(maxWidth: .infinity)
+                }
+                Button { Task { await state.control("stop", "all") } } label: {
+                    Label("Stop All", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                }
+            }
+            .controlSize(.small)
+            .disabled(state.busy)
+            if let note = state.lastAction {
+                Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(10)
+    }
+}

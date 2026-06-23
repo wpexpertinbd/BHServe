@@ -27,11 +27,20 @@ engine/bhserve status                          # config + what's running
 > BHServe owns ports **80/443** and the `*.test` domain — quit ServBay first.
 > DNS, the first cert, and binding 80/443 need **sudo** (you'll be prompted).
 
+## The app (native GUI)
+A SwiftUI menu-bar + window app in [`app/`](app/) drives the engine via `bhserve api` (JSON).
+100% our own — no ServBay/Herd/Laragon dependency.
+```bash
+cd app && swift run BHServe     # also: open Package.swift in Xcode
+```
+Services list (status + start/stop/install) and Sites (add, one-click HTTPS, open in browser).
+Privileged actions (:80/:443, DNS) prompt for admin via macOS.
+
 ## Roadmap
 1. ✅ Foundation: config root, dependency doctor, service registry.
 2. ✅ Web + sites: nginx, `*.test` (dnsmasq), HTTPS (mkcert), per-site PHP-FPM, start/stop.
 3. Data + extras: MariaDB/MySQL, PostgreSQL, Redis, phpMyAdmin, Adminer, Mailpit, Node.
-4. SwiftUI menu-bar app over the engine.
-5. Packaging, auto-start, polish.
+4. ▶️ Native GUI over the engine — **scaffold building & running** (Services + Sites).
+5. Packaging (.app bundle, LaunchAgent auto-start), sign/notarize.
 
 — BiswasHost · https://www.biswashost.com

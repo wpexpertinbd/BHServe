@@ -27,7 +27,15 @@
 - `bhserve start all` binding 80/443 (sudo).
 - Optional: normalize the default `php` symlink (currently 7.4); BHServe sidesteps it by defaulting to `php@8.4`.
 
+## In progress — Phase 4 (native GUI, our own — no ServBay/Herd/Laragon dependency)
+Engine contract: `bhserve api` emits JSON (config + services{installed,running,version} + sites).
+SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in Xcode):
+- ✅ `Engine.swift` — Process bridge: `run` (user) + `runPrivileged` (osascript admin prompt for :80/:443 + dns, shell+AppleScript escaped), `snapshot()` decodes `api` JSON.
+- ✅ `AppState` (@Observable) — resolves engine path (env → ~/.bhserve → dev checkout), reload/control/install/addSite/secure/removeSite, runs engine off the main actor.
+- ✅ UI — `Window` + `MenuBarExtra`; NavigationSplitView (Services / Sites). Services grouped by role with status dots + Start/Stop/Install; Sites list with open-in-browser, one-click Secure, add-site sheet (PHP picker), remove. Start/Stop All in sidebar footer + menu bar.
+- ▶️ Next: live auto-refresh (poll/timer), PHP version switch per running site, settings (ports/TLD/sites_root), Apache vhosts, DB create/drop + phpMyAdmin/Adminer/Mailpit panels, logs viewer.
+- Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
+
 ## Later
-- Phase 3: DBs (start/stop, create/drop helpers) + phpMyAdmin/Adminer/Mailpit/Node.
-- Phase 4: SwiftUI menu-bar app (`app/`) calling the engine (status poll, start/stop, site list, PHP switch).
-- Phase 5: package the `.app`, LaunchAgent auto-start, optional sign/notarize.
+- Phase 3 (fold into GUI): DB start/stop + create/drop helpers, phpMyAdmin/Adminer/Mailpit/Node.
+- Phase 5: package the `.app` (Info.plist, LSUIElement, bundle the engine), LaunchAgent auto-start, sign/notarize.
