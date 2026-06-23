@@ -186,6 +186,18 @@ final class AppState {
 
     func removeSite(_ name: String) async {
         await runUser(["site", "rm", name], note: "removing \(name)…")
+        await control("restart", "nginx")  // drop the vhost from the running server
+    }
+
+    func setSiteEnabled(_ name: String, _ enabled: Bool) async {
+        await runUser(["site", enabled ? "enable" : "disable", name],
+                      note: "\(enabled ? "starting" : "stopping") \(name)…")
+        await control("restart", "nginx")
+    }
+
+    /// Reveal a path in Finder (view-level convenience lives here for reuse).
+    func openInFinder(_ path: String) {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
     }
 
     func setSitePHP(_ name: String, php: String) async {

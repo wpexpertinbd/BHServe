@@ -47,6 +47,9 @@ struct DashboardView: View {
                                detail: "\(ByteFmt.gB(metrics.diskUsed)) / \(ByteFmt.gB(metrics.diskTotal))",
                                tint: .green)
                 }
+
+                // Websites
+                WebsitesPanel()
             }
             .padding(20)
         }

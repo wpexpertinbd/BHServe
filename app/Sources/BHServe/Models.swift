@@ -48,6 +48,7 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     let php: String
     let root: String
     let secure: Bool
+    var enabled: Bool = true
     var id: String { name }
 
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }

@@ -286,8 +286,23 @@ cmd_site() {
     rm|remove) site_rm "$@" ;;
     list|ls) site_list ;;
     php) site_set_php "$@" ;;
-    *) die "usage: bhserve site {add|rm|list|php}" ;;
+    enable)  site_toggle "${1:-}" on ;;
+    disable) site_toggle "${1:-}" off ;;
+    *) die "usage: bhserve site {add|rm|list|php|enable|disable}" ;;
   esac
+}
+
+# Enable/disable serving a site by toggling its vhost file extension
+# (nginx only includes *.conf). Caller reloads nginx to apply.
+site_toggle(){
+  local name="$1" mode="$2"
+  [ -n "$name" ] || die "usage: bhserve site {enable|disable} <name>"
+  local on="$BH_HOME/nginx/sites/$name.conf" off="$BH_HOME/nginx/sites/$name.conf.disabled"
+  if [ "$mode" = off ]; then
+    [ -f "$on" ] && mv "$on" "$off" && ok "disabled $name (reload nginx to apply)" || warn "$name already disabled / missing"
+  else
+    [ -f "$off" ] && mv "$off" "$on" && ok "enabled $name (reload nginx to apply)" || warn "$name already enabled / missing"
+  fi
 }
 
 # Switch a site's PHP version: re-render its vhost against the new pool socket,
@@ -341,8 +356,9 @@ PHP
 
 site_rm() {
   [ $# -ge 1 ] || die "usage: bhserve site rm <name>"
-  local name="$1" conf="$BH_HOME/nginx/sites/$1.conf"
-  [ -f "$conf" ] && rm -f "$conf" && ok "removed vhost $conf" || warn "no vhost for $name"
+  local name="$1"
+  rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled"
+  ok "removed vhost for $name (reload nginx to apply)"
   info "(site files left on disk; remove manually if desired)"
 }
 
@@ -758,15 +774,16 @@ cmd_api() {
 
   local sites="" sfirst=1
   shopt -s nullglob
-  for f in "$BH_HOME"/nginx/sites/*.conf; do
-    local n dom php sec=false root
-    n="$(basename "$f" .conf)"
+  for f in "$BH_HOME"/nginx/sites/*.conf "$BH_HOME"/nginx/sites/*.conf.disabled; do
+    [ -e "$f" ] || continue
+    local n dom php sec=false root enabled=true
+    case "$f" in *.conf.disabled) enabled=false; n="$(basename "$f" .conf.disabled)";; *) n="$(basename "$f" .conf)";; esac
     dom="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
     root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
     grep -q "ssl_certificate " "$f" && sec=true
-    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s}' \
-      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec")"
+    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s}' \
+      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 
