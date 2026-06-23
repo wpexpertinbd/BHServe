@@ -226,6 +226,10 @@ final class AppState {
         await reloadNode()
     }
 
+    func setServiceAutoStart(_ key: String, _ on: Bool) async {
+        await runUser([on ? "enable" : "disable", key], note: "\(on ? "enabling" : "disabling") auto-start for \(key)…")
+    }
+
     func installService(_ key: String) async {
         await runUser(["install", key], note: "installing \(key)…")
     }

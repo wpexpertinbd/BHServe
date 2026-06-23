@@ -28,7 +28,9 @@ struct Service: Codable, Sendable, Identifiable, Equatable {
     let installed: Bool
     let running: Bool
     let version: String
+    var enabled: Bool?
     var id: String { key }
+    var autoStart: Bool { enabled ?? false }
 
     /// Short, human label for the row (strips the "PHP "/"nginx version: " noise).
     var shortVersion: String {

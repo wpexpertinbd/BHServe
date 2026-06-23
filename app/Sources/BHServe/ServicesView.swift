@@ -53,6 +53,16 @@ struct ServiceRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if service.installed && manageable {
+                Button {
+                    Task { await state.setServiceAutoStart(service.key, !service.autoStart) }
+                } label: {
+                    Image(systemName: service.autoStart ? "star.fill" : "star")
+                        .foregroundStyle(service.autoStart ? .yellow : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(service.autoStart ? "Auto-starts with “Start All”" : "Click to auto-start with “Start All”")
+            }
             if !service.installed {
                 Button("Install") { Task { await state.installService(service.key) } }
                     .controlSize(.small)

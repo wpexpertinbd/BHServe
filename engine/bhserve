@@ -52,6 +52,33 @@ svc_role(){    services | awk -F'|' -v k="$1" '$1==k{print $4}'; }
 svc_exists(){  services | awk -F'|' -v k="$1" '$1==k{f=1} END{exit !f}'; }
 svc_installed(){ local p; p="$(svc_probe "$1")"; [ -n "$p" ] && [ -x "$BREW_PREFIX/$p" ]; }
 
+# ── auto-start set ("default" services) ──────────────────────────────────────
+# Which services 'start all' brings up. Stored one key per line; when the file is
+# absent, a sensible default set applies (nginx + default PHP + MariaDB).
+ENABLED_FILE(){ echo "$BH_HOME/config/enabled"; }
+svc_default_enabled(){
+  case "$1" in
+    nginx|mariadb) return 0 ;;
+    php@*|php) [ "$1" = "$(php_key default)" ] && return 0 || return 1 ;;
+    *) return 1 ;;
+  esac
+}
+svc_enabled(){
+  local f; f="$(ENABLED_FILE)"
+  if [ -f "$f" ]; then grep -qxF "$1" "$f"; else svc_default_enabled "$1"; fi
+}
+materialize_enabled(){
+  local f; f="$(ENABLED_FILE)"; [ -f "$f" ] && return 0
+  local IFS='|' key _a _b _c; : > "$f"
+  while read -r key _a _b _c; do [ -n "$key" ] && svc_default_enabled "$key" && echo "$key" >> "$f"; done < <(services)
+  return 0
+}
+enable_svc(){ materialize_enabled; local f; f="$(ENABLED_FILE)"; grep -qxF "$1" "$f" || echo "$1" >> "$f"; }
+disable_svc(){ materialize_enabled; local f; f="$(ENABLED_FILE)"; grep -vxF "$1" "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f" || true; }
+
+cmd_enable(){ need_init; [ $# -ge 1 ] || die "usage: bhserve enable <svc>"; svc_exists "$1" || die "unknown service: $1"; enable_svc "$1"; ok "$1 will auto-start"; }
+cmd_disable(){ need_init; [ $# -ge 1 ] || die "usage: bhserve disable <svc>"; disable_svc "$1"; ok "$1 won't auto-start"; }
+
 # Version probe — robust under `set -e`/pipefail. nginx/httpd reject --version
 # and print to stderr, so fall back to -v; never propagate a non-zero exit.
 probe_version(){
@@ -424,7 +451,11 @@ error_log = $BH_HOME/logs/php-$label.log
 daemonize = yes
 
 [www]
-; FPM runs as the invoking user (never root), so user/group are intentionally omitted.
+; Set so php-fpm works whether started as the user (directive ignored) or as root
+; via an elevated 'start all' (workers then drop to the user, not root → sockets stay
+; user-owned so nginx workers can read them).
+user = $USER_NAME
+group = $GROUP_NAME
 listen = $sock
 listen.owner = $USER_NAME
 listen.group = $GROUP_NAME
@@ -723,19 +754,38 @@ brew_svc(){ # action key
   brew services "$action" "$formula" >/dev/null 2>&1 && ok "$key $action" || no "$key $action failed"
 }
 
+# Start every installed + enabled (auto-start) service. Order follows the registry
+# (PHP pools → nginx → apache → DBs), so sockets exist before nginx proxies them.
 start_all(){
-  hdr "Starting PHP-FPM pools"
-  local keys; keys="$(fpm_keys)"
-  [ -n "$keys" ] || { local d; d="$(php_key default)"; render_fpm_pool "$d" >/dev/null 2>&1 || true; keys="$d"; }
-  for k in $keys; do fpm_start "$k"; done
-  if have_apache_sites; then hdr "Starting Apache backend"; apache_start; fi
-  hdr "Starting web (nginx)"; nginx_start
+  hdr "Starting enabled services"
+  # ensure the default PHP pool conf exists so a fresh install has something to start
+  [ -n "$(fpm_keys)" ] || render_fpm_pool "$(php_key default)" >/dev/null 2>&1 || true
+  local IFS='|' key formula probe role
+  while read -r key formula probe role; do
+    [ -n "$key" ] || continue
+    svc_installed "$key" || continue
+    svc_enabled "$key" || continue
+    case "$role" in
+      php) fpm_start "$key" ;;
+      web) [ "$key" = nginx ] && nginx_start; [ "$key" = httpd ] && apache_start ;;
+      db|cache|mail) brew_svc start "$key" ;;
+    esac
+  done < <(services)
+  # bring Apache up if any site uses it, even when httpd isn't in the enabled set
+  have_apache_sites && apache_start >/dev/null 2>&1 || true
 }
+# Stop everything that's running (web + all PHP pools + DB/cache/mail daemons).
 stop_all(){
-  hdr "Stopping web (nginx)"; nginx_stop
-  apache_running && { hdr "Stopping Apache"; apache_stop; } || true
-  hdr "Stopping PHP-FPM pools"
-  for k in $(fpm_keys); do fpm_stop "$k"; done
+  hdr "Stopping all services"
+  nginx_stop
+  apache_running && apache_stop || true
+  local k; for k in $(fpm_keys); do fpm_stop "$k"; done
+  local IFS='|' key formula probe role
+  while read -r key formula probe role; do
+    [ -n "$key" ] || continue
+    case "$role" in db|cache|mail) svc_installed "$key" && brew_svc stop "$key" >/dev/null 2>&1 || true ;; esac
+  done < <(services)
+  ok "all services stopped"
 }
 
 cmd_start() {
@@ -1281,8 +1331,9 @@ cmd_api() {
       php) fpm_running "$key" && running=true ;;
       *)   printf '%s\n' "$brewlist" | awk -v f="$formula" '$1==f && $2=="started"{x=1} END{exit !x}' && running=true ;;
     esac
-    local row; row="$(printf '{"key":"%s","formula":"%s","role":"%s","installed":%s,"running":%s,"version":"%s"}' \
-      "$key" "$formula" "$role" "$installed" "$running" "$(json_esc "$version")")"
+    local en=false; svc_enabled "$key" && en=true
+    local row; row="$(printf '{"key":"%s","formula":"%s","role":"%s","installed":%s,"running":%s,"enabled":%s,"version":"%s"}' \
+      "$key" "$formula" "$role" "$installed" "$running" "$en" "$(json_esc "$version")")"
     if [ "$first" = 1 ]; then svcs="$row"; first=0; else svcs="$svcs,$row"; fi
   done < <(services)
 
@@ -1365,6 +1416,7 @@ BHServe — usage:
   bhserve config {show|set <key> <value>}   (http_port/https_port/tld/sites_root/default_php/default_web)
   bhserve logs [file.log|--list] [lines]
   bhserve start|stop|restart <svc|all>
+  bhserve enable|disable <svc>                 (mark a service for auto-start)
   bhserve helper {install|uninstall|status}   (password-less nginx control)
   bhserve status
 U
@@ -1392,6 +1444,8 @@ case "${1:-doctor}" in
   restart) shift; cmd_restart "$@" ;;
   reload)  need_init; nginx_reload ;;
   helper)  shift; cmd_helper "$@" ;;
+  enable)  shift; cmd_enable "$@" ;;
+  disable) shift; cmd_disable "$@" ;;
   help|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac
