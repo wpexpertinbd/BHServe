@@ -46,10 +46,13 @@ svc_role(){    services | awk -F'|' -v k="$1" '$1==k{print $4}'; }
 svc_exists(){  services | awk -F'|' -v k="$1" '$1==k{f=1} END{exit !f}'; }
 svc_installed(){ local p; p="$(svc_probe "$1")"; [ -n "$p" ] && [ -x "$BREW_PREFIX/$p" ]; }
 
-# Version probe — nginx/httpd print version to stderr, so capture 2>&1.
+# Version probe — robust under `set -e`/pipefail. nginx/httpd reject --version
+# and print to stderr, so fall back to -v; never propagate a non-zero exit.
 probe_version(){
-  local bin="$1"
-  "$bin" --version 2>&1 | head -1 | tr -d '\n' | cut -c1-46
+  local bin="$1" out=""
+  out="$("$bin" --version 2>&1 | head -1)" || true
+  case "$out" in *"invalid option"*|*"unknown option"*|"") out="$("$bin" -v 2>&1 | head -1)" || true ;; esac
+  printf '%s' "$out" | tr -d '\n' | cut -c1-46
 }
 
 # Normalize a --php value ("8.4", "php@8.4", "default", "") to a registry key.
@@ -85,6 +88,10 @@ jget(){
 }
 
 need_init(){ [ -d "$BH_HOME/config" ] || die "not initialized — run: bhserve init"; }
+
+# Does a pid exist? Uses ps (ownership-independent) so a non-root caller can
+# still see the root-owned nginx master (kill -0 would EPERM-fail there).
+pid_alive(){ local p="${1:-}"; [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; }
 
 # ── init ────────────────────────────────────────────────────────────────────
 cmd_init() {
@@ -254,13 +261,13 @@ fpm_start(){
   [ -f "$conf" ] || render_fpm_pool "$key" || return 1
   [ -x "$binp" ] || { warn "$key php-fpm missing"; return 1; }
   pid="$BH_HOME/run/php-$label.pid"
-  if [ -f "$pid" ] && kill -0 "$(cat "$pid")" 2>/dev/null; then ok "php-fpm $key already running (pid $(cat "$pid"))"; return 0; fi
+  if [ -f "$pid" ] && pid_alive "$(cat "$pid")"; then ok "php-fpm $key already running (pid $(cat "$pid"))"; return 0; fi
   "$binp" -y "$conf" -p "$BH_HOME" && ok "php-fpm $key started" || no "php-fpm $key failed to start"
 }
 fpm_stop(){
   local key="$1" label pid
   label="$(php_label "$key")"; pid="$BH_HOME/run/php-$label.pid"
-  if [ -f "$pid" ] && kill -0 "$(cat "$pid")" 2>/dev/null; then kill "$(cat "$pid")" && ok "php-fpm $key stopped"; else info "php-fpm $key not running"; fi
+  if [ -f "$pid" ] && pid_alive "$(cat "$pid")"; then kill "$(cat "$pid")" && ok "php-fpm $key stopped"; else info "php-fpm $key not running"; fi
 }
 
 # Which php keys have a generated pool conf?
@@ -385,7 +392,7 @@ cmd_secure() {
 
 # ── process management ──────────────────────────────────────────────────────
 NGINX_BIN(){ echo "$BREW_PREFIX/bin/nginx"; }
-nginx_running(){ local p="$BH_HOME/run/nginx.pid"; [ -f "$p" ] && kill -0 "$(cat "$p")" 2>/dev/null; }
+nginx_running(){ local p="$BH_HOME/run/nginx.pid"; [ -f "$p" ] && pid_alive "$(cat "$p")"; }
 needs_root_ports(){ local h; h="$(jget http_port 80)"; [ "$h" -lt 1024 ]; }
 
 nginx_start(){
@@ -409,6 +416,9 @@ nginx_stop(){
   else info "nginx not running"; fi
   rm -f "$BH_HOME/run/nginx.pid" 2>/dev/null || true
 }
+
+# Is a php pool running? (by its pid file)
+fpm_running(){ local pid="$BH_HOME/run/php-$(php_label "$1").pid"; [ -f "$pid" ] && pid_alive "$(cat "$pid")"; }
 
 # brew-services managed daemons (db/cache/mail)
 brew_svc(){ # action key
@@ -458,6 +468,46 @@ cmd_restart() {
   cmd_stop "$what"; cmd_start "$what"
 }
 
+# ── api (machine-readable JSON for the GUI) ──────────────────────────────────
+json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+cmd_api() {
+  need_init
+  local cfg="$BH_HOME/config/bhserve.json"
+  local brewlist; brewlist="$(brew services list 2>/dev/null || true)"
+  local svcs="" first=1
+  local IFS='|'
+  while read -r key formula probe role; do
+    [ -z "$key" ] && continue
+    local installed=false running=false version=""
+    if [ -x "$BREW_PREFIX/$probe" ]; then installed=true; version="$(probe_version "$BREW_PREFIX/$probe")"; fi
+    case "$role" in
+      web) [ "$key" = nginx ] && nginx_running && running=true ;;
+      php) fpm_running "$key" && running=true ;;
+      *)   printf '%s\n' "$brewlist" | awk -v f="$formula" '$1==f && $2=="started"{x=1} END{exit !x}' && running=true ;;
+    esac
+    local row; row="$(printf '{"key":"%s","formula":"%s","role":"%s","installed":%s,"running":%s,"version":"%s"}' \
+      "$key" "$formula" "$role" "$installed" "$running" "$(json_esc "$version")")"
+    if [ "$first" = 1 ]; then svcs="$row"; first=0; else svcs="$svcs,$row"; fi
+  done < <(services)
+
+  local sites="" sfirst=1
+  shopt -s nullglob
+  for f in "$BH_HOME"/nginx/sites/*.conf; do
+    local n dom php sec=false root
+    n="$(basename "$f" .conf)"
+    dom="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
+    php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
+    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    grep -q "ssl_certificate " "$f" && sec=true
+    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s}' \
+      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec")"
+    if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
+  done
+
+  printf '{"config":%s,"services":[%s],"sites":[%s]}\n' "$(cat "$cfg")" "$svcs" "$sites"
+}
+
 # ── doctor / status ─────────────────────────────────────────────────────────
 cmd_doctor() {
   hdr "BHServe doctor — environment"
@@ -492,7 +542,7 @@ cmd_status() {
   nginx_running && ok "nginx (pid $(cat "$BH_HOME/run/nginx.pid"))" || info "nginx stopped"
   for k in $(fpm_keys); do
     local pid; pid="$BH_HOME/run/php-$(php_label "$k").pid"
-    if [ -f "$pid" ] && kill -0 "$(cat "$pid")" 2>/dev/null; then ok "php-fpm $k (pid $(cat "$pid"))"; else info "php-fpm $k stopped"; fi
+    if [ -f "$pid" ] && pid_alive "$(cat "$pid")"; then ok "php-fpm $k (pid $(cat "$pid"))"; else info "php-fpm $k stopped"; fi
   done
   site_list
 }
@@ -515,6 +565,7 @@ case "${1:-doctor}" in
   init)    cmd_init ;;
   doctor)  cmd_doctor ;;
   status)  cmd_status ;;
+  api)     cmd_api ;;
   install) shift; cmd_install "$@" ;;
   site)    shift; cmd_site "$@" ;;
   secure)  shift; cmd_secure "$@" ;;
