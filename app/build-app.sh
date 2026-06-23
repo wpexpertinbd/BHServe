@@ -21,6 +21,12 @@ cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 # bundle the engine so the app does not depend on the dev checkout path
 cp ../engine/bhserve "$APP/Contents/Resources/bhserve"
 chmod +x "$APP/Contents/Resources/bhserve"
+# app icon (regenerate with icon/make-icon.sh if missing)
+if [ -f icon/AppIcon.icns ]; then
+  cp icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+else
+  echo "  (no icon/AppIcon.icns — run icon/make-icon.sh; building without icon)"
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -31,6 +37,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundleIdentifier</key><string>com.biswashost.bhserve</string>
   <key>CFBundleExecutable</key><string>$APP_NAME</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
