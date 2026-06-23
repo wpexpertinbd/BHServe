@@ -308,6 +308,13 @@ php_admin_value[opcache.max_accelerated_files] = 20000
 php_admin_value[realpath_cache_size] = 4096k
 FPM
   ok "php-fpm pool: $conf  (socket $sock)"
+  # auto-apply: if this pool is already running, restart it so new settings take
+  # effect immediately (sudo-free — FPM runs as the user). Fixes "changed config
+  # but the live pool still has the old values".
+  if fpm_running "$key"; then
+    fpm_stop "$key" >/dev/null 2>&1 || true
+    fpm_start "$key" >/dev/null 2>&1 && ok "php-fpm $key reloaded (new settings)" || true
+  fi
 }
 
 fpm_start(){
@@ -353,10 +360,11 @@ site_toggle(){
   [ -n "$name" ] || die "usage: bhserve site {enable|disable} <name>"
   local on="$BH_HOME/nginx/sites/$name.conf" off="$BH_HOME/nginx/sites/$name.conf.disabled"
   if [ "$mode" = off ]; then
-    [ -f "$on" ] && mv "$on" "$off" && ok "disabled $name (reload nginx to apply)" || warn "$name already disabled / missing"
+    [ -f "$on" ] && mv "$on" "$off" && ok "disabled $name" || warn "$name already disabled / missing"
   else
-    [ -f "$off" ] && mv "$off" "$on" && ok "enabled $name (reload nginx to apply)" || warn "$name already enabled / missing"
+    [ -f "$off" ] && mv "$off" "$on" && ok "enabled $name" || warn "$name already enabled / missing"
   fi
+  maybe_reload_nginx
 }
 
 # Switch a site's PHP version: re-render its vhost against the new pool socket,
@@ -373,7 +381,8 @@ site_set_php() {
   render_fpm_pool "$phpkey" || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true
   render_site_vhost "$name" "$domain" "$root" "$phpkey"
-  ok "$name now uses $phpkey — reload nginx to apply (bhserve restart nginx)"
+  ok "$name now uses $phpkey"
+  maybe_reload_nginx
 }
 
 site_add() {
@@ -405,15 +414,17 @@ PHP
   info "domain : http://$domain  (https after: bhserve secure $domain)"
   info "root   : $root"
   info "php    : $phpkey   server: $server"
-  info "next   : bhserve secure $domain   &&   bhserve restart nginx"
+  info "https  : bhserve secure $domain"
+  maybe_reload_nginx
 }
 
 site_rm() {
   [ $# -ge 1 ] || die "usage: bhserve site rm <name>"
   local name="$1"
   rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled"
-  ok "removed vhost for $name (reload nginx to apply)"
+  ok "removed vhost for $name"
   info "(site files left on disk; remove manually if desired)"
+  maybe_reload_nginx
 }
 
 site_list() {
@@ -478,7 +489,8 @@ cmd_secure() {
     root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
     render_site_vhost "$name" "$domain" "$root" "$php"
-    ok "re-rendered vhost with HTTPS — run: bhserve restart nginx"
+    ok "re-rendered vhost with HTTPS"
+    maybe_reload_nginx
   fi
 }
 
@@ -495,6 +507,20 @@ nginx_start(){
   "$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null || { $bin -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx"; die "nginx config test failed"; }
   $pre "$bin" -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" && ok "nginx started${pre:+ (sudo)}" || no "nginx failed to start"
 }
+# Graceful reload of the running nginx (picks up new/changed vhosts).
+nginx_reload(){
+  nginx_running || return 0
+  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+  $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
+    && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
+}
+# Auto-apply config changes: reload interactively (one sudo prompt); from the GUI
+# (no tty) just note it — the GUI issues its own privileged restart.
+maybe_reload_nginx(){
+  nginx_running || return 0
+  if [ -t 1 ]; then nginx_reload; else info "reload nginx to serve changes (bhserve restart nginx)"; fi
+}
+
 nginx_stop(){
   local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
   if nginx_running; then
@@ -974,7 +1000,8 @@ PHP
   hdr "phpMyAdmin ready"
   info "URL  : http://phpmyadmin.$tld   (HTTPS: bhserve secure phpmyadmin.$tld)"
   info "login: your DB user (e.g. '$USER_NAME' with a blank password, or 'root' if you set one)"
-  info "next : bhserve restart all   (uploads allowed up to 2GB)"
+  info "uploads allowed up to 2GB"
+  maybe_reload_nginx
 }
 
 # ── api (machine-readable JSON for the GUI) ──────────────────────────────────
@@ -1096,6 +1123,7 @@ case "${1:-doctor}" in
   start)   shift; cmd_start "$@" ;;
   stop)    shift; cmd_stop "$@" ;;
   restart) shift; cmd_restart "$@" ;;
+  reload)  need_init; nginx_reload ;;
   help|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac
