@@ -10,12 +10,12 @@ IDENT="com.biswashost.bhserve"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
-echo "▶ building app…"
+echo "▶ building app..."
 ./build-app.sh >/dev/null
 echo "✓ $APP"
 
 # ── DMG (drag BHServe.app → Applications) ────────────────────────────────────
-echo "▶ DMG…"
+echo "▶ DMG..."
 STAGE="$DIST/.dmg-stage"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
@@ -27,7 +27,7 @@ rm -rf "$STAGE"
 echo "✓ $DMG ($(du -h "$DMG" | cut -f1))"
 
 # ── PKG (installs to /Applications) ──────────────────────────────────────────
-echo "▶ PKG…"
+echo "▶ PKG..."
 PKGROOT="$DIST/.pkg-root"
 rm -rf "$PKGROOT"; mkdir -p "$PKGROOT/Applications"
 cp -R "$APP" "$PKGROOT/Applications/"

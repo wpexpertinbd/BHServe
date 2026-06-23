@@ -9,12 +9,12 @@ VERSION="0.5.0"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
-echo "▶ building release binary…"
+echo "▶ building release binary..."
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)/$APP_NAME"
 [ -x "$BIN" ] || { echo "✗ release binary not found"; exit 1; }
 
-echo "▶ assembling $APP…"
+echo "▶ assembling $APP..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
@@ -49,7 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # Sign LAST — any edit after signing invalidates it ("damaged" on Apple Silicon).
-echo "▶ ad-hoc codesign…"
+echo "▶ ad-hoc codesign..."
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep "$APP" && echo "✓ signature valid"
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "▶ drawing 1024px master…"
+echo "▶ drawing 1024px master..."
 swift IconGen.swift icon_1024.png
 
 ICONSET="AppIcon.iconset"
