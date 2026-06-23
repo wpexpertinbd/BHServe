@@ -40,7 +40,8 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ Settings: engine `config {show|set <key> <value>}` (validates; tld/port changes regenerate all vhosts + nginx.conf) + GUI Settings tab (TLD, http/https port, sites_root, default PHP/web; Save restarts nginx on port/tld change via admin prompt).
 - ✅ Logs: engine `logs [file|--list] [lines]` + GUI Logs tab (pick a log, monospaced tail, reload).
 - ✅ Node multi-version: registry `node` → **fnm**; engine `node {list|remote|install|use|uninstall}` (versions under `~/.bhserve/fnm`; `use` sets fnm default + links node/npm/npx into `~/.bhserve/bin`). GUI Node tab: install by version/quick-buttons (18/20/22/24/lts/latest), installed list with default badge + Use/Uninstall.
-- ▶️ Next: Apache vhosts, phpMyAdmin/Adminer/Mailpit one-click panels.
+- ✅ Apache (`--server apache`): reverse-proxy model — nginx fronts :80/:443, proxies the host to Apache on 127.0.0.1:8080 which serves with `AllowOverride All` (**native .htaccess**) + php-fpm via mod_proxy_fcgi. Per-site nginx OR apache; both run together. Verified: .htaccess RewriteRule works.
+- ▶️ Next: Adminer/Mailpit one-click; GUI server picker; LaunchAgent.
 
 ## Phase 5 (packaging) — in progress
 - ✅ `app/build-app.sh` → self-contained **BHServe.app** (bundles the engine in Resources; app prefers the bundled engine, then `~/.bhserve/engine`, then dev checkout). Info.plist (`com.biswashost.bhserve`), ad-hoc signed last (Apple-Silicon "damaged" trap avoided). Engine prepends `/opt/homebrew/{bin,sbin}` to PATH so a Finder-launched app still finds `brew`.
