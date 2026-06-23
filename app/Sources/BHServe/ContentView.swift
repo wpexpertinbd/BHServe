@@ -1,13 +1,15 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case services, sites, databases
+    case services, sites, databases, logs, settings
     var id: String { rawValue }
     var title: String {
         switch self {
         case .services: "Services"
         case .sites: "Sites"
         case .databases: "Databases"
+        case .logs: "Logs"
+        case .settings: "Settings"
         }
     }
     var icon: String {
@@ -15,6 +17,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .services: "server.rack"
         case .sites: "globe"
         case .databases: "cylinder.split.1x2"
+        case .logs: "doc.plaintext"
+        case .settings: "gearshape"
         }
     }
 }
@@ -36,6 +40,8 @@ struct ContentView: View {
                 case .services: ServicesView()
                 case .sites: SitesView()
                 case .databases: DatabasesView()
+                case .logs: LogsView()
+                case .settings: SettingsView()
                 }
             }
             .frame(minWidth: 520, minHeight: 420)

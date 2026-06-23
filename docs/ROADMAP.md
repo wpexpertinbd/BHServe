@@ -37,7 +37,9 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ Databases: engine `db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]` (mysql auth auto-detect: OS user → -u root; name validation). Optional per-DB user (named after the DB) with password — set on create, set/change after, dropped with the DB; password passed via `$BHSERVE_DB_PASSWORD` (never argv); SQL-escaped. GUI Databases tab: server start/stop, create with engine picker + optional password + Generate, per-row Set/Change password sheet (hasUser-aware), drop with confirm.
 - ✅ DB root user: engine `db root-status` / `db root-passwd` (empty = blank); GUI root-user card with Set/Change password (blank allowed) + Generate. Only touches root@localhost (the OS-user socket account we operate through is untouched).
 - ✅ Fixed mysql/mariadb collision: probe keg-specific `opt/<formula>/bin/...` (bin/mysql is a mariadb symlink, was falsely flagging mysql installed → broken Start).
-- ▶️ Next: Settings (ports/TLD/sites_root → regenerate vhosts), Apache vhosts, phpMyAdmin/Adminer/Mailpit panels, logs viewer.
+- ✅ Settings: engine `config {show|set <key> <value>}` (validates; tld/port changes regenerate all vhosts + nginx.conf) + GUI Settings tab (TLD, http/https port, sites_root, default PHP/web; Save restarts nginx on port/tld change via admin prompt).
+- ✅ Logs: engine `logs [file|--list] [lines]` + GUI Logs tab (pick a log, monospaced tail, reload).
+- ▶️ Next: Apache vhosts, phpMyAdmin/Adminer/Mailpit one-click panels. **Phase 5:** real signed .app bundle + LaunchAgent.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
 ## Later

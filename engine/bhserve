@@ -641,6 +641,94 @@ db_drop(){
   esac
 }
 
+# ── config (editable settings) ───────────────────────────────────────────────
+cmd_config(){
+  need_init
+  local sub="${1:-show}"; shift || true
+  case "$sub" in
+    show) cat "$BH_HOME/config/bhserve.json" ;;
+    set)  config_set "$@" ;;
+    *) die "usage: bhserve config {show|set <key> <value>}" ;;
+  esac
+}
+
+# Rewrite bhserve.json from current values, overriding one key.
+json_set(){
+  local k="$1" v="$2"
+  local tld httpp httpsp dphp dweb bp sroot
+  tld="$(jget tld test)"; httpp="$(jget http_port 80)"; httpsp="$(jget https_port 443)"
+  dphp="$(jget default_php 8.4)"; dweb="$(jget default_web nginx)"
+  bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/Sites")"
+  case "$k" in
+    tld) tld="$v";; http_port) httpp="$v";; https_port) httpsp="$v";;
+    default_php) dphp="$v";; default_web) dweb="$v";; sites_root) sroot="$v";;
+  esac
+  cat > "$BH_HOME/config/bhserve.json" <<JSON
+{
+  "tld": "$tld",
+  "http_port": $httpp,
+  "https_port": $httpsp,
+  "default_php": "$dphp",
+  "default_web": "$dweb",
+  "brew_prefix": "$bp",
+  "sites_root": "$sroot"
+}
+JSON
+}
+
+# Re-render every site vhost (e.g. after a TLD/port change).
+regen_all_vhosts(){
+  shopt -s nullglob
+  local tld; tld="$(jget tld test)"
+  local f n root php
+  for f in "$BH_HOME"/nginx/sites/*.conf; do
+    n="$(basename "$f" .conf)"
+    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
+    render_site_vhost "$n" "$n.$tld" "$root" "$php"
+  done
+}
+
+config_set(){
+  [ $# -ge 2 ] || die "usage: bhserve config set <key> <value>"
+  local key="$1" val="$2"
+  case "$key" in
+    http_port|https_port) [[ "$val" =~ ^[0-9]+$ ]] || die "$key must be numeric" ;;
+    tld) [[ "$val" =~ ^[a-z][a-z0-9-]*$ ]] || die "tld must be lowercase letters/digits/hyphen" ;;
+    sites_root) [ -n "$val" ] || die "sites_root cannot be empty" ;;
+    default_php) val="$(php_key "$val")" ;;
+    default_web) [[ "$val" =~ ^(nginx|apache)$ ]] || die "default_web must be nginx|apache" ;;
+    *) die "unknown/uneditable key: $key" ;;
+  esac
+  json_set "$key" "$val"
+  ok "set $key = $val"
+  case "$key" in
+    http_port|https_port|tld)
+      regen_all_vhosts
+      render_nginx_main "$(jget http_port 80)"
+      warn "restart nginx to apply (bhserve restart nginx)"
+      [ "$key" = tld ] && warn "TLD changed — HTTPS certs are per-domain; re-run 'bhserve secure <name>.$val' per site" ;;
+  esac
+}
+
+# ── logs ─────────────────────────────────────────────────────────────────────
+cmd_logs(){
+  need_init
+  if [ "${1:-}" = "--list" ]; then
+    local out="" first=1 f b
+    shopt -s nullglob
+    for f in "$BH_HOME"/logs/*.log; do
+      b="$(basename "$f")"
+      [ "$first" = 1 ] && { out="\"$b\""; first=0; } || out="$out,\"$b\""
+    done
+    printf '[%s]\n' "$out"; return
+  fi
+  local name="${1:-nginx-error.log}" n="${2:-200}"
+  local f="$BH_HOME/logs/$name"
+  [ -f "$f" ] || { echo "(no log yet: $name)"; return; }
+  tail -n "$n" "$f"
+}
+
 # ── api (machine-readable JSON for the GUI) ──────────────────────────────────
 json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
@@ -731,6 +819,8 @@ BHServe — usage:
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
   bhserve secure <domain>        trusted HTTPS via mkcert
   bhserve dns                    set up *.test (dnsmasq + resolver)
+  bhserve config {show|set <key> <value>}   (http_port/https_port/tld/sites_root/default_php/default_web)
+  bhserve logs [file.log|--list] [lines]
   bhserve start|stop|restart <svc|all>
   bhserve status
 U
@@ -744,6 +834,8 @@ case "${1:-doctor}" in
   install) shift; cmd_install "$@" ;;
   site)    shift; cmd_site "$@" ;;
   db)      shift; cmd_db "$@" ;;
+  config)  shift; cmd_config "$@" ;;
+  logs)    shift; cmd_logs "$@" ;;
   secure)  shift; cmd_secure "$@" ;;
   dns)     shift; cmd_dns "$@" ;;
   start)   shift; cmd_start "$@" ;;

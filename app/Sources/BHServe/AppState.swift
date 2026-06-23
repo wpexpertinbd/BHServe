@@ -128,6 +128,49 @@ final class AppState {
         await reloadDatabases()
     }
 
+    // ── settings ──────────────────────────────────────────────────────────
+    func saveSettings(tld: String, httpPort: String, httpsPort: String,
+                      sitesRoot: String, defaultPhp: String, defaultWeb: String) async {
+        guard let cfg = snapshot?.config, !busy else { return }
+        var changes: [(String, String)] = []
+        if tld != cfg.tld { changes.append(("tld", tld)) }
+        if httpPort != String(cfg.httpPort) { changes.append(("http_port", httpPort)) }
+        if httpsPort != String(cfg.httpsPort) { changes.append(("https_port", httpsPort)) }
+        if sitesRoot != cfg.sitesRoot { changes.append(("sites_root", sitesRoot)) }
+        if defaultPhp != cfg.defaultPhp { changes.append(("default_php", defaultPhp)) }
+        if defaultWeb != cfg.defaultWeb { changes.append(("default_web", defaultWeb)) }
+        guard !changes.isEmpty else { return }
+
+        busy = true; lastAction = "saving settings…"; defer { busy = false; lastAction = nil }
+        let eng = engine
+        let needsRestart = changes.contains { ["tld", "http_port", "https_port"].contains($0.0) }
+        let nginxUp = snapshot?.services.contains { $0.key == "nginx" && $0.running } ?? false
+        do {
+            try await Task.detached {
+                for (k, v) in changes { _ = try eng.run(["config", "set", k, v]) }
+                if needsRestart && nginxUp { try eng.runPrivileged(["restart", "nginx"]) }
+            }.value
+            await reload()
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    // ── logs ──────────────────────────────────────────────────────────────
+    var logFiles: [String] = []
+
+    func listLogs() async {
+        let eng = engine
+        if let j = try? await Task.detached(operation: { try eng.run(["logs", "--list"]) }).value {
+            logFiles = (try? JSONDecoder().decode([String].self, from: Data(j.utf8))) ?? []
+        }
+    }
+
+    func readLog(_ name: String, lines: Int = 400) async -> String {
+        let eng = engine
+        return (try? await Task.detached(operation: { try eng.run(["logs", name, String(lines)]) }).value) ?? ""
+    }
+
     func installService(_ key: String) async {
         await runUser(["install", key], note: "installing \(key)…")
     }
