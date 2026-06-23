@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class AppState {
     var snapshot: Snapshot?
+    var databases: [Database] = []
     var errorText: String?
     var busy = false
     var lastAction: String?
@@ -67,6 +68,36 @@ final class AppState {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    var mysqlRunning: Bool {
+        snapshot?.services.contains { ($0.key == "mariadb" || $0.key == "mysql") && $0.running } ?? false
+    }
+    var pgRunning: Bool {
+        snapshot?.services.contains { $0.key == "postgresql@17" && $0.running } ?? false
+    }
+
+    func reloadDatabases() async {
+        guard mysqlRunning || pgRunning else { databases = []; return }
+        let eng = engine
+        do {
+            let json = try await Task.detached { try eng.run(["db", "list", "--json"]) }.value
+            databases = try JSONDecoder().decode([Database].self, from: Data(json.utf8))
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    func createDatabase(_ name: String, engine dbEngine: String) async {
+        let clean = name.trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return }
+        await runUser(["db", "create", clean, "--engine", dbEngine], note: "creating \(clean)…")
+        await reloadDatabases()
+    }
+
+    func dropDatabase(_ name: String, engine dbEngine: String) async {
+        await runUser(["db", "drop", name, "--engine", dbEngine], note: "dropping \(name)…")
+        await reloadDatabases()
     }
 
     func installService(_ key: String) async {

@@ -33,7 +33,9 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ `Engine.swift` — Process bridge: `run` (user) + `runPrivileged` (osascript admin prompt for :80/:443 + dns, shell+AppleScript escaped), `snapshot()` decodes `api` JSON.
 - ✅ `AppState` (@Observable) — resolves engine path (env → ~/.bhserve → dev checkout), reload/control/install/addSite/secure/removeSite, runs engine off the main actor.
 - ✅ UI — `Window` + `MenuBarExtra`; NavigationSplitView (Services / Sites). Services grouped by role with status dots + Start/Stop/Install; Sites list with open-in-browser, one-click Secure, add-site sheet (PHP picker), remove. Start/Stop All in sidebar footer + menu bar.
-- ▶️ Next: live auto-refresh (poll/timer), PHP version switch per running site, settings (ports/TLD/sites_root), Apache vhosts, DB create/drop + phpMyAdmin/Adminer/Mailpit panels, logs viewer.
+- ✅ Live auto-refresh (4s), per-site PHP version switch.
+- ✅ Databases: engine `db {list|create|drop} [name] [--engine mysql|pg]` (mysql auth auto-detect: OS user → -u root; name validation) + GUI Databases tab (server start/stop, create with engine picker, drop with confirm).
+- ▶️ Next: Settings (ports/TLD/sites_root → regenerate vhosts), Apache vhosts, phpMyAdmin/Adminer/Mailpit panels, logs viewer.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
 ## Later

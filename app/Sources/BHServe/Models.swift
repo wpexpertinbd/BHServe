@@ -53,6 +53,13 @@ struct Site: Codable, Sendable, Identifiable {
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }
 }
 
+struct Database: Codable, Sendable, Identifiable {
+    let name: String
+    let engine: String   // "mysql" | "pg"
+    var id: String { "\(engine):\(name)" }
+    var engineLabel: String { engine == "pg" ? "PostgreSQL" : "MySQL / MariaDB" }
+}
+
 // Roles grouped for display, in the order ServBay-style apps show them.
 enum ServiceRole: String, CaseIterable {
     case php, web, db, cache, dns, tls, mail, node

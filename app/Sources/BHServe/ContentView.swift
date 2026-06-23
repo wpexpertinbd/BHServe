@@ -1,10 +1,22 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case services, sites
+    case services, sites, databases
     var id: String { rawValue }
-    var title: String { self == .services ? "Services" : "Sites" }
-    var icon: String { self == .services ? "server.rack" : "globe" }
+    var title: String {
+        switch self {
+        case .services: "Services"
+        case .sites: "Sites"
+        case .databases: "Databases"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .services: "server.rack"
+        case .sites: "globe"
+        case .databases: "cylinder.split.1x2"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -23,6 +35,7 @@ struct ContentView: View {
                 switch selection {
                 case .services: ServicesView()
                 case .sites: SitesView()
+                case .databases: DatabasesView()
                 }
             }
             .frame(minWidth: 520, minHeight: 420)

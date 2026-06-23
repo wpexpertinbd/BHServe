@@ -488,6 +488,90 @@ cmd_restart() {
   cmd_stop "$what"; cmd_start "$what"
 }
 
+# ── databases (mysql/mariadb + postgresql) ──────────────────────────────────
+MYSQL_CLI(){ echo "$BREW_PREFIX/bin/mysql"; }
+PSQL_CLI(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/psql"; }
+PG_BIN(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/$1"; }
+
+db_valid_name(){ [[ "$1" =~ ^[A-Za-z0-9_]+$ ]] || die "invalid db name '$1' (use letters, digits, underscore)"; }
+
+# Run the mysql client with auto-detected auth: OS user first (brew MariaDB's
+# unix_socket account), then passwordless -u root (Oracle MySQL / older setups).
+mysql_run(){
+  local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
+  if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
+  elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
+  else return 1; fi
+}
+
+# list user databases for an engine, one per line
+db_names_mysql(){
+  mysql_run -N -e "SHOW DATABASES;" 2>/dev/null \
+    | grep -vE '^(information_schema|performance_schema|mysql|sys)$' || true; }
+db_names_pg(){ local c; c="$(PSQL_CLI)"; [ -x "$c" ] || return 0
+  "$c" -U "$USER_NAME" -d postgres -tAc \
+    "SELECT datname FROM pg_database WHERE datistemplate=false AND datname<>'postgres';" 2>/dev/null || true; }
+
+cmd_db(){
+  need_init
+  local sub="${1:-list}"; shift || true
+  local engine=mysql json=0 name=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --engine) engine="$2"; shift 2;;
+    --json) json=1; shift;;
+    *) name="$1"; shift;;
+  esac; done
+  case "$sub" in
+    list) db_list "$json" ;;
+    create) [ -n "$name" ] || die "usage: bhserve db create <name> [--engine mysql|pg]"; db_create "$engine" "$name" ;;
+    drop)   [ -n "$name" ] || die "usage: bhserve db drop <name> [--engine mysql|pg]"; db_drop "$engine" "$name" ;;
+    *) die "usage: bhserve db {list|create|drop} [name] [--engine mysql|pg]" ;;
+  esac
+}
+
+db_list(){
+  local json="$1"
+  if [ "$json" = 1 ]; then
+    local out="" first=1 d
+    while read -r d; do [ -z "$d" ] && continue
+      local row; row="$(printf '{"name":"%s","engine":"mysql"}' "$(json_esc "$d")")"
+      [ "$first" = 1 ] && { out="$row"; first=0; } || out="$out,$row"
+    done < <(db_names_mysql)
+    while read -r d; do [ -z "$d" ] && continue
+      local row; row="$(printf '{"name":"%s","engine":"pg"}' "$(json_esc "$d")")"
+      [ "$first" = 1 ] && { out="$row"; first=0; } || out="$out,$row"
+    done < <(db_names_pg)
+    printf '[%s]\n' "$out"
+    return
+  fi
+  hdr "MySQL/MariaDB databases"; db_names_mysql | while read -r d; do ok "$d"; done
+  hdr "PostgreSQL databases";   db_names_pg    | while read -r d; do ok "$d"; done
+}
+
+db_create(){
+  local engine="$1" name="$2"; db_valid_name "$name"
+  case "$engine" in
+    mysql|mariadb)
+      mysql_run -e "CREATE DATABASE IF NOT EXISTS \`$name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
+        && ok "created mysql db '$name'" || die "create failed (is the server running?)" ;;
+    pg|postgres) local c; c="$(PG_BIN createdb)"; [ -x "$c" ] || die "postgresql not installed"
+      "$c" -U "$USER_NAME" "$name" && ok "created postgres db '$name'" || die "create failed (is the server running?)" ;;
+    *) die "unknown engine: $engine (mysql|pg)" ;;
+  esac
+}
+
+db_drop(){
+  local engine="$1" name="$2"; db_valid_name "$name"
+  case "$engine" in
+    mysql|mariadb)
+      mysql_run -e "DROP DATABASE IF EXISTS \`$name\`;" \
+        && ok "dropped mysql db '$name'" || die "drop failed (is the server running?)" ;;
+    pg|postgres) local c; c="$(PG_BIN dropdb)"; [ -x "$c" ] || die "postgresql not installed"
+      "$c" -U "$USER_NAME" "$name" && ok "dropped postgres db '$name'" || die "drop failed (is the server running?)" ;;
+    *) die "unknown engine: $engine (mysql|pg)" ;;
+  esac
+}
+
 # ── api (machine-readable JSON for the GUI) ──────────────────────────────────
 json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
@@ -574,6 +658,8 @@ BHServe — usage:
   bhserve install <svc|all>      brew install a service
   bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]
   bhserve site list|rm <name>
+  bhserve site php <name> <ver>  switch a site's PHP version
+  bhserve db {list|create|drop} [name] [--engine mysql|pg]
   bhserve secure <domain>        trusted HTTPS via mkcert
   bhserve dns                    set up *.test (dnsmasq + resolver)
   bhserve start|stop|restart <svc|all>
@@ -588,6 +674,7 @@ case "${1:-doctor}" in
   api)     cmd_api ;;
   install) shift; cmd_install "$@" ;;
   site)    shift; cmd_site "$@" ;;
+  db)      shift; cmd_db "$@" ;;
   secure)  shift; cmd_secure "$@" ;;
   dns)     shift; cmd_dns "$@" ;;
   start)   shift; cmd_start "$@" ;;
