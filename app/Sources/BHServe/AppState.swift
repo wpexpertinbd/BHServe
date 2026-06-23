@@ -83,6 +83,11 @@ final class AppState {
         await runUser(["site", "rm", name], note: "removing \(name)…")
     }
 
+    func setSitePHP(_ name: String, php: String) async {
+        await runUser(["site", "php", name, php], note: "switching \(name) → \(php)…")
+        await control("restart", "nginx")  // re-rendered vhost needs a reload
+    }
+
     func secure(domain: String) async {
         await runUser(["secure", domain], note: "securing \(domain)…")
         // turning HTTPS on re-renders the vhost → nginx needs a reload (root)

@@ -41,10 +41,24 @@ struct SiteRow: View {
                 .foregroundStyle(site.secure ? .green : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(site.domain).font(.body.weight(.medium))
-                Text("\(site.php) · \(site.root)")
+                Text(site.root)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            Menu {
+                ForEach(state.phpChoices, id: \.self) { choice in
+                    Button {
+                        if choice != site.php { Task { await state.setSitePHP(site.name, php: choice) } }
+                    } label: {
+                        Label(choice, systemImage: choice == site.php ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                Text(site.php).font(.caption.monospaced())
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help("Switch PHP version")
+
             if let url = site.url {
                 Button {
                     NSWorkspace.shared.open(url)

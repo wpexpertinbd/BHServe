@@ -27,7 +27,14 @@ struct ContentView: View {
             }
             .frame(minWidth: 520, minHeight: 420)
         }
-        .task { await state.reload() }
+        .task {
+            await state.reload()
+            // live auto-refresh while the window is open (skip while an action runs)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(4))
+                if !state.busy { await state.reload() }
+            }
+        }
         .alert("Engine error", isPresented: Binding(
             get: { state.errorText != nil },
             set: { if !$0 { state.errorText = nil } }

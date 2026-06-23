@@ -281,8 +281,26 @@ cmd_site() {
     add) site_add "$@" ;;
     rm|remove) site_rm "$@" ;;
     list|ls) site_list ;;
-    *) die "usage: bhserve site {add|rm|list}" ;;
+    php) site_set_php "$@" ;;
+    *) die "usage: bhserve site {add|rm|list|php}" ;;
   esac
+}
+
+# Switch a site's PHP version: re-render its vhost against the new pool socket,
+# ensure that pool exists + is running, then reload nginx (caller/GUI does that).
+site_set_php() {
+  [ $# -ge 2 ] || die "usage: bhserve site php <name> <8.4|php@8.4>"
+  local name="$1" newphp="$2" conf="$BH_HOME/nginx/sites/$1.conf"
+  [ -f "$conf" ] || die "no site '$name'"
+  local domain root phpkey
+  domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  phpkey="$(php_key "$newphp")"
+  svc_installed "$phpkey" || die "$phpkey not installed (bhserve install $phpkey)"
+  render_fpm_pool "$phpkey" || true
+  fpm_start "$phpkey" >/dev/null 2>&1 || true
+  render_site_vhost "$name" "$domain" "$root" "$phpkey"
+  ok "$name now uses $phpkey — reload nginx to apply (bhserve restart nginx)"
 }
 
 site_add() {
@@ -446,6 +464,7 @@ cmd_start() {
   case "$what" in
     all) start_all ;;
     nginx) nginx_start ;;
+    php|php@*) fpm_start "$(php_key "$what")" ;;
     php*) fpm_start "$(php_key "${what#php}")" ;;
     mariadb|mysql|postgresql@17|redis|mailpit|dnsmasq) brew_svc start "$what" ;;
     *) die "start: unknown target $what" ;;
@@ -457,6 +476,7 @@ cmd_stop() {
   case "$what" in
     all) stop_all ;;
     nginx) nginx_stop ;;
+    php|php@*) fpm_stop "$(php_key "$what")" ;;
     php*) fpm_stop "$(php_key "${what#php}")" ;;
     mariadb|mysql|postgresql@17|redis|mailpit|dnsmasq) brew_svc stop "$what" ;;
     *) die "stop: unknown target $what" ;;
