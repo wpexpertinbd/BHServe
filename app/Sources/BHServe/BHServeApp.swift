@@ -19,15 +19,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct BHServeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var state = AppState()
+    @State private var metrics = Metrics()
 
     var body: some Scene {
         Window("BHServe", id: "main") {
-            ContentView().environment(state)
+            ContentView().environment(state).environment(metrics)
         }
-        .defaultSize(width: 780, height: 560)
+        .defaultSize(width: 820, height: 600)
 
         MenuBarExtra("BHServe", systemImage: "server.rack") {
-            MenuBarView().environment(state)
+            MenuBarView().environment(state).environment(metrics)
         }
         .menuBarExtraStyle(.window)
     }
@@ -36,6 +37,7 @@ struct BHServeApp: App {
 /// Compact menu-bar panel: status, Start/Stop All, quick links, open window.
 struct MenuBarView: View {
     @Environment(AppState.self) private var state
+    @Environment(Metrics.self) private var metrics
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -52,6 +54,18 @@ struct MenuBarView: View {
                  : state.running.map(\.key).joined(separator: ", "))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // live system metrics
+            VStack(spacing: 6) {
+                MenuMetricRow(label: "CPU", percent: metrics.cpu,
+                              detail: String(format: "%.0f%%", metrics.cpu), tint: metrics.cpu > 80 ? .red : .green)
+                MenuMetricRow(label: "RAM", percent: metrics.memPercent,
+                              detail: "\(ByteFmt.giB(metrics.memUsed))/\(ByteFmt.giB(metrics.memTotal)) GB", tint: .blue)
+                MenuMetricRow(label: "Disk", percent: metrics.diskPercent,
+                              detail: "\(ByteFmt.gB(metrics.diskUsed))/\(ByteFmt.gB(metrics.diskTotal))", tint: .green)
+            }
+            Sparkline(values: metrics.cpuHistory, maxValue: 100)
+                .frame(height: 28).foregroundStyle(.green)
 
             Divider()
 
@@ -87,7 +101,22 @@ struct MenuBarView: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
-        .task { await state.reload() }
+        .frame(width: 300)
+        .task {
+            metrics.startSampling()
+            await state.reload()
+        }
+    }
+}
+
+struct MenuMetricRow: View {
+    let label: String, percent: Double, detail: String, tint: Color
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption.weight(.medium)).frame(width: 32, alignment: .leading)
+            ProgressView(value: min(max(percent, 0), 100), total: 100).tint(tint)
+            Text(detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .trailing)
+        }
     }
 }

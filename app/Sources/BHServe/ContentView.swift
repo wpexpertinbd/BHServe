@@ -1,10 +1,11 @@
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case services, sites, databases, logs, settings
+    case dashboard, services, sites, databases, logs, settings
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .dashboard: "Dashboard"
         case .services: "Services"
         case .sites: "Sites"
         case .databases: "Databases"
@@ -14,6 +15,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
+        case .dashboard: "gauge.with.dots.needle.67percent"
         case .services: "server.rack"
         case .sites: "globe"
         case .databases: "cylinder.split.1x2"
@@ -25,7 +27,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @Environment(AppState.self) private var state
-    @State private var selection: SidebarItem = .services
+    @State private var selection: SidebarItem = .dashboard
 
     var body: some View {
         NavigationSplitView {
@@ -37,6 +39,7 @@ struct ContentView: View {
         } detail: {
             Group {
                 switch selection {
+                case .dashboard: DashboardView()
                 case .services: ServicesView()
                 case .sites: SitesView()
                 case .databases: DatabasesView()
