@@ -1062,7 +1062,7 @@ php_ioncube(){
     [ "$target" = all ] || [ "$target" = "$key" ] || [ "$target" = "$(php_label "$key")" ] || continue
     local mm so cd_dir; mm="$(php_mm "$key")"
     so="$dir/ioncube/ioncube_loader_dar_$mm.so"
-    if [ ! -f "$so" ]; then warn "$key: no loader for PHP $mm (skipped)"; continue; fi
+    if [ ! -f "$so" ]; then warn "$key: ionCube has no macOS loader for PHP $mm yet (mac = 7.4 & 8.1 only; Linux-ARM loaders are ELF, won't load here). WHMCS/Blesta run on 8.1, which works."; continue; fi
     cd_dir="$BH_HOME/php/conf.d/$(php_label "$key")"; mkdir -p "$cd_dir"
     printf 'zend_extension=%s\n' "$so" > "$cd_dir/00-ioncube.ini"
     ok "ionCube configured for $key (PHP $mm)"
