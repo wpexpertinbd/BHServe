@@ -1,0 +1,98 @@
+#!/bin/bash
+# BHServe — a free, self-controlled local dev environment for macOS (BiswasHost)
+# Engine CLI. Manages PHP / Nginx / Apache / DBs / *.test / HTTPS over Homebrew.
+set -euo pipefail
+
+BH_HOME="${BHSERVE_HOME:-$HOME/.bhserve}"
+BREW="$(command -v brew || true)"
+BREW_PREFIX="$([ -n "$BREW" ] && brew --prefix || echo /opt/homebrew)"
+TLD="test"
+
+c_reset=$'\033[0m'; c_g=$'\033[32m'; c_r=$'\033[31m'; c_y=$'\033[33m'; c_dim=$'\033[2m'; c_b=$'\033[1m'
+ok(){ printf "  ${c_g}✓${c_reset} %s\n" "$*"; }
+no(){ printf "  ${c_r}✗${c_reset} %s\n" "$*"; }
+warn(){ printf "  ${c_y}!${c_reset} %s\n" "$*"; }
+hdr(){ printf "\n${c_b}%s${c_reset}\n" "$*"; }
+
+# Service registry:  key | brew formula | version-probe binary (relative to brew prefix bin) | role
+services() {
+  cat <<EOF
+php|php|bin/php|php
+php@8.4|php@8.4|opt/php@8.4/bin/php|php
+php@8.3|php@8.3|opt/php@8.3/bin/php|php
+php@8.2|php@8.2|opt/php@8.2/bin/php|php
+php@8.1|php@8.1|opt/php@8.1/bin/php|php
+nginx|nginx|bin/nginx|web
+httpd|httpd|bin/httpd|web
+mariadb|mariadb|bin/mariadb|db
+mysql|mysql|bin/mysql|db
+postgresql@17|postgresql@17|opt/postgresql@17/bin/postgres|db
+redis|redis|bin/redis-server|cache
+dnsmasq|dnsmasq|sbin/dnsmasq|dns
+mkcert|mkcert|bin/mkcert|tls
+mailpit|mailpit|bin/mailpit|mail
+node|node|bin/node|node
+EOF
+}
+
+cmd_init() {
+  hdr "Initializing BHServe at $BH_HOME"
+  for d in config nginx/sites apache/sites php logs run sites certs tmp; do mkdir -p "$BH_HOME/$d"; done
+  local cfg="$BH_HOME/config/bhserve.json"
+  if [ ! -f "$cfg" ]; then
+    cat > "$cfg" <<JSON
+{
+  "tld": "test",
+  "http_port": 80,
+  "https_port": 443,
+  "default_php": "php",
+  "default_web": "nginx",
+  "brew_prefix": "$BREW_PREFIX",
+  "sites_root": "$HOME/Sites"
+}
+JSON
+    ok "wrote default config: $cfg"
+  else
+    ok "config already exists: $cfg"
+  fi
+  ok "directories ready under $BH_HOME"
+}
+
+cmd_doctor() {
+  hdr "BHServe doctor — environment"
+  [ -n "$BREW" ] && ok "Homebrew: $(brew --version | head -1)  (prefix $BREW_PREFIX)" || no "Homebrew NOT found — install from https://brew.sh"
+  if xcode-select -p >/dev/null 2>&1; then ok "Xcode CLT: $(xcode-select -p)"; else warn "Xcode/CLT not found (only needed to build the GUI app)"; fi
+  [ -d "$BH_HOME" ] && ok "config root: $BH_HOME" || warn "not initialized — run: bhserve init"
+
+  hdr "Engines (installed via Homebrew)"
+  local IFS='|'
+  while read -r key formula probe role; do
+    [ -z "$key" ] && continue
+    local bin="$BREW_PREFIX/$probe"
+    if [ -x "$bin" ]; then
+      local v; v="$("$bin" --version 2>/dev/null | head -1 | tr -d '\n' | cut -c1-46 || echo '?')"
+      ok "$(printf '%-14s' "$key") ${c_dim}$v${c_reset}"
+    else
+      no "$(printf '%-14s' "$key") ${c_dim}not installed (brew install $formula)${c_reset}"
+    fi
+  done < <(services)
+
+  hdr "Ports & coexistence"
+  for p in 80 443; do
+    if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then warn "port $p is in use (likely ServBay/another server) — free it before BHServe binds it"; else ok "port $p is free"; fi
+  done
+  pgrep -lf -i servbay >/dev/null 2>&1 && warn "ServBay is running — stop it (or use alt ports) before starting BHServe web/DNS" || ok "ServBay not running"
+  printf "\n${c_dim}Next: 'bhserve init' then we'll wire nginx + *.test + HTTPS.${c_reset}\n"
+}
+
+cmd_status() {
+  hdr "BHServe status"
+  [ -f "$BH_HOME/config/bhserve.json" ] && cat "$BH_HOME/config/bhserve.json" || echo "  not initialized (run: bhserve init)"
+}
+
+case "${1:-doctor}" in
+  init)   cmd_init ;;
+  doctor) cmd_doctor ;;
+  status) cmd_status ;;
+  *) echo "BHServe — usage: bhserve {doctor|init|status}"; exit 1 ;;
+esac
