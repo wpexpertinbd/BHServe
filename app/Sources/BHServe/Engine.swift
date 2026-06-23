@@ -12,11 +12,18 @@ final class Engine: Sendable {
     init(enginePath: String) { self.enginePath = enginePath }
 
     /// Run the engine as the current user and return stdout.
+    /// `env` entries are merged onto the inherited environment (used to pass a DB
+    /// password via $BHSERVE_DB_PASSWORD so it never appears in `ps`/argv).
     @discardableResult
-    func run(_ args: [String]) throws -> String {
+    func run(_ args: [String], env: [String: String] = [:]) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [enginePath] + args
+        if !env.isEmpty {
+            var merged = ProcessInfo.processInfo.environment
+            for (k, v) in env { merged[k] = v }
+            p.environment = merged
+        }
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
         p.standardError = err

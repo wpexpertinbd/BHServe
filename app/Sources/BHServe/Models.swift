@@ -53,11 +53,21 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }
 }
 
-struct Database: Codable, Sendable, Identifiable {
+struct Database: Codable, Sendable, Identifiable, Equatable {
     let name: String
     let engine: String   // "mysql" | "pg"
+    let hasUser: Bool
+    let user: String
     var id: String { "\(engine):\(name)" }
     var engineLabel: String { engine == "pg" ? "PostgreSQL" : "MySQL / MariaDB" }
+}
+
+enum PasswordGen {
+    /// Unambiguous, shell/SQL-safe charset (no quotes, backslash, dollar, or O/0/l/1).
+    static func make(_ length: Int = 16) -> String {
+        let chars = Array("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^*-_=+")
+        return String((0..<length).map { _ in chars.randomElement()! })
+    }
 }
 
 // Roles grouped for display, in the order ServBay-style apps show them.

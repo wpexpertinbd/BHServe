@@ -3,6 +3,7 @@ import SwiftUI
 struct DatabasesView: View {
     @Environment(AppState.self) private var state
     @State private var newName = ""
+    @State private var newPassword = ""
     @State private var newEngine = "mysql"
 
     private var dbServers: [Service] {
@@ -23,7 +24,7 @@ struct DatabasesView: View {
 
                 // Create
                 if anyServerRunning {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Create database").font(.headline).foregroundStyle(.secondary)
                         HStack {
                             TextField("database_name", text: $newName)
@@ -33,11 +34,21 @@ struct DatabasesView: View {
                                 if state.pgRunning { Text("PostgreSQL").tag("pg") }
                             }
                             .labelsHidden().fixedSize()
+                        }
+                        HStack {
+                            TextField("password (optional)", text: $newPassword)
+                                .textFieldStyle(.roundedBorder).font(.body.monospaced())
+                            Button("Generate") { newPassword = PasswordGen.make() }
                             Button("Create") {
-                                Task { await state.createDatabase(newName, engine: newEngine); newName = "" }
+                                Task {
+                                    await state.createDatabase(newName, engine: newEngine, password: newPassword)
+                                    newName = ""; newPassword = ""
+                                }
                             }
                             .disabled(state.busy || newName.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
+                        Text("Blank password = no dedicated user (use the database via the local socket). A password creates a user named after the database.")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
 
@@ -68,7 +79,6 @@ struct DatabasesView: View {
         }
         .task {
             await state.reloadDatabases()
-            // pick a sensible default engine
             if !state.mysqlRunning && state.pgRunning { newEngine = "pg" }
         }
         .onChange(of: anyServerRunning) { _, _ in Task { await state.reloadDatabases() } }
@@ -79,6 +89,7 @@ struct DatabaseRow: View {
     @Environment(AppState.self) private var state
     let db: Database
     @State private var confirming = false
+    @State private var pwSheet = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -86,9 +97,24 @@ struct DatabaseRow: View {
                 .foregroundStyle(db.engine == "pg" ? .blue : .orange)
             VStack(alignment: .leading, spacing: 1) {
                 Text(db.name).font(.body.monospaced())
-                Text(db.engineLabel).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(db.engineLabel)
+                    if db.hasUser {
+                        Label("user: \(db.user)", systemImage: "key.fill").labelStyle(.titleAndIcon)
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            Button {
+                pwSheet = true
+            } label: {
+                Label(db.hasUser ? "Change password" : "Set password",
+                      systemImage: db.hasUser ? "key.fill" : "key")
+                    .labelStyle(.titleAndIcon)
+            }
+            .controlSize(.small)
+
             Button(role: .destructive) { confirming = true } label: {
                 Image(systemName: "trash")
             }
@@ -105,5 +131,41 @@ struct DatabaseRow: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(isPresented: $pwSheet) {
+            PasswordSheet(db: db) { pw in
+                Task { await state.setDatabasePassword(db.name, engine: db.engine, password: pw) }
+            }
+        }
+    }
+}
+
+struct PasswordSheet: View {
+    let db: Database
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var pw = PasswordGen.make()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(db.hasUser ? "Change password" : "Set password").font(.title2.bold())
+            Text("User “\(db.name)”@localhost · \(db.engineLabel)")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("password", text: $pw)
+                    .textFieldStyle(.roundedBorder).font(.body.monospaced())
+                Button("Generate") { pw = PasswordGen.make() }
+            }
+            Text("Copy this now — it grants ALL privileges on “\(db.name)”.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") { onSave(pw); dismiss() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(pw.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
     }
 }

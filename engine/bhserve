@@ -512,33 +512,50 @@ db_names_pg(){ local c; c="$(PSQL_CLI)"; [ -x "$c" ] || return 0
   "$c" -U "$USER_NAME" -d postgres -tAc \
     "SELECT datname FROM pg_database WHERE datistemplate=false AND datname<>'postgres';" 2>/dev/null || true; }
 
+# The convention: each managed DB optionally has a dedicated user named after the
+# DB at @localhost. "Has a password" == that user exists.
+db_users_mysql(){ mysql_run -N -e "SELECT user FROM mysql.user WHERE host='localhost';" 2>/dev/null || true; }
+
+# Escape a string for a MySQL single-quoted literal.
+mysql_esc(){ local s="$1"; s="${s//\\/\\\\}"; s="${s//\'/\\\'}"; printf '%s' "$s"; }
+
+# Password comes from --password OR $BHSERVE_DB_PASSWORD (env keeps it out of `ps`).
+DB_PASSWORD=""
+
 cmd_db(){
   need_init
   local sub="${1:-list}"; shift || true
-  local engine=mysql json=0 name=""
+  local engine=mysql json=0 name="" pw_set=0
   while [ $# -gt 0 ]; do case "$1" in
     --engine) engine="$2"; shift 2;;
     --json) json=1; shift;;
+    --password) DB_PASSWORD="$2"; pw_set=1; shift 2;;
     *) name="$1"; shift;;
   esac; done
+  [ "$pw_set" = 1 ] || DB_PASSWORD="${BHSERVE_DB_PASSWORD:-}"
   case "$sub" in
     list) db_list "$json" ;;
-    create) [ -n "$name" ] || die "usage: bhserve db create <name> [--engine mysql|pg]"; db_create "$engine" "$name" ;;
+    create) [ -n "$name" ] || die "usage: bhserve db create <name> [--engine mysql|pg] [--password PW]"; db_create "$engine" "$name" ;;
     drop)   [ -n "$name" ] || die "usage: bhserve db drop <name> [--engine mysql|pg]"; db_drop "$engine" "$name" ;;
-    *) die "usage: bhserve db {list|create|drop} [name] [--engine mysql|pg]" ;;
+    passwd) [ -n "$name" ] || die "usage: bhserve db passwd <name> [--engine mysql|pg] --password PW"; db_set_password "$engine" "$name" ;;
+    *) die "usage: bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]" ;;
   esac
 }
 
 db_list(){
   local json="$1"
   if [ "$json" = 1 ]; then
-    local out="" first=1 d
+    local out="" first=1 d users=""
+    users="$(db_users_mysql)"
     while read -r d; do [ -z "$d" ] && continue
-      local row; row="$(printf '{"name":"%s","engine":"mysql"}' "$(json_esc "$d")")"
+      local has=false
+      printf '%s\n' "$users" | grep -qx "$d" && has=true
+      local row; row="$(printf '{"name":"%s","engine":"mysql","hasUser":%s,"user":"%s"}' \
+        "$(json_esc "$d")" "$has" "$(json_esc "$d")")"
       [ "$first" = 1 ] && { out="$row"; first=0; } || out="$out,$row"
     done < <(db_names_mysql)
     while read -r d; do [ -z "$d" ] && continue
-      local row; row="$(printf '{"name":"%s","engine":"pg"}' "$(json_esc "$d")")"
+      local row; row="$(printf '{"name":"%s","engine":"pg","hasUser":false,"user":""}' "$(json_esc "$d")")"
       [ "$first" = 1 ] && { out="$row"; first=0; } || out="$out,$row"
     done < <(db_names_pg)
     printf '[%s]\n' "$out"
@@ -548,14 +565,48 @@ db_list(){
   hdr "PostgreSQL databases";   db_names_pg    | while read -r d; do ok "$d"; done
 }
 
+# Create user <name>@localhost with the current DB_PASSWORD and grant it the db.
+mysql_grant_user(){
+  local name="$1" epw; epw="$(mysql_esc "$DB_PASSWORD")"
+  mysql_run -e "CREATE USER IF NOT EXISTS '$(mysql_esc "$name")'@'localhost' IDENTIFIED BY '$epw';
+                ALTER USER '$(mysql_esc "$name")'@'localhost' IDENTIFIED BY '$epw';
+                GRANT ALL PRIVILEGES ON \`$name\`.* TO '$(mysql_esc "$name")'@'localhost';
+                FLUSH PRIVILEGES;"
+}
+
 db_create(){
   local engine="$1" name="$2"; db_valid_name "$name"
   case "$engine" in
     mysql|mariadb)
       mysql_run -e "CREATE DATABASE IF NOT EXISTS \`$name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
-        && ok "created mysql db '$name'" || die "create failed (is the server running?)" ;;
+        || die "create failed (is the server running?)"
+      ok "created mysql db '$name'"
+      if [ -n "$DB_PASSWORD" ]; then
+        mysql_grant_user "$name" && ok "user '$name'@localhost created with password" || die "user/grant failed"
+      fi ;;
     pg|postgres) local c; c="$(PG_BIN createdb)"; [ -x "$c" ] || die "postgresql not installed"
-      "$c" -U "$USER_NAME" "$name" && ok "created postgres db '$name'" || die "create failed (is the server running?)" ;;
+      "$c" -U "$USER_NAME" "$name" || die "create failed (is the server running?)"
+      ok "created postgres db '$name'"
+      if [ -n "$DB_PASSWORD" ]; then
+        "$(PSQL_CLI)" -U "$USER_NAME" -d postgres -c \
+          "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(mysql_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(mysql_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
+          && ok "role '$name' created with password" || warn "role/grant failed"
+      fi ;;
+    *) die "unknown engine: $engine (mysql|pg)" ;;
+  esac
+}
+
+# Set or change the password for a db's user (creates the user+grant if missing).
+db_set_password(){
+  local engine="$1" name="$2"; db_valid_name "$name"
+  [ -n "$DB_PASSWORD" ] || die "no password given (--password or \$BHSERVE_DB_PASSWORD)"
+  case "$engine" in
+    mysql|mariadb)
+      mysql_grant_user "$name" && ok "password set for '$name'@localhost" || die "set password failed (is the server running?)" ;;
+    pg|postgres) local c; c="$(PSQL_CLI)"; [ -x "$c" ] || die "postgresql not installed"
+      "$c" -U "$USER_NAME" -d postgres -c \
+        "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(mysql_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(mysql_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
+        && ok "password set for role '$name'" || die "set password failed" ;;
     *) die "unknown engine: $engine (mysql|pg)" ;;
   esac
 }
@@ -564,8 +615,8 @@ db_drop(){
   local engine="$1" name="$2"; db_valid_name "$name"
   case "$engine" in
     mysql|mariadb)
-      mysql_run -e "DROP DATABASE IF EXISTS \`$name\`;" \
-        && ok "dropped mysql db '$name'" || die "drop failed (is the server running?)" ;;
+      mysql_run -e "DROP DATABASE IF EXISTS \`$name\`; DROP USER IF EXISTS '$(mysql_esc "$name")'@'localhost';" \
+        && ok "dropped mysql db '$name' (and its user, if any)" || die "drop failed (is the server running?)" ;;
     pg|postgres) local c; c="$(PG_BIN dropdb)"; [ -x "$c" ] || die "postgresql not installed"
       "$c" -U "$USER_NAME" "$name" && ok "dropped postgres db '$name'" || die "drop failed (is the server running?)" ;;
     *) die "unknown engine: $engine (mysql|pg)" ;;
@@ -659,7 +710,7 @@ BHServe — usage:
   bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]
   bhserve site list|rm <name>
   bhserve site php <name> <ver>  switch a site's PHP version
-  bhserve db {list|create|drop} [name] [--engine mysql|pg]
+  bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
   bhserve secure <domain>        trusted HTTPS via mkcert
   bhserve dns                    set up *.test (dnsmasq + resolver)
   bhserve start|stop|restart <svc|all>

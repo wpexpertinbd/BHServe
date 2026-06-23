@@ -88,10 +88,19 @@ final class AppState {
         }
     }
 
-    func createDatabase(_ name: String, engine dbEngine: String) async {
+    func createDatabase(_ name: String, engine dbEngine: String, password: String = "") async {
         let clean = name.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return }
-        await runUser(["db", "create", clean, "--engine", dbEngine], note: "creating \(clean)…")
+        let env = password.isEmpty ? [:] : ["BHSERVE_DB_PASSWORD": password]
+        await runUser(["db", "create", clean, "--engine", dbEngine], note: "creating \(clean)…", env: env)
+        await reloadDatabases()
+    }
+
+    func setDatabasePassword(_ name: String, engine dbEngine: String, password: String) async {
+        guard !password.isEmpty else { return }
+        await runUser(["db", "passwd", name, "--engine", dbEngine],
+                      note: "setting password for \(name)…",
+                      env: ["BHSERVE_DB_PASSWORD": password])
         await reloadDatabases()
     }
 
@@ -125,14 +134,14 @@ final class AppState {
         await control("restart", "nginx")
     }
 
-    private func runUser(_ args: [String], note: String) async {
+    private func runUser(_ args: [String], note: String, env: [String: String] = [:]) async {
         guard !busy else { return }
         busy = true
         lastAction = note
         defer { busy = false; lastAction = nil }
         let eng = engine
         do {
-            try await Task.detached { _ = try eng.run(args) }.value
+            try await Task.detached { _ = try eng.run(args, env: env) }.value
             await reload()
         } catch {
             errorText = error.localizedDescription
