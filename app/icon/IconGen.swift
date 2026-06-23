@@ -23,8 +23,8 @@ let bg = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, tr
 
 ctx.saveGState()
 ctx.addPath(bg); ctx.clip()
-let top = CGColor(red: 0.40, green: 0.49, blue: 0.92, alpha: 1)   // #667eea
-let bot = CGColor(red: 0.46, green: 0.29, blue: 0.64, alpha: 1)   // #764ba2
+let top = CGColor(red: 0.051, green: 0.431, blue: 0.992, alpha: 1)  // BH blue #0d6efd
+let bot = CGColor(red: 0.035, green: 0.282, blue: 0.702, alpha: 1)  // BH blue-dark #0948b3
 let grad = CGGradient(colorsSpace: cs, colors: [top, bot] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(grad, start: CGPoint(x: rect.midX, y: rect.maxY),
                        end: CGPoint(x: rect.midX, y: rect.minY), options: [])
@@ -68,7 +68,7 @@ for i in 0..<bars {
         let vx = bar.maxX - barH * 0.5 - Double(1 - j) * (vw + vw * 0.5)
         let vrect = CGRect(x: vx - vw, y: bar.midY - vh / 2, width: vw, height: vh)
         ctx.addPath(CGPath(roundedRect: vrect, cornerWidth: vr, cornerHeight: vr, transform: nil))
-        ctx.setFillColor(CGColor(red: 0.46, green: 0.33, blue: 0.66, alpha: 0.35)); ctx.fillPath()
+        ctx.setFillColor(CGColor(red: 0.035, green: 0.282, blue: 0.702, alpha: 0.35)); ctx.fillPath()
     }
 }
 
