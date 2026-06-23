@@ -3,3 +3,4 @@
 app/build/
 app/.build/
 *.xcuserstate
+app/dist/

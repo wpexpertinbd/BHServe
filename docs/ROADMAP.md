@@ -39,7 +39,11 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ Fixed mysql/mariadb collision: probe keg-specific `opt/<formula>/bin/...` (bin/mysql is a mariadb symlink, was falsely flagging mysql installed → broken Start).
 - ✅ Settings: engine `config {show|set <key> <value>}` (validates; tld/port changes regenerate all vhosts + nginx.conf) + GUI Settings tab (TLD, http/https port, sites_root, default PHP/web; Save restarts nginx on port/tld change via admin prompt).
 - ✅ Logs: engine `logs [file|--list] [lines]` + GUI Logs tab (pick a log, monospaced tail, reload).
-- ▶️ Next: Apache vhosts, phpMyAdmin/Adminer/Mailpit one-click panels. **Phase 5:** real signed .app bundle + LaunchAgent.
+- ▶️ Next: Apache vhosts, phpMyAdmin/Adminer/Mailpit one-click panels.
+
+## Phase 5 (packaging) — in progress
+- ✅ `app/build-app.sh` → self-contained **BHServe.app** (bundles the engine in Resources; app prefers the bundled engine, then `~/.bhserve/engine`, then dev checkout). Info.plist (`com.biswashost.bhserve`), ad-hoc signed last (Apple-Silicon "damaged" trap avoided). Engine prepends `/opt/homebrew/{bin,sbin}` to PATH so a Finder-launched app still finds `brew`.
+- ▶️ Next: app icon (.icns), LaunchAgent (launch-at-login / autostart services), optional Developer-ID sign + notarize for distribution.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
 ## Later

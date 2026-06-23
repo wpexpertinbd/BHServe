@@ -3,6 +3,10 @@
 # Engine CLI. Manages PHP / Nginx / Apache / DBs / *.test / HTTPS over Homebrew.
 set -euo pipefail
 
+# When launched from a .app bundle (Finder), PATH is minimal and lacks Homebrew.
+# Prepend the usual brew locations so `brew`, clients, etc. resolve either way.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+
 BH_HOME="${BHSERVE_HOME:-$HOME/.bhserve}"
 BREW="$(command -v brew || true)"
 BREW_PREFIX="$([ -n "$BREW" ] && brew --prefix || echo /opt/homebrew)"

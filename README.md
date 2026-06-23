@@ -31,10 +31,14 @@ engine/bhserve status                          # config + what's running
 A SwiftUI menu-bar + window app in [`app/`](app/) drives the engine via `bhserve api` (JSON).
 100% our own — no ServBay/Herd/Laragon dependency.
 ```bash
-cd app && swift run BHServe     # also: open Package.swift in Xcode
+cd app && ./build-app.sh        # → dist/BHServe.app (self-contained, ad-hoc signed)
+open dist/BHServe.app            # or drag to /Applications
+# dev: swift run BHServe         # or open Package.swift in Xcode
 ```
-Services list (status + start/stop/install) and Sites (add, one-click HTTPS, open in browser).
-Privileged actions (:80/:443, DNS) prompt for admin via macOS.
+Tabs: **Services** (start/stop/install), **Sites** (add, per-site PHP switch, one-click HTTPS,
+open in browser), **Databases** (server start/stop, create/drop, per-DB + root passwords),
+**Logs**, **Settings** (ports/TLD/sites-root). Privileged actions (:80/:443, DNS) prompt for admin.
+The built app bundles the engine, so it doesn't depend on this checkout.
 
 ## Roadmap
 1. ✅ Foundation: config root, dependency doctor, service registry.

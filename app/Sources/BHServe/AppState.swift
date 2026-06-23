@@ -21,7 +21,10 @@ final class AppState {
     /// root, then the dev checkout. (Phase 5 will bundle it inside the .app.)
     static func resolveEnginePath() -> String {
         if let e = ProcessInfo.processInfo.environment["BHSERVE_ENGINE"], !e.isEmpty { return e }
-        let candidates = [
+        var candidates: [String] = []
+        // bundled engine inside BHServe.app/Contents/Resources (self-contained app)
+        if let res = Bundle.main.resourceURL?.appendingPathComponent("bhserve").path { candidates.append(res) }
+        candidates += [
             "\(NSHomeDirectory())/.bhserve/engine/bhserve",
             "/Applications/ServBay/www/BHServe/engine/bhserve",
         ]
