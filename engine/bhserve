@@ -114,7 +114,8 @@ cmd_init() {
   "default_php": "8.4",
   "default_web": "nginx",
   "brew_prefix": "$BREW_PREFIX",
-  "sites_root": "$HOME/Sites"
+  "sites_root": "$HOME/Sites",
+  "autostart": false
 }
 JSON
     ok "wrote default config: $cfg"
@@ -306,6 +307,27 @@ NGINX
   ok "site vhost (nginx→apache): $conf"
 }
 
+# Generic nginx vhost proxying a host to a local HTTP port (e.g. Mailpit :8025).
+render_nginx_proxy_site() {
+  local name="$1" domain="$2" port="$3" conf="$BH_HOME/nginx/sites/$1.conf"
+  cat > "$conf" <<NGINX
+# BHServe site: $name  ($domain)  php=- server=proxy
+server {
+$(nginx_listen_block "$domain")
+    server_name $domain;
+    location / {
+        proxy_pass http://127.0.0.1:$port;
+        proxy_set_header Host \$host;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+    }
+}
+NGINX
+  ok "site vhost (proxy → :$port): $conf"
+}
+
 render_apache_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" sock conf
   sock="$(php_sock "$phpkey")"; conf="$BH_HOME/apache/sites/$name.conf"
@@ -428,6 +450,10 @@ php_admin_value[opcache.memory_consumption] = 192
 php_admin_value[opcache.max_accelerated_files] = 20000
 php_admin_value[realpath_cache_size] = 4096k
 FPM
+  # route mail() to Mailpit when it's installed (sendmail-compatible shim)
+  if svc_installed mailpit; then
+    printf 'php_admin_value[sendmail_path] = %s/bin/mailpit sendmail -t --smtp-addr 127.0.0.1:1025\n' "$BREW_PREFIX" >> "$conf"
+  fi
   ok "php-fpm pool: $conf  (socket $sock)"
   # auto-apply: if this pool is already running, restart it so new settings take
   # effect immediately (sudo-free — FPM runs as the user). Fixes "changed config
@@ -468,10 +494,29 @@ cmd_site() {
     rm|remove) site_rm "$@" ;;
     list|ls) site_list ;;
     php) site_set_php "$@" ;;
+    server) site_set_server "$@" ;;
     enable)  site_toggle "${1:-}" on ;;
     disable) site_toggle "${1:-}" off ;;
-    *) die "usage: bhserve site {add|rm|list|php|enable|disable}" ;;
+    *) die "usage: bhserve site {add|rm|list|php|server|enable|disable}" ;;
   esac
+}
+
+# Switch a site between nginx (direct) and apache (proxy + .htaccess).
+site_set_server() {
+  [ $# -ge 2 ] || die "usage: bhserve site server <name> <nginx|apache>"
+  local name="$1" newsrv="$2" conf="$BH_HOME/nginx/sites/$1.conf"
+  [ -f "$conf" ] || die "no site '$name'"
+  case "$newsrv" in nginx|apache) ;; *) die "server must be nginx or apache" ;; esac
+  [ "$newsrv" != apache ] || svc_installed httpd || die "apache needs httpd — bhserve install httpd"
+  local domain root php
+  domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
+  [ "$newsrv" = nginx ] && rm -f "$BH_HOME/apache/sites/$name.conf"
+  render_site_vhost "$name" "$domain" "$root" "$php" "$newsrv"
+  [ "$newsrv" = apache ] && apache_start >/dev/null 2>&1 || true
+  ok "$name now served by $newsrv"
+  apache_reload; maybe_reload_nginx
 }
 
 # Enable/disable serving a site by toggling its vhost file extension
@@ -892,13 +937,14 @@ cmd_config(){
 # Rewrite bhserve.json from current values, overriding one key.
 json_set(){
   local k="$1" v="$2"
-  local tld httpp httpsp dphp dweb bp sroot
+  local tld httpp httpsp dphp dweb bp sroot autostart
   tld="$(jget tld test)"; httpp="$(jget http_port 80)"; httpsp="$(jget https_port 443)"
   dphp="$(jget default_php 8.4)"; dweb="$(jget default_web nginx)"
   bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/Sites")"
+  autostart="$(jget autostart false)"
   case "$k" in
     tld) tld="$v";; http_port) httpp="$v";; https_port) httpsp="$v";;
-    default_php) dphp="$v";; default_web) dweb="$v";; sites_root) sroot="$v";;
+    default_php) dphp="$v";; default_web) dweb="$v";; sites_root) sroot="$v";; autostart) autostart="$v";;
   esac
   cat > "$BH_HOME/config/bhserve.json" <<JSON
 {
@@ -908,7 +954,8 @@ json_set(){
   "default_php": "$dphp",
   "default_web": "$dweb",
   "brew_prefix": "$bp",
-  "sites_root": "$sroot"
+  "sites_root": "$sroot",
+  "autostart": $autostart
 }
 JSON
 }
@@ -937,6 +984,7 @@ config_set(){
     sites_root) [ -n "$val" ] || die "sites_root cannot be empty" ;;
     default_php) val="$(php_key "$val")" ;;
     default_web) [[ "$val" =~ ^(nginx|apache)$ ]] || die "default_web must be nginx|apache" ;;
+    autostart) [[ "$val" =~ ^(true|false)$ ]] || die "autostart must be true|false" ;;
     *) die "unknown/uneditable key: $key" ;;
   esac
   json_set "$key" "$val"
@@ -1143,6 +1191,39 @@ PHP
   maybe_reload_nginx
 }
 
+# ── Adminer (single-file DB admin) ───────────────────────────────────────────
+cmd_adminer(){ need_init; case "${1:-install}" in install) adminer_install ;; *) die "usage: bhserve adminer install" ;; esac; }
+adminer_install(){
+  local dir="$BH_HOME/apps/adminer"; mkdir -p "$dir"
+  if [ ! -f "$dir/index.php" ]; then
+    hdr "Downloading Adminer"
+    curl -fsSL "https://www.adminer.org/latest.php" -o "$dir/index.php" || die "download failed"
+    ok "Adminer in $dir"
+  else ok "Adminer already present ($dir)"; fi
+  local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
+  render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
+  render_site_vhost adminer "adminer.$tld" "$dir" "$phpkey" nginx
+  hdr "Adminer ready"
+  info "URL  : http://adminer.$tld"
+  info "login: System=MySQL, Server=localhost, Username=$USER_NAME (blank pass) or root"
+  maybe_reload_nginx
+}
+
+# ── Mailpit (mail catcher: SMTP :1025, web UI :8025) ─────────────────────────
+cmd_mailpit(){ need_init; case "${1:-setup}" in setup) mailpit_setup ;; *) die "usage: bhserve mailpit setup" ;; esac; }
+mailpit_setup(){
+  svc_installed mailpit || die "mailpit not installed — bhserve install mailpit"
+  brew services start mailpit >/dev/null 2>&1 || true
+  local tld; tld="$(jget tld test)"
+  render_nginx_proxy_site mailpit "mailpit.$tld" 8025
+  # route PHP mail() to Mailpit for every pool (sendmail_path picked up on regen)
+  local k; for k in $(fpm_keys); do render_fpm_pool "$k" >/dev/null 2>&1 || true; done
+  hdr "Mailpit ready"
+  info "URL : http://mailpit.$tld   (SMTP 127.0.0.1:1025 · UI 127.0.0.1:8025)"
+  info "PHP mail() now delivers to Mailpit (restart pools already done)"
+  maybe_reload_nginx
+}
+
 # ── api (machine-readable JSON for the GUI) ──────────────────────────────────
 json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
@@ -1235,7 +1316,10 @@ BHServe — usage:
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
   bhserve node {list|remote|install|use|uninstall} [version]   (multi-version via fnm)
   bhserve php {ioncube [version|all]|status}                   (ionCube loader + per-version config)
+  bhserve site server <name> <nginx|apache>                   (switch a site's web server)
   bhserve pma install                                          (phpMyAdmin at phpmyadmin.test, 2GB uploads)
+  bhserve adminer install                                      (Adminer at adminer.test)
+  bhserve mailpit setup                                        (Mailpit catcher at mailpit.test; routes PHP mail())
   bhserve secure <domain>        trusted HTTPS via mkcert
   bhserve dns                    set up *.test (dnsmasq + resolver)
   bhserve config {show|set <key> <value>}   (http_port/https_port/tld/sites_root/default_php/default_web)
@@ -1256,6 +1340,8 @@ case "${1:-doctor}" in
   node)    shift; cmd_node "$@" ;;
   php)     shift; cmd_php "$@" ;;
   pma)     shift; cmd_pma "$@" ;;
+  adminer) shift; cmd_adminer "$@" ;;
+  mailpit) shift; cmd_mailpit "$@" ;;
   config)  shift; cmd_config "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
   secure)  shift; cmd_secure "$@" ;;
