@@ -28,8 +28,8 @@ php@8.2|php@8.2|opt/php@8.2/bin/php|php
 php@8.1|php@8.1|opt/php@8.1/bin/php|php
 nginx|nginx|bin/nginx|web
 httpd|httpd|bin/httpd|web
-mariadb|mariadb|bin/mariadb|db
-mysql|mysql|bin/mysql|db
+mariadb|mariadb|opt/mariadb/bin/mariadb|db
+mysql|mysql|opt/mysql/bin/mysql|db
 postgresql@17|postgresql@17|opt/postgresql@17/bin/postgres|db
 redis|redis|bin/redis-server|cache
 dnsmasq|dnsmasq|sbin/dnsmasq|dns
@@ -538,8 +538,26 @@ cmd_db(){
     create) [ -n "$name" ] || die "usage: bhserve db create <name> [--engine mysql|pg] [--password PW]"; db_create "$engine" "$name" ;;
     drop)   [ -n "$name" ] || die "usage: bhserve db drop <name> [--engine mysql|pg]"; db_drop "$engine" "$name" ;;
     passwd) [ -n "$name" ] || die "usage: bhserve db passwd <name> [--engine mysql|pg] --password PW"; db_set_password "$engine" "$name" ;;
-    *) die "usage: bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]" ;;
+    root-status) db_root_status ;;
+    root-passwd) db_root_passwd ;;
+    *) die "usage: bhserve db {list|create|drop|passwd|root-status|root-passwd} [name] [--engine mysql|pg] [--password PW]" ;;
   esac
+}
+
+# Whether mysql/mariadb root@localhost has a password set. Prints set|blank|unavailable.
+db_root_status(){
+  local r
+  r="$(mysql_run -N -e "SELECT IF(LENGTH(authentication_string)>0,'set','blank') FROM mysql.user WHERE user='root' AND host='localhost' LIMIT 1;" 2>/dev/null)" || true
+  [ -n "$r" ] && printf '%s\n' "$r" || echo unavailable
+}
+
+# Set (or, with empty password, clear) the mysql/mariadb root@localhost password.
+# Only touches root — the OS-user socket account we operate through is untouched.
+db_root_passwd(){
+  local epw; epw="$(mysql_esc "$DB_PASSWORD")"
+  mysql_run -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;" \
+    && ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo cleared (blank))" \
+    || die "failed (server running? do you have privilege?)"
 }
 
 db_list(){

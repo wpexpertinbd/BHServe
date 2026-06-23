@@ -22,6 +22,11 @@ struct DatabasesView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
+                // MySQL/MariaDB root user
+                if state.mysqlRunning {
+                    RootUserCard()
+                }
+
                 // Create
                 if anyServerRunning {
                     VStack(alignment: .leading, spacing: 8) {
@@ -136,6 +141,73 @@ struct DatabaseRow: View {
                 Task { await state.setDatabasePassword(db.name, engine: db.engine, password: pw) }
             }
         }
+    }
+}
+
+struct RootUserCard: View {
+    @Environment(AppState.self) private var state
+    @State private var sheet = false
+
+    private var hasPassword: Bool { state.rootStatus == "set" }
+    private var label: String {
+        switch state.rootStatus {
+        case "set": "Password set"
+        case "blank": "No password (blank)"
+        default: "—"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "crown.fill").foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("root@localhost").font(.body.monospaced())
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(hasPassword ? "Change password" : "Set password") { sheet = true }
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(.quaternary.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .disabled(state.busy)
+        .sheet(isPresented: $sheet) {
+            RootPasswordSheet(hasPassword: hasPassword) { pw in
+                Task { await state.setRootPassword(pw) }
+            }
+        }
+    }
+}
+
+struct RootPasswordSheet: View {
+    let hasPassword: Bool
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var pw = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("MySQL root password").font(.title2.bold())
+            Text("Sets the password for root@localhost.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("password (leave blank for none)", text: $pw)
+                    .textFieldStyle(.roundedBorder).font(.body.monospaced())
+                Button("Generate") { pw = PasswordGen.make() }
+            }
+            Text(pw.isEmpty
+                 ? "Blank = root has no password (anyone local can connect as root)."
+                 : "Copy this now — it's the root account password.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button(pw.isEmpty ? "Set blank" : "Save") { onSave(pw); dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
     }
 }
 

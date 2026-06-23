@@ -35,6 +35,8 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ✅ UI — `Window` + `MenuBarExtra`; NavigationSplitView (Services / Sites). Services grouped by role with status dots + Start/Stop/Install; Sites list with open-in-browser, one-click Secure, add-site sheet (PHP picker), remove. Start/Stop All in sidebar footer + menu bar.
 - ✅ Live auto-refresh (4s), per-site PHP version switch.
 - ✅ Databases: engine `db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]` (mysql auth auto-detect: OS user → -u root; name validation). Optional per-DB user (named after the DB) with password — set on create, set/change after, dropped with the DB; password passed via `$BHSERVE_DB_PASSWORD` (never argv); SQL-escaped. GUI Databases tab: server start/stop, create with engine picker + optional password + Generate, per-row Set/Change password sheet (hasUser-aware), drop with confirm.
+- ✅ DB root user: engine `db root-status` / `db root-passwd` (empty = blank); GUI root-user card with Set/Change password (blank allowed) + Generate. Only touches root@localhost (the OS-user socket account we operate through is untouched).
+- ✅ Fixed mysql/mariadb collision: probe keg-specific `opt/<formula>/bin/...` (bin/mysql is a mariadb symlink, was falsely flagging mysql installed → broken Start).
 - ▶️ Next: Settings (ports/TLD/sites_root → regenerate vhosts), Apache vhosts, phpMyAdmin/Adminer/Mailpit panels, logs viewer.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 

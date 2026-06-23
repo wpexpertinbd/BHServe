@@ -6,6 +6,7 @@ import Observation
 final class AppState {
     var snapshot: Snapshot?
     var databases: [Database] = []
+    var rootStatus = ""   // "set" | "blank" | "unavailable" | ""
     var errorText: String?
     var busy = false
     var lastAction: String?
@@ -78,7 +79,7 @@ final class AppState {
     }
 
     func reloadDatabases() async {
-        guard mysqlRunning || pgRunning else { databases = []; return }
+        guard mysqlRunning || pgRunning else { databases = []; rootStatus = ""; return }
         let eng = engine
         do {
             let json = try await Task.detached { try eng.run(["db", "list", "--json"]) }.value
@@ -86,6 +87,24 @@ final class AppState {
         } catch {
             errorText = error.localizedDescription
         }
+        await reloadRootStatus()
+    }
+
+    func reloadRootStatus() async {
+        guard mysqlRunning else { rootStatus = ""; return }
+        let eng = engine
+        if let r = try? await Task.detached(operation: { try eng.run(["db", "root-status"]) }).value {
+            rootStatus = r.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// Set the mysql/mariadb root password. Empty string clears it (blank password).
+    func setRootPassword(_ pw: String) async {
+        let env = pw.isEmpty ? [:] : ["BHSERVE_DB_PASSWORD": pw]
+        await runUser(["db", "root-passwd"],
+                      note: pw.isEmpty ? "clearing root password…" : "setting root password…",
+                      env: env)
+        await reloadRootStatus()
     }
 
     func createDatabase(_ name: String, engine dbEngine: String, password: String = "") async {
