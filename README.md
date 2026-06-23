@@ -33,8 +33,10 @@ A SwiftUI menu-bar + window app in [`app/`](app/) drives the engine via `bhserve
 ```bash
 cd app && ./build-app.sh        # → dist/BHServe.app (self-contained, ad-hoc signed)
 open dist/BHServe.app            # or drag to /Applications
+./make-dist.sh                   # → dist/BHServe-<ver>.dmg (drag-install) + .pkg (installer)
 # dev: swift run BHServe         # or open Package.swift in Xcode
 ```
+Closing the window keeps BHServe running in the menu bar (no Dock icon); reopen from there.
 Tabs: **Services** (start/stop/install), **Sites** (add, per-site PHP switch, one-click HTTPS,
 open in browser), **Databases** (server start/stop, create/drop, per-DB + root passwords),
 **Logs**, **Settings** (ports/TLD/sites-root). Privileged actions (:80/:443, DNS) prompt for admin.

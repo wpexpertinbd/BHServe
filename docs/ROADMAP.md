@@ -44,7 +44,9 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 
 ## Phase 5 (packaging) — in progress
 - ✅ `app/build-app.sh` → self-contained **BHServe.app** (bundles the engine in Resources; app prefers the bundled engine, then `~/.bhserve/engine`, then dev checkout). Info.plist (`com.biswashost.bhserve`), ad-hoc signed last (Apple-Silicon "damaged" trap avoided). Engine prepends `/opt/homebrew/{bin,sbin}` to PATH so a Finder-launched app still finds `brew`.
-- ▶️ Next: app icon (.icns), LaunchAgent (launch-at-login / autostart services), optional Developer-ID sign + notarize for distribution.
+- ✅ App icon (.icns, BH blue). Menu-bar-resident: close window → .accessory (no Dock icon, stays running); reopen → .regular.
+- ✅ Distributables: `app/make-dist.sh` → `BHServe-<ver>.dmg` (drag-to-Applications, +Applications symlink) and `BHServe-<ver>.pkg` (pkgbuild → /Applications). Ad-hoc signed; DMG checksum verified, PKG payload verified.
+- ▶️ Next: LaunchAgent (launch-at-login / autostart services), optional Developer-ID sign + notarize for clean distribution to other Macs.
 - Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
 ## Later
