@@ -3,13 +3,13 @@ import Foundation
 // Mirrors the JSON emitted by `bhserve api`. Decoded with
 // .convertFromSnakeCase so http_port -> httpPort, etc.
 
-struct Snapshot: Codable, Sendable {
+struct Snapshot: Codable, Sendable, Equatable {
     let config: EngineConfig
     let services: [Service]
     let sites: [Site]
 }
 
-struct EngineConfig: Codable, Sendable {
+struct EngineConfig: Codable, Sendable, Equatable {
     let tld: String
     let httpPort: Int
     let httpsPort: Int
@@ -19,7 +19,7 @@ struct EngineConfig: Codable, Sendable {
     let sitesRoot: String
 }
 
-struct Service: Codable, Sendable, Identifiable {
+struct Service: Codable, Sendable, Identifiable, Equatable {
     let key: String
     let formula: String
     let role: String
@@ -42,7 +42,7 @@ struct Service: Codable, Sendable, Identifiable {
     }
 }
 
-struct Site: Codable, Sendable, Identifiable {
+struct Site: Codable, Sendable, Identifiable, Equatable {
     let name: String
     let domain: String
     let php: String

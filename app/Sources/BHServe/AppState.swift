@@ -44,7 +44,7 @@ final class AppState {
         let eng = engine
         do {
             let snap = try await Task.detached { try eng.snapshot() }.value
-            snapshot = snap
+            if snap != snapshot { snapshot = snap }   // avoid needless re-render (keeps TextField focus steady)
             errorText = nil
         } catch {
             errorText = error.localizedDescription

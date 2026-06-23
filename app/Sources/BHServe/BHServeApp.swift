@@ -1,7 +1,23 @@
 import SwiftUI
+import AppKit
+
+/// Without a proper .app bundle (e.g. `swift run`), macOS may launch the process
+/// as an accessory app, so its window never becomes key → TextFields can't take
+/// keyboard input (mouse still works). Force a regular, activated app.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { NSApp.activate(ignoringOtherApps: true) }
+        return true
+    }
+}
 
 @main
 struct BHServeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var state = AppState()
 
     var body: some Scene {
