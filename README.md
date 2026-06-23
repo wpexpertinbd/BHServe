@@ -15,14 +15,21 @@ Homebrew — latest versions, nothing hidden, fully yours.
 
 ## Try the engine
 ```bash
-engine/bhserve doctor   # check what's installed + coexistence with ServBay
-engine/bhserve init     # create ~/.bhserve config root
-engine/bhserve status   # show current config
+engine/bhserve doctor              # check deps + ports + ServBay
+engine/bhserve init                # create ~/.bhserve config root
+engine/bhserve install nginx mkcert dnsmasq   # brew install services
+engine/bhserve site add myapp --php 8.4        # → http://myapp.test
+engine/bhserve secure myapp.test               # trusted local HTTPS
+engine/bhserve dns                             # set up *.test (prints sudo steps)
+engine/bhserve start all                       # nginx + PHP-FPM pools
+engine/bhserve status                          # config + what's running
 ```
+> BHServe owns ports **80/443** and the `*.test` domain — quit ServBay first.
+> DNS, the first cert, and binding 80/443 need **sudo** (you'll be prompted).
 
 ## Roadmap
 1. ✅ Foundation: config root, dependency doctor, service registry.
-2. Web + sites: nginx & Apache, `*.test` (dnsmasq), HTTPS (mkcert), per-site PHP-FPM.
+2. ✅ Web + sites: nginx, `*.test` (dnsmasq), HTTPS (mkcert), per-site PHP-FPM, start/stop.
 3. Data + extras: MariaDB/MySQL, PostgreSQL, Redis, phpMyAdmin, Adminer, Mailpit, Node.
 4. SwiftUI menu-bar app over the engine.
 5. Packaging, auto-start, polish.
