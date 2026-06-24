@@ -281,6 +281,73 @@ final class AppState {
         await runUser(["uninstall", key], note: "uninstalling \(key)…")
     }
 
+    // ── self-update via GitHub Releases ─────────────────────────────────────
+    static let repoSlug = "wpexpertinbd/BHServe"
+    enum UpdateStatus: Equatable {
+        case idle, checking, working, upToDate
+        case available(version: String, pkg: String)
+        case failed(String)
+    }
+    var updateStatus: UpdateStatus = .idle
+
+    struct Release: Decodable {
+        let tagName: String, htmlURL: String, assets: [Asset]
+        struct Asset: Decodable { let name: String; let url: String
+            enum CodingKeys: String, CodingKey { case name; case url = "browser_download_url" } }
+        enum CodingKeys: String, CodingKey { case tagName = "tag_name"; case htmlURL = "html_url"; case assets }
+    }
+
+    func checkForUpdate() async {
+        updateStatus = .checking
+        guard let url = URL(string: "https://api.github.com/repos/\(AppState.repoSlug)/releases/latest") else {
+            updateStatus = .failed("bad URL"); return
+        }
+        do {
+            var req = URLRequest(url: url)
+            req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { updateStatus = .upToDate; return }
+            let rel = try JSONDecoder().decode(Release.self, from: data)
+            let latest = rel.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            if AppState.isNewer(latest, than: appVersion),
+               let pkg = rel.assets.first(where: { $0.name.hasSuffix(".pkg") })?.url {
+                updateStatus = .available(version: latest, pkg: pkg)
+            } else {
+                updateStatus = .upToDate
+            }
+        } catch {
+            updateStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    /// Download the .pkg, launch the macOS Installer, then quit so it can replace
+    /// /Applications/BHServe.app. User clicks through (one password) and reopens.
+    func downloadAndInstall(_ pkgURL: String) async {
+        updateStatus = .working
+        guard let url = URL(string: pkgURL) else { updateStatus = .failed("bad asset URL"); return }
+        do {
+            let (tmp, _) = try await URLSession.shared.download(from: url)
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent("BHServe-update.pkg")
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: tmp, to: dest)
+            NSWorkspace.shared.open(dest)
+            try? await Task.sleep(for: .seconds(1))
+            NSApp.terminate(nil)
+        } catch {
+            updateStatus = .failed(error.localizedDescription)
+        }
+    }
+
     func installService(_ key: String) async {
         await runUser(["install", key], note: "installing \(key)…")
     }

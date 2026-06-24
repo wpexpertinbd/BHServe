@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var defaultPhp = ""
     @State private var defaultWeb = "nginx"
     @State private var loaded = false
+    @State private var confirmUpdate: (version: String, pkg: String)?
 
     var body: some View {
         Form {
@@ -23,6 +24,40 @@ struct SettingsView: View {
                 TextField("HTTPS port", text: $httpsPort).frame(width: 120)
                 Text("Ports below 1024 (80/443) require an admin prompt when nginx restarts.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Updates") {
+                LabeledContent("Current version", value: "v\(state.appVersion)")
+                switch state.updateStatus {
+                case .idle:
+                    Button { Task { await state.checkForUpdate() } } label: {
+                        Label("Check for updates", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                case .checking, .working:
+                    HStack { ProgressView().controlSize(.small)
+                        Text(state.updateStatus == .working ? "Downloading…" : "Checking…").foregroundStyle(.secondary) }
+                case .upToDate:
+                    HStack {
+                        Label("You're on the latest version", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                        Spacer()
+                        Button("Check again") { Task { await state.checkForUpdate() } }.controlSize(.small)
+                    }
+                case .available(let version, let pkg):
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Update available: v\(version)", systemImage: "sparkles").foregroundStyle(.blue)
+                        Button {
+                            confirmUpdate = (version, pkg)
+                        } label: { Label("Download & Install v\(version)", systemImage: "arrow.down.circle.fill") }
+                        Text("Downloads the new installer, opens it, and quits BHServe so it can update. Reopen when done.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                case .failed(let msg):
+                    HStack {
+                        Label("Check failed", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Spacer()
+                        Button("Retry") { Task { await state.checkForUpdate() } }.controlSize(.small)
+                    }
+                    .help(msg)
+                }
             }
             Section("Startup") {
                 Toggle("Launch BHServe at login", isOn: Binding(
@@ -85,6 +120,16 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .task { load() }
         .onChange(of: state.snapshot?.config) { _, _ in load() }
+        .confirmationDialog("Update BHServe to v\(confirmUpdate?.version ?? "")?",
+                            isPresented: Binding(get: { confirmUpdate != nil }, set: { if !$0 { confirmUpdate = nil } }),
+                            titleVisibility: .visible) {
+            if let u = confirmUpdate {
+                Button("Download & Install") { Task { await state.downloadAndInstall(u.pkg) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("BHServe will download the installer, open it, and quit so it can update.")
+        }
     }
 
     private var dirty: Bool {
