@@ -82,7 +82,15 @@ final class AppState {
             || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/brew")
     }
     var coreInstalled: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.installed } ?? false }
-    var needsSetup: Bool { !brewInstalled || !coreInstalled }
+    /// Only prompt first-run setup once we've actually loaded state AND it's truly
+    /// empty (no Homebrew or no nginx). While snapshot is nil we return false so the
+    /// Welcome screen never flashes for an existing, working install.
+    var needsSetup: Bool {
+        guard let snap = snapshot else { return false }
+        let brew = snap.brew ?? brewInstalled
+        let core = snap.services.contains { $0.key == "nginx" && $0.installed }
+        return !brew || !core
+    }
 
     /// Open Terminal and run the official Homebrew installer (interactive — handles
     /// sudo + Command Line Tools with full visibility).
