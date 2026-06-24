@@ -7,10 +7,10 @@ struct WebsitesPanel: View {
     @State private var query = ""
     @FocusState private var searchFocused: Bool
 
-    private var allCount: Int { state.snapshot?.sites.count ?? 0 }
+    private var allCount: Int { state.realSites.count }
 
     private var sites: [Site] {
-        let all = state.snapshot?.sites ?? []
+        let all = state.realSites   // hide phpMyAdmin/Adminer/Mailpit (managed tools)
         guard !query.isEmpty else { return all }
         return all.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.domain.localizedCaseInsensitiveContains(query) }
     }

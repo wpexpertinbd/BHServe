@@ -36,6 +36,21 @@ final class AppState {
     var running: [Service] { snapshot?.services.filter { $0.running } ?? [] }
     var installed: [Service] { snapshot?.services.filter { $0.installed } ?? [] }
 
+    /// App version from the bundle (falls back to "dev" under `swift run`).
+    var appVersion: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev" }
+
+    /// BHServe-managed tool sites — not real websites, hidden from the site lists.
+    static let systemSites: Set<String> = ["phpmyadmin", "adminer", "mailpit"]
+    var realSites: [Site] { (snapshot?.sites ?? []).filter { !AppState.systemSites.contains($0.name) } }
+
+    var nginxRunning: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.running } ?? false }
+    /// A tool is openable when its site exists and nginx is serving it.
+    func toolActive(_ name: String) -> Bool { siteExists(name) && nginxRunning }
+    func openTool(_ name: String) {
+        let tld = snapshot?.config.tld ?? "test"
+        if let u = URL(string: "http://\(name).\(tld)") { NSWorkspace.shared.open(u) }
+    }
+
     func services(role: ServiceRole) -> [Service] {
         snapshot?.services.filter { $0.role == role.rawValue } ?? []
     }

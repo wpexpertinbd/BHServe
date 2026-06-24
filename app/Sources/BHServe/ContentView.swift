@@ -114,6 +114,12 @@ struct StatusFooter: View {
             if let note = state.lastAction {
                 Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
+            HStack(spacing: 4) {
+                Image(systemName: "server.rack").font(.caption2)
+                Text("BHServe v\(state.appVersion)").font(.caption2)
+                Spacer()
+            }
+            .foregroundStyle(.tertiary)
         }
         .padding(10)
     }

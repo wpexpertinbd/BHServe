@@ -68,6 +68,7 @@ struct MenuBarView: View {
             HStack {
                 Image(systemName: "server.rack")
                 Text("BHServe").font(.headline)
+                Text("v\(state.appVersion)").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Circle().fill(state.running.isEmpty ? Color.secondary : Color.green).frame(width: 9, height: 9)
             }
@@ -98,18 +99,38 @@ struct MenuBarView: View {
             }
             .disabled(state.busy)
 
-            if let sites = state.snapshot?.sites, !sites.isEmpty {
+            if !state.realSites.isEmpty {
                 Divider()
-                Text("Sites").font(.caption).foregroundStyle(.secondary)
-                ForEach(sites.prefix(6)) { site in
+                HStack {
+                    Text("Sites").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if state.realSites.count > 5 {
+                        Text("\(state.realSites.count) total — Open BHServe for all")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(state.realSites.prefix(5)) { site in
                     if let url = site.url {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
+                        Button { NSWorkspace.shared.open(url) } label: {
                             Label(site.domain, systemImage: site.secure ? "lock.fill" : "globe")
                         }
                         .buttonStyle(.plain)
                     }
+                }
+            }
+
+            // Quick-open managed tools (only when installed + served)
+            if state.toolActive("phpmyadmin") || state.toolActive("adminer") || state.toolActive("mailpit") {
+                Divider()
+                Text("Tools").font(.caption).foregroundStyle(.secondary)
+                if state.toolActive("phpmyadmin") {
+                    Button { state.openTool("phpmyadmin") } label: { Label("Open phpMyAdmin", systemImage: "cylinder.split.1x2") }.buttonStyle(.plain)
+                }
+                if state.toolActive("adminer") {
+                    Button { state.openTool("adminer") } label: { Label("Open Adminer", systemImage: "tablecells") }.buttonStyle(.plain)
+                }
+                if state.toolActive("mailpit") {
+                    Button { state.openTool("mailpit") } label: { Label("Open Mailpit", systemImage: "envelope") }.buttonStyle(.plain)
                 }
             }
 
