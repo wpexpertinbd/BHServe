@@ -897,10 +897,13 @@ start_all(){
     [ -n "$key" ] || continue
     svc_installed "$key" || continue
     svc_enabled "$key" || continue
+    # Each start runs in a subshell so a failure (e.g. nginx `die` on a bad vhost)
+    # can't abort the whole loop — every other service still gets started.
     case "$role" in
-      php) fpm_start "$key" ;;
-      web) [ "$key" = nginx ] && nginx_start; [ "$key" = httpd ] && apache_start ;;
-      db|cache|mail) brew_svc start "$key" ;;
+      php) ( fpm_start "$key" ) || warn "$key failed to start (continuing)" ;;
+      web) [ "$key" = nginx ] && { ( nginx_start ) || warn "nginx failed to start — check vhost configs (continuing)"; }
+           [ "$key" = httpd ] && { ( apache_start ) || warn "apache failed to start (continuing)"; } ;;
+      db|cache|mail) ( brew_svc start "$key" ) || warn "$key failed to start (continuing)" ;;
     esac
   done < <(services)
   # bring Apache up if any site uses it, even when httpd isn't in the enabled set
