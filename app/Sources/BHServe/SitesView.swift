@@ -3,20 +3,53 @@ import SwiftUI
 struct SitesView: View {
     @Environment(AppState.self) private var state
     @State private var showingAdd = false
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+
+    private var sites: [Site] {
+        let all = state.realSites   // your websites (managed tools live in the Web tools card)
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.name.localizedCaseInsensitiveContains(query)
+                          || $0.domain.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         Group {
-            if let sites = state.snapshot?.sites, !sites.isEmpty {
-                List {
-                    ForEach(sites) { SiteRow(site: $0) }
-                }
-            } else {
+            if state.realSites.isEmpty {
                 ContentUnavailableView {
                     Label("No sites yet", systemImage: "globe")
                 } description: {
                     Text("Add a site to serve it at name.\(state.snapshot?.config.tld ?? "test").")
                 } actions: {
                     Button("Add Site") { showingAdd = true }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text("\(state.realSites.count) site\(state.realSites.count == 1 ? "" : "s")")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        TextField("Search", text: $query)
+                            .textFieldStyle(.roundedBorder).frame(width: 200)
+                            .focused($searchFocused)
+                    }
+                    .padding([.horizontal, .top], 16).padding(.bottom, 8)
+                    .defaultFocus($searchFocused, false)   // don't auto-grab focus on open
+
+                    if sites.isEmpty {
+                        Text("No sites match “\(query)”.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(sites) { WebsiteRow(site: $0) }
+                            }
+                            .background(.quaternary.opacity(0.4))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .padding([.horizontal, .bottom], 16)
+                        }
+                    }
                 }
             }
         }
@@ -28,56 +61,6 @@ struct SitesView: View {
                 .help("Refresh")
         }
         .sheet(isPresented: $showingAdd) { AddSiteSheet() }
-    }
-}
-
-struct SiteRow: View {
-    @Environment(AppState.self) private var state
-    let site: Site
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: site.secure ? "lock.fill" : "globe")
-                .foregroundStyle(site.secure ? .green : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(site.domain).font(.body.weight(.medium))
-                Text(site.root)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-            Spacer()
-            Menu {
-                ForEach(state.phpChoices, id: \.self) { choice in
-                    Button {
-                        if choice != site.php { Task { await state.setSitePHP(site.name, php: choice) } }
-                    } label: {
-                        Label(choice, systemImage: choice == site.php ? "checkmark" : "")
-                    }
-                }
-            } label: {
-                Text(site.php).font(.caption.monospaced())
-            }
-            .menuStyle(.borderlessButton).fixedSize()
-            .help("Switch PHP version")
-
-            if let url = site.url {
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: { Image(systemName: "arrow.up.right.square") }
-                .buttonStyle(.borderless).help("Open \(url.absoluteString)")
-            }
-            if !site.secure {
-                Button("Secure") { Task { await state.secure(domain: site.domain) } }
-                    .controlSize(.small)
-            }
-            Menu {
-                Button(role: .destructive) {
-                    Task { await state.removeSite(site.name) }
-                } label: { Label("Remove site", systemImage: "trash") }
-            } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).fixedSize()
-        }
-        .padding(.vertical, 4)
-        .disabled(state.busy)
     }
 }
 
