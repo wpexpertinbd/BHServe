@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.5.0"
+VERSION="1.5.1"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
@@ -60,9 +60,16 @@ cat > "$APP/Contents/Library/LaunchAgents/com.biswashost.bhserve.helper.plist" <
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.biswashost.bhserve.helper</string>
+  <!-- Launch via LaunchServices (/usr/bin/open), NOT a direct exec of the binary.
+       launchd exec'ing an ad-hoc-signed app trips a macOS code-signing Launch
+       Constraint → SIGKILL. `open` honors the Gatekeeper approval and still passes
+       --background through to the app. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/Applications/$APP_NAME.app/Contents/MacOS/$APP_NAME</string>
+    <string>/usr/bin/open</string>
+    <string>-a</string>
+    <string>/Applications/$APP_NAME.app</string>
+    <string>--args</string>
     <string>--background</string>
   </array>
   <key>RunAtLoad</key><true/>

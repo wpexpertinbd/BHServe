@@ -36,13 +36,25 @@ final class AppState {
         if autostartEnabled { await control("start", "all") }
     }
 
-    /// Older builds registered the plain app as the login item (no --background → it
-    /// launched with a Dock icon + window). Move that to the background agent, keeping
-    /// the user's "start at login" preference.
+    // Bump when the bundled LaunchAgent plist changes so existing installs rebind it.
+    private static let loginAgentRev = "v2-open"
+
+    /// Keep the login agent correct across upgrades:
+    /// • migrate users off the old SMAppService.mainApp login item (it launched with a
+    ///   Dock icon), and off the v1 agent that exec'd the binary directly (→ code-signing
+    ///   SIGKILL on login). Re-register so the current `open`-based plist takes effect.
     private func migrateLoginItemIfNeeded() {
-        guard SMAppService.mainApp.status == .enabled else { return }
-        try? SMAppService.mainApp.unregister()
-        try? loginAgent.register()
+        let d = UserDefaults.standard
+        let needRebind = d.string(forKey: "loginAgentRev") != AppState.loginAgentRev
+        if SMAppService.mainApp.status == .enabled {
+            try? SMAppService.mainApp.unregister()
+            try? loginAgent.register()
+            d.set(AppState.loginAgentRev, forKey: "loginAgentRev")
+        } else if loginItemEnabled && needRebind {
+            try? loginAgent.unregister()
+            try? loginAgent.register()
+            d.set(AppState.loginAgentRev, forKey: "loginAgentRev")
+        }
     }
 
     /// Find the bhserve engine: explicit env override, then the user's config
