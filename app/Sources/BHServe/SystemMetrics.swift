@@ -12,8 +12,13 @@ final class Metrics {
     var memTotal: UInt64 = 0
     var diskUsed: Int64 = 0
     var diskTotal: Int64 = 0
+    var netDownRate: Double = 0   // bytes/sec
+    var netUpRate: Double = 0
 
     private var lastTicks: (Double, Double, Double, Double)?
+    private var lastNetIn: UInt64?
+    private var lastNetOut: UInt64?
+    private var lastNetTime: Date?
     private var timer: Timer?
 
     var memPercent: Double { memTotal > 0 ? Double(memUsed) / Double(memTotal) * 100 : 0 }
@@ -39,6 +44,17 @@ final class Metrics {
         }
         if let m = Metrics.memInfo() { memUsed = m.used; memTotal = m.total }
         if let d = Metrics.diskInfo() { diskUsed = d.used; diskTotal = d.total }
+        if let n = Metrics.netBytes() {
+            let now = Date()
+            if let li = lastNetIn, let lo = lastNetOut, let lt = lastNetTime {
+                let dt = now.timeIntervalSince(lt)
+                if dt > 0 {
+                    netDownRate = n.inB >= li ? Double(n.inB - li) / dt : 0
+                    netUpRate   = n.outB >= lo ? Double(n.outB - lo) / dt : 0
+                }
+            }
+            lastNetIn = n.inB; lastNetOut = n.outB; lastNetTime = now
+        }
         cpuHistory.append(cpu)
         if cpuHistory.count > 60 { cpuHistory.removeFirst(cpuHistory.count - 60) }
     }
@@ -73,6 +89,29 @@ final class Metrics {
         return (used, total)
     }
 
+    // Sum rx/tx bytes across non-loopback link-layer interfaces.
+    static func netBytes() -> (inB: UInt64, outB: UInt64)? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return nil }
+        defer { freeifaddrs(ifaddr) }
+        var inB: UInt64 = 0, outB: UInt64 = 0
+        var ptr = ifaddr
+        while let p = ptr {
+            let ifa = p.pointee
+            if let addr = ifa.ifa_addr, Int32(addr.pointee.sa_family) == AF_LINK,
+               let data = ifa.ifa_data {
+                let name = String(cString: ifa.ifa_name)
+                if !name.hasPrefix("lo") {
+                    let d = data.assumingMemoryBound(to: if_data.self).pointee
+                    inB += UInt64(d.ifi_ibytes)
+                    outB += UInt64(d.ifi_obytes)
+                }
+            }
+            ptr = ifa.ifa_next
+        }
+        return (inB, outB)
+    }
+
     static func diskInfo() -> (used: Int64, total: Int64)? {
         let url = URL(fileURLWithPath: "/")
         guard let v = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]),
@@ -89,5 +128,11 @@ enum ByteFmt {
     static func gB(_ bytes: Int64) -> String {
         let gb = Double(bytes) / 1_000_000_000
         return gb >= 1000 ? String(format: "%.2f TB", gb / 1000) : String(format: "%.0f GB", gb)
+    }
+    /// network throughput
+    static func rate(_ bps: Double) -> String {
+        if bps >= 1_000_000 { return String(format: "%.1f MB/s", bps / 1_000_000) }
+        if bps >= 1_000 { return String(format: "%.0f KB/s", bps / 1_000) }
+        return String(format: "%.0f B/s", bps)
     }
 }

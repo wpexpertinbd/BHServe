@@ -65,8 +65,37 @@ struct SystemMetricsGrid: View {
                        percent: metrics.diskPercent,
                        detail: "\(ByteFmt.gB(metrics.diskUsed)) / \(ByteFmt.gB(metrics.diskTotal))",
                        tint: .green)
+            NetworkCard()
         }
         .task { metrics.startSampling() }
+    }
+}
+
+/// Live network throughput (↓ down / ↑ up) — the 4th system-resource card.
+struct NetworkCard: View {
+    @Environment(Metrics.self) private var metrics
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "network").foregroundStyle(.secondary)
+                Text("Network").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down").font(.caption).foregroundStyle(.blue)
+                Text(ByteFmt.rate(metrics.netDownRate)).monospacedDigit()
+                Spacer()
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up").font(.caption).foregroundStyle(.green)
+                Text(ByteFmt.rate(metrics.netUpRate)).monospacedDigit()
+                Spacer()
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .background(.quaternary.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
