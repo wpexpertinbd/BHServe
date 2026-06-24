@@ -103,6 +103,10 @@ productbuild --distribution "$PKGTMP/distribution.xml" \
 rm -rf "$PKGROOT" "$PKGTMP"
 echo "✓ $PKG ($(du -h "$PKG" | cut -f1))  (branded installer)"
 
+# Drop the build artifact so it doesn't show up as a second BHServe.app in
+# Spotlight/Launchpad — the .dmg and .pkg already contain it.
+rm -rf "$APP"
+
 echo
 echo "Distributables in $PWD/$DIST:"
 echo "  • $APP_NAME-$VERSION.dmg   — open, drag BHServe to Applications"
