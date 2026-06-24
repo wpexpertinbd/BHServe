@@ -38,6 +38,7 @@ mariadb|mariadb|opt/mariadb/bin/mariadb|db
 mysql|mysql|opt/mysql/bin/mysql|db
 postgresql@17|postgresql@17|opt/postgresql@17/bin/postgres|db
 redis|redis|bin/redis-server|cache
+memcached|memcached|bin/memcached|cache
 dnsmasq|dnsmasq|sbin/dnsmasq|dns
 mkcert|mkcert|bin/mkcert|tls
 mailpit|mailpit|bin/mailpit|mail
@@ -797,7 +798,7 @@ cmd_start() {
     apache|httpd) apache_start ;;
     php|php@*) fpm_start "$(php_key "$what")" ;;
     php*) fpm_start "$(php_key "${what#php}")" ;;
-    mariadb|mysql|postgresql@17|redis|mailpit|dnsmasq) brew_svc start "$what" ;;
+    mariadb|mysql|postgresql@17|redis|memcached|mailpit|dnsmasq) brew_svc start "$what" ;;
     *) die "start: unknown target $what" ;;
   esac
 }
@@ -810,7 +811,7 @@ cmd_stop() {
     apache|httpd) apache_stop ;;
     php|php@*) fpm_stop "$(php_key "$what")" ;;
     php*) fpm_stop "$(php_key "${what#php}")" ;;
-    mariadb|mysql|postgresql@17|redis|mailpit|dnsmasq) brew_svc stop "$what" ;;
+    mariadb|mysql|postgresql@17|redis|memcached|mailpit|dnsmasq) brew_svc stop "$what" ;;
     *) die "stop: unknown target $what" ;;
   esac
 }
