@@ -34,6 +34,18 @@ struct ContentView: View {
     @State private var didAutostart = false
 
     var body: some View {
+        Group {
+            if state.needsSetup { SetupView() }
+            else { mainView }
+        }
+        .onAppear {
+            // window is showing → ensure a Dock icon (we drop to .accessory on close)
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private var mainView: some View {
         NavigationSplitView {
             List(SidebarItem.allCases, selection: $selection) { item in
                 Label(item.title, systemImage: item.icon).tag(item)
@@ -53,11 +65,6 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 520, minHeight: 420)
-        }
-        .onAppear {
-            // window is showing → ensure a Dock icon (we drop to .accessory on close)
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
         }
         .task {
             await state.reload()

@@ -8,6 +8,7 @@ struct Snapshot: Codable, Sendable, Equatable {
     let services: [Service]
     let sites: [Site]
     var helper: Bool?
+    var brew: Bool?
 }
 
 struct EngineConfig: Codable, Sendable, Equatable {

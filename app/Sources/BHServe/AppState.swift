@@ -60,8 +60,12 @@ final class AppState {
         services(role: .php).filter { $0.installed }.map { $0.key }
     }
 
+    private var didInit = false
+
     func reload() async {
         let eng = engine
+        // make sure ~/.bhserve exists (idempotent; needs no Homebrew) so `api` works
+        if !didInit { didInit = true; _ = try? await Task.detached { try eng.run(["init"]) }.value }
         do {
             let snap = try await Task.detached { try eng.snapshot() }.value
             if snap != snapshot { snapshot = snap }   // avoid needless re-render (keeps TextField focus steady)
@@ -69,6 +73,31 @@ final class AppState {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    // ── first-run onboarding ────────────────────────────────────────────────
+    var brewInstalled: Bool {
+        if let b = snapshot?.brew { return b }
+        return FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/brew")
+            || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/brew")
+    }
+    var coreInstalled: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.installed } ?? false }
+    var needsSetup: Bool { !brewInstalled || !coreInstalled }
+
+    /// Open Terminal and run the official Homebrew installer (interactive — handles
+    /// sudo + Command Line Tools with full visibility).
+    func openHomebrewInstaller() {
+        let cmd = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
+        let esc = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let osa = "tell application \"Terminal\"\nactivate\ndo script \"\(esc)\"\nend tell"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", osa]
+        try? p.run()
+    }
+
+    func installCoreServices() async {
+        await runUser(["bootstrap"], note: "installing core services (this can take a few minutes)…")
     }
 
     /// start/stop/restart a service (or "all"). nginx/all/dns need root.

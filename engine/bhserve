@@ -1355,7 +1355,17 @@ cmd_api() {
   done
 
   local helper=false; helper_installed && helper=true
-  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper"
+  local brew=false; [ -n "$BREW" ] && brew=true
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew"
+}
+
+# Install the core stack in one go (after Homebrew exists). Used by GUI onboarding.
+cmd_bootstrap(){
+  [ -n "$BREW" ] || die "Homebrew required first — install from https://brew.sh"
+  cmd_init
+  hdr "Installing core services"
+  cmd_install nginx php@8.4 mariadb mkcert dnsmasq mailpit
+  ok "core stack installed — add a site, then 'bhserve dns' + Start All"
 }
 
 # ── doctor / status ─────────────────────────────────────────────────────────
@@ -1401,6 +1411,7 @@ usage(){ cat <<U
 BHServe — usage:
   bhserve doctor                 check deps + ports + ServBay
   bhserve init                   create ~/.bhserve config root
+  bhserve bootstrap              init + install the core stack (needs Homebrew)
   bhserve install <svc|all>      brew install a service
   bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]
   bhserve site list|rm <name>
@@ -1428,6 +1439,7 @@ case "${1:-doctor}" in
   doctor)  cmd_doctor ;;
   status)  cmd_status ;;
   api)     cmd_api ;;
+  bootstrap) cmd_bootstrap ;;
   install) shift; cmd_install "$@" ;;
   site)    shift; cmd_site "$@" ;;
   db)      shift; cmd_db "$@" ;;
