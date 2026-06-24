@@ -276,7 +276,7 @@ http {
 
     # Catch-all default so an unknown host doesn't leak the first site.
     server {
-        listen ${1:-80} default_server;
+        listen 127.0.0.1:${1:-80} default_server;
         server_name _;
         return 444;
     }
@@ -307,9 +307,9 @@ nginx_listen_block() {
   local domain="$1" http https cert key
   http="$(jget http_port 80)"; https="$(jget https_port 443)"
   cert="$BH_HOME/certs/$domain.pem"; key="$BH_HOME/certs/$domain-key.pem"
-  printf '    listen %s;\n' "$http"
+  printf '    listen 127.0.0.1:%s;\n' "$http"
   if [ -f "$cert" ] && [ -f "$key" ]; then
-    printf '    listen %s ssl;\n    ssl_certificate %s;\n    ssl_certificate_key %s;\n' "$https" "$cert" "$key"
+    printf '    listen 127.0.0.1:%s ssl;\n    ssl_certificate %s;\n    ssl_certificate_key %s;\n' "$https" "$cert" "$key"
   else
     printf '    # HTTPS not provisioned — run: bhserve secure %s\n' "$domain"
   fi
@@ -573,7 +573,8 @@ cmd_site() {
 # Switch a site between nginx (direct) and apache (proxy + .htaccess).
 site_set_server() {
   [ $# -ge 2 ] || die "usage: bhserve site server <name> <nginx|apache>"
-  local name="$1" newsrv="$2" conf="$BH_HOME/nginx/sites/$1.conf"
+  local name="$1" newsrv="$2"; valid_site_name "$name"
+  local conf="$BH_HOME/nginx/sites/$1.conf"
   [ -f "$conf" ] || die "no site '$name'"
   case "$newsrv" in nginx|apache) ;; *) die "server must be nginx or apache" ;; esac
   [ "$newsrv" != apache ] || svc_installed httpd || die "apache needs httpd — bhserve install httpd"
@@ -593,6 +594,7 @@ site_set_server() {
 site_toggle(){
   local name="$1" mode="$2"
   [ -n "$name" ] || die "usage: bhserve site {enable|disable} <name>"
+  valid_site_name "$name"
   local on="$BH_HOME/nginx/sites/$name.conf" off="$BH_HOME/nginx/sites/$name.conf.disabled"
   if [ "$mode" = off ]; then
     [ -f "$on" ] && mv "$on" "$off" && ok "disabled $name" || warn "$name already disabled / missing"
@@ -606,7 +608,8 @@ site_toggle(){
 # ensure that pool exists + is running, then reload nginx (caller/GUI does that).
 site_set_php() {
   [ $# -ge 2 ] || die "usage: bhserve site php <name> <8.4|php@8.4>"
-  local name="$1" newphp="$2" conf="$BH_HOME/nginx/sites/$1.conf"
+  local name="$1" newphp="$2"; valid_site_name "$name"
+  local conf="$BH_HOME/nginx/sites/$1.conf"
   [ -f "$conf" ] || die "no site '$name'"
   local domain root phpkey server
   domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
@@ -636,6 +639,7 @@ site_add() {
     --type) type="$2"; shift 2;;
     *) die "unknown flag: $1";;
   esac; done
+  valid_site_name "$name"
   case "$type" in wordpress|php|others) ;; *) die "--type must be wordpress|php|others" ;; esac
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
@@ -739,7 +743,7 @@ site_autosecure(){
 
 site_rm() {
   [ $# -ge 1 ] || die "usage: bhserve site rm <name>"
-  local name="$1"
+  local name="$1"; valid_site_name "$name"
   rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled" \
         "$BH_HOME/apache/sites/$name.conf"
   ok "removed vhost for $name"
@@ -823,10 +827,15 @@ needs_root_ports(){ local h; h="$(jget http_port 80)"; [ "$h" -lt 1024 ]; }
 
 nginx_start(){
   render_nginx_main "$(jget http_port 80)"
+  regen_all_vhosts >/dev/null 2>&1 || true   # keep existing vhosts in sync with current templates (e.g. loopback bind)
   local bin; bin="$(NGINX_BIN)"; [ -x "$bin" ] || die "nginx not installed — bhserve install nginx"
   if nginx_running; then ok "nginx already running (pid $(cat "$BH_HOME/run/nginx.pid"))"; return; fi
   local pre=""; needs_root_ports && pre="sudo"
-  "$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null || { $bin -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx"; die "nginx config test failed"; }
+  # Validate SYNTAX only: `nginx -t` also tries to bind, which fails unprivileged on
+  # 127.0.0.1:80 — but it still prints "syntax is ok". Don't conflate bind-perm with
+  # a real config error (the actual start runs with sudo and binds fine).
+  local t; t="$("$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)"
+  grep -q "syntax is ok" <<<"$t" || { printf '%s\n' "$t"; die "nginx config test failed"; }
   $pre "$bin" -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" && ok "nginx started${pre:+ (sudo)}" || no "nginx failed to start"
 }
 # Graceful reload of the running nginx (picks up new/changed vhosts).
@@ -939,6 +948,8 @@ PSQL_CLI(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/psql"; }
 PG_BIN(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/$1"; }
 
 db_valid_name(){ [[ "$1" =~ ^[A-Za-z0-9_]+$ ]] || die "invalid db name '$1' (use letters, digits, underscore)"; }
+# Site name = a DNS label — prevents path traversal + nginx-config injection.
+valid_site_name(){ [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid site name '$1' (use lowercase letters, digits, hyphens)"; }
 
 # Run the mysql client with auto-detected auth: OS user first (brew MariaDB's
 # unix_socket account), then passwordless -u root (Oracle MySQL / older setups).
@@ -1213,6 +1224,7 @@ cmd_logs(){
     printf '[%s]\n' "$out"; return
   fi
   local name="${1:-nginx-error.log}" n="${2:-200}"
+  case "$name" in */*|*..*) die "invalid log name" ;; esac
   local f="$BH_HOME/logs/$name"
   [ -f "$f" ] || { echo "(no log yet: $name)"; return; }
   tail -n "$n" "$f"

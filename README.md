@@ -27,6 +27,34 @@ engine/bhserve status                          # config + what's running
 > BHServe owns ports **80/443** and the `*.test` domain — quit ServBay first.
 > DNS, the first cert, and binding 80/443 need **sudo** (you'll be prompted).
 
+## Install
+
+Grab the latest **`BHServe-x.y.z.pkg`** (or `.dmg`) from the
+[**Releases**](https://github.com/wpexpertinbd/BHServe/releases) page.
+
+### ⚠️ First launch on macOS — "unidentified developer" / "damaged" (read this!)
+
+BHServe is **free and open-source but not notarized by Apple** (notarization needs a
+paid Apple Developer account). So macOS shows a one-time security warning the **first
+time** you open it. This is expected — here's exactly how to get past it (you only do
+it **once**; macOS remembers after that):
+
+**Installed the `.pkg`?**
+1. Double-click the `.pkg`. If macOS says *"cannot be opened because it is from an
+   unidentified developer"* → **right-click (Control-click) the `.pkg` → Open → Open**.
+2. Click through the installer. Done.
+
+**Using the `.dmg` (drag to Applications)?**
+1. Drag **BHServe** to Applications, then open it. macOS says *"can't be opened because
+   Apple cannot check it"* (or *"is damaged"*) — that's the quarantine flag, not a real problem.
+2. Open **System Settings → Privacy & Security**, scroll down → you'll see
+   *"BHServe was blocked…"* with an **"Open Anyway"** button → click it → **Open**.
+   *(Older macOS: right-click the app → Open → Open.)*
+
+> **Why?** Apps not signed with a paid Apple Developer ID always trigger this. BHServe
+> is fully open-source — every line is in this repo. The in-app **Settings ▸ Updates**
+> handles future versions for you.
+
 ## The app (native GUI)
 A SwiftUI menu-bar + window app in [`app/`](app/) drives the engine via `bhserve api` (JSON).
 100% our own — no ServBay/Herd/Laragon dependency.
@@ -41,6 +69,18 @@ Tabs: **Services** (start/stop/install), **Sites** (add, per-site PHP switch, on
 open in browser), **Databases** (server start/stop, create/drop, per-DB + root passwords),
 **Logs**, **Settings** (ports/TLD/sites-root). Privileged actions (:80/:443, DNS) prompt for admin.
 The built app bundles the engine, so it doesn't depend on this checkout.
+
+## Security
+
+BHServe is a **local development** tool, hardened accordingly:
+- **Loopback-only:** nginx (and Apache `:8080`, Mailpit `:8025`) listen on **`127.0.0.1`**,
+  so your sites, **phpMyAdmin/Adminer**, and Mailpit are **never exposed to the LAN**.
+- **DBs use `root` with no password by design** — fine because nothing is reachable off
+  this machine. Set a root password anytime in **Databases ▸ root**.
+- Site/DB/log names are validated (no path traversal / config injection); DB inputs are
+  SQL-escaped; passwords pass via env (never argv).
+- The optional "password-less control" helper grants `sudo` **only** to the `nginx`
+  binary (so it can bind `:80/:443`) — the same approach Laravel Valet uses.
 
 ## Roadmap
 1. ✅ Foundation: config root, dependency doctor, service registry.
