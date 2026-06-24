@@ -38,6 +38,8 @@ struct ServiceRow: View {
     @Environment(AppState.self) private var state
     let service: Service
 
+    @State private var confirmUninstall = false
+
     private var manageable: Bool {
         // these the engine can start/stop today
         ["php", "web", "db", "cache", "mail", "dns"].contains(service.role)
@@ -75,10 +77,28 @@ struct ServiceRow: View {
                         .controlSize(.small).tint(.green)
                 }
             }
+            if service.installed {
+                Menu {
+                    Button { Task { await state.updateService(service.key) } } label: {
+                        Label("Update to latest", systemImage: "arrow.up.circle")
+                    }
+                    Button(role: .destructive) { confirmUninstall = true } label: {
+                        Label("Uninstall", systemImage: "trash")
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+                    .menuStyle(.borderlessButton).fixedSize()
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
         .disabled(state.busy)
+        .confirmationDialog("Uninstall \(service.key)? (brew uninstall — stops it first)",
+                            isPresented: $confirmUninstall, titleVisibility: .visible) {
+            Button("Uninstall \(service.key)", role: .destructive) {
+                Task { await state.uninstallService(service.key) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 

@@ -274,6 +274,13 @@ final class AppState {
         await runUser([on ? "enable" : "disable", key], note: "\(on ? "enabling" : "disabling") auto-start for \(key)…")
     }
 
+    func updateService(_ key: String) async {
+        await runUser(["update", key], note: "updating \(key) (brew upgrade)…")
+    }
+    func uninstallService(_ key: String) async {
+        await runUser(["uninstall", key], note: "uninstalling \(key)…")
+    }
+
     func installService(_ key: String) async {
         await runUser(["install", key], note: "installing \(key)…")
     }

@@ -174,6 +174,43 @@ cmd_install() {
   done
 }
 
+# Stop a service (any role) before uninstall/reconfig.
+svc_stop_any(){
+  case "$(svc_role "$1")" in
+    php) fpm_stop "$1" >/dev/null 2>&1 || true ;;
+    web) [ "$1" = nginx ] && nginx_stop >/dev/null 2>&1; [ "$1" = httpd ] && apache_stop >/dev/null 2>&1 || true ;;
+    db|cache|mail) brew_svc stop "$1" >/dev/null 2>&1 || true ;;
+  esac
+}
+
+cmd_update() {
+  need_init; [ $# -ge 1 ] || die "usage: bhserve update <svc|all>"
+  [ -n "$BREW" ] || die "Homebrew not found"
+  if [ "$1" = all ]; then hdr "Updating Homebrew + all formulae"; brew update >/dev/null 2>&1 || true; brew upgrade && ok "all up to date" || warn "upgrade had issues"; return; fi
+  brew update >/dev/null 2>&1 || true
+  for key in "$@"; do
+    svc_exists "$key" || { warn "unknown service: $key"; continue; }
+    svc_installed "$key" || { warn "$key not installed"; continue; }
+    local f; f="$(svc_formula "$key")"
+    hdr "Updating $key  (brew upgrade $f)"
+    brew upgrade "$f" 2>&1 | tail -2 || true
+    ok "$key at $(probe_version "$BREW_PREFIX/$(svc_probe "$key")")"
+  done
+}
+
+cmd_uninstall() {
+  need_init; [ $# -ge 1 ] || die "usage: bhserve uninstall <svc>"
+  [ -n "$BREW" ] || die "Homebrew not found"
+  for key in "$@"; do
+    svc_exists "$key" || { warn "unknown service: $key"; continue; }
+    svc_installed "$key" || { warn "$key not installed"; continue; }
+    local f; f="$(svc_formula "$key")"
+    hdr "Uninstalling $key  (brew uninstall $f)"
+    svc_stop_any "$key"
+    brew uninstall "$f" && ok "$key uninstalled" || no "uninstall failed (a dependency may need it)"
+  done
+}
+
 # ── nginx config generation ──────────────────────────────────────────────────
 render_nginx_main() {
   local conf="$BH_HOME/nginx/nginx.conf"
@@ -1414,6 +1451,8 @@ BHServe — usage:
   bhserve init                   create ~/.bhserve config root
   bhserve bootstrap              init + install the core stack (needs Homebrew)
   bhserve install <svc|all>      brew install a service
+  bhserve update <svc|all>       brew upgrade a service
+  bhserve uninstall <svc>        brew uninstall a service
   bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]
   bhserve site list|rm <name>
   bhserve site php <name> <ver>  switch a site's PHP version
@@ -1442,6 +1481,8 @@ case "${1:-doctor}" in
   api)     cmd_api ;;
   bootstrap) cmd_bootstrap ;;
   install) shift; cmd_install "$@" ;;
+  update)  shift; cmd_update "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
   site)    shift; cmd_site "$@" ;;
   db)      shift; cmd_db "$@" ;;
   node)    shift; cmd_node "$@" ;;
