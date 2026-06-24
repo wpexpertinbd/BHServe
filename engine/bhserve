@@ -1303,6 +1303,7 @@ cmd_mailpit(){ need_init; case "${1:-setup}" in setup) mailpit_setup ;; *) die "
 mailpit_setup(){
   svc_installed mailpit || die "mailpit not installed — bhserve install mailpit"
   brew services start mailpit >/dev/null 2>&1 || true
+  enable_svc mailpit   # keep it in the auto-start set so Start All restarts it
   local tld; tld="$(jget tld test)"
   render_nginx_proxy_site mailpit "mailpit.$tld" 8025
   # route PHP mail() to Mailpit for every pool (sendmail_path picked up on regen)
