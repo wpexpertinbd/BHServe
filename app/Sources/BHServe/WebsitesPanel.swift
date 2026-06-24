@@ -73,14 +73,23 @@ struct ToolButton: View {
 
     var body: some View {
         let exists = state.siteExists(site)
+        let on = state.toolEnabled(site)
         let tld = state.snapshot?.config.tld ?? "test"
         VStack(spacing: 8) {
-            Image(systemName: icon).font(.title2).foregroundStyle(.blue)
+            Image(systemName: icon).font(.title2)
+                .foregroundStyle(exists && on ? .blue : .secondary)
             Text(name).font(.subheadline.weight(.medium))
             if exists {
+                Toggle("", isOn: Binding(
+                    get: { on },
+                    set: { v in Task { await state.setToolEnabled(site, v) } }
+                ))
+                .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+                Text(on ? "Active" : "Off")
+                    .font(.caption2).foregroundStyle(on ? .green : .secondary)
                 Button("Open") {
                     if let u = URL(string: "http://\(site).\(tld)") { NSWorkspace.shared.open(u) }
-                }.controlSize(.small)
+                }.controlSize(.small).disabled(!on)
             } else {
                 Button("Install") { Task { await install() } }.controlSize(.small).tint(.green)
             }

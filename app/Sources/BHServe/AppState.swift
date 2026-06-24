@@ -44,10 +44,34 @@ final class AppState {
     var realSites: [Site] { (snapshot?.sites ?? []).filter { !AppState.systemSites.contains($0.name) } }
 
     var nginxRunning: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.running } ?? false }
-    /// A tool is openable when its site exists and nginx is serving it.
-    // Show a tool's "Open" link whenever it's installed — don't hide it just because
-    // nginx is momentarily down (e.g. during a restart). Matches the dashboard Tools card.
-    func toolActive(_ name: String) -> Bool { siteExists(name) }
+    func serviceRunning(_ key: String) -> Bool { snapshot?.services.contains { $0.key == key && $0.running } ?? false }
+
+    /// A tool is "active" only when it's actually reachable RIGHT NOW: nginx up + its
+    /// site enabled, and (for mailpit, which has a daemon) the mailpit service running.
+    /// The menu bar shows only active tools — a stopped/disabled tool drops off.
+    func toolActive(_ name: String) -> Bool {
+        guard nginxRunning,
+              let site = snapshot?.sites.first(where: { $0.name == name }), site.enabled
+        else { return false }
+        if name == "mailpit" { return serviceRunning("mailpit") }   // mailpit needs its daemon
+        return true                                                 // pma/adminer are static
+    }
+
+    /// On/off state of a tool (drives the Web-tools toggle).
+    func toolEnabled(_ name: String) -> Bool {
+        if name == "mailpit" { return serviceRunning("mailpit") }
+        return snapshot?.sites.first(where: { $0.name == name })?.enabled ?? false
+    }
+
+    /// Turn a tool on/off. Mailpit = start/stop its daemon; phpMyAdmin/Adminer (no
+    /// daemon) = enable/disable their site so nginx stops/starts serving them.
+    func setToolEnabled(_ name: String, _ on: Bool) async {
+        if name == "mailpit" {
+            await control(on ? "start" : "stop", "mailpit")
+        } else {
+            await setSiteEnabled(name, on)
+        }
+    }
     func openTool(_ name: String) {
         let tld = snapshot?.config.tld ?? "test"
         if let u = URL(string: "http://\(name).\(tld)") { NSWorkspace.shared.open(u) }
