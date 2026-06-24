@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.4.1"          # keep in sync with build-app.sh
+VERSION="1.4.2"          # keep in sync with build-app.sh
 IDENT="com.biswashost.bhserve"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
@@ -53,7 +53,7 @@ cat > "$PKGTMP/res/welcome.html" <<HTML
 </style></head><body>
   <div class="brand">BiswasHost</div>
   <h1>BHServe $VERSION</h1>
-  <p class="tag">Your own free local web-server for macOS — an alternative to ServBay / Herd / Laragon.</p>
+  <p class="tag">Your own free local web-server for macOS — an alternative to ServBay / Herd.</p>
   <p style="font-size:13px;margin:0 0 6px">This installer will place <b>BHServe</b> in your Applications folder. It includes:</p>
   <ul>
     <li>Multiple <b>PHP</b> versions (7.4, 8.1–8.6) — per site</li>

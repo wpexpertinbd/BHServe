@@ -57,7 +57,7 @@ it **once**; macOS remembers after that):
 
 ## The app (native GUI)
 A SwiftUI menu-bar + window app in [`app/`](app/) drives the engine via `bhserve api` (JSON).
-100% our own — no ServBay/Herd/Laragon dependency.
+100% our own — no ServBay/Herd dependency.
 ```bash
 cd app && ./build-app.sh        # → dist/BHServe.app (self-contained, ad-hoc signed)
 open dist/BHServe.app            # or drag to /Applications

@@ -27,7 +27,7 @@
 - `bhserve start all` binding 80/443 (sudo).
 - Optional: normalize the default `php` symlink (currently 7.4); BHServe sidesteps it by defaulting to `php@8.4`.
 
-## In progress — Phase 4 (native GUI, our own — no ServBay/Herd/Laragon dependency)
+## In progress — Phase 4 (native GUI, our own — no ServBay/Herd dependency)
 Engine contract: `bhserve api` emits JSON (config + services{installed,running,version} + sites).
 SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in Xcode):
 - ✅ `Engine.swift` — Process bridge: `run` (user) + `runPrivileged` (osascript admin prompt for :80/:443 + dns, shell+AppleScript escaped), `snapshot()` decodes `api` JSON.
