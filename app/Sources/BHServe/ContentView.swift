@@ -31,7 +31,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(AppState.self) private var state
     @State private var selection: SidebarItem = .dashboard
-    @State private var didAutostart = false
 
     var body: some View {
         Group {
@@ -39,9 +38,12 @@ struct ContentView: View {
             else { mainView }
         }
         .onAppear {
-            // window is showing → ensure a Dock icon (we drop to .accessory on close)
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
+            // window is showing → ensure a Dock icon (we drop to .accessory on close).
+            // Skip on a background login launch — there we stay menu-bar-only.
+            if !AppState.isBackgroundLaunch {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
     }
 
@@ -67,14 +69,7 @@ struct ContentView: View {
             .frame(minWidth: 520, minHeight: 420)
         }
         .task {
-            await state.reload()
-            // auto-start services on launch if enabled (once, only when all stopped)
-            if !didAutostart {
-                didAutostart = true
-                if state.autostartEnabled && state.running.isEmpty {
-                    await state.control("start", "all")
-                }
-            }
+            await state.reload()   // boot auto-start is handled in AppDelegate (window-independent)
             // live auto-refresh while the window is open (skip while an action runs)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(4))

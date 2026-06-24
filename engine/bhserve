@@ -859,11 +859,12 @@ nginx_start(){
   migrate_vhost_binds   # migrate any old 0.0.0.0 listen lines to 127.0.0.1 (safe, in-place — no re-render)
   local bin; bin="$(NGINX_BIN)"; [ -x "$bin" ] || die "nginx not installed — bhserve install nginx"
   if nginx_running; then ok "nginx already running (pid $(cat "$BH_HOME/run/nginx.pid"))"; return; fi
-  local pre=""; needs_root_ports && pre="sudo"
+  local pre=""; needs_root_ports && pre="sudo" || true
   # Validate SYNTAX only: `nginx -t` also tries to bind, which fails unprivileged on
-  # 127.0.0.1:80 — but it still prints "syntax is ok". Don't conflate bind-perm with
-  # a real config error (the actual start runs with sudo and binds fine).
-  local t; t="$("$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)"
+  # 127.0.0.1:80 (exit non-zero) — but it still prints "syntax is ok". The `|| true` is
+  # ESSENTIAL: without it the failing assignment trips `set -e` and aborts the whole
+  # start before we ever launch nginx (the real start below runs with sudo and binds).
+  local t; t="$("$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)" || true
   grep -q "syntax is ok" <<<"$t" || { printf '%s\n' "$t"; die "nginx config test failed"; }
   $pre "$bin" -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" && ok "nginx started${pre:+ (sudo)}" || no "nginx failed to start"
 }

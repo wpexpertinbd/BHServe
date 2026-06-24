@@ -13,9 +13,36 @@ final class AppState {
     var lastAction: String?
 
     let engine: Engine
+    static let shared = AppState()
+
+    /// True when launchd started us at login (LaunchAgent passes --background) — we
+    /// stay menu-bar-only (no Dock, no window) and just bring services up.
+    static let isBackgroundLaunch = CommandLine.arguments.contains("--background")
+    private var didBoot = false
 
     init() {
         engine = Engine(enginePath: AppState.resolveEnginePath())
+    }
+
+    /// Run once per app launch: refresh, then (if enabled) start all services.
+    /// start-all is idempotent — already-running services (e.g. Homebrew's own
+    /// MariaDB/Redis LaunchAgents) are skipped, so this no longer bails just because
+    /// something is already up.
+    func bootAutostart() async {
+        guard !didBoot else { return }
+        didBoot = true
+        migrateLoginItemIfNeeded()
+        await reload()
+        if autostartEnabled { await control("start", "all") }
+    }
+
+    /// Older builds registered the plain app as the login item (no --background → it
+    /// launched with a Dock icon + window). Move that to the background agent, keeping
+    /// the user's "start at login" preference.
+    private func migrateLoginItemIfNeeded() {
+        guard SMAppService.mainApp.status == .enabled else { return }
+        try? SMAppService.mainApp.unregister()
+        try? loginAgent.register()
     }
 
     /// Find the bhserve engine: explicit env override, then the user's config
@@ -434,12 +461,16 @@ final class AppState {
     // ── startup: login item (SMAppService) + autostart-on-launch ────────────
     var autostartEnabled: Bool { snapshot?.config.autostart ?? false }
 
-    var loginItemEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    // A bundled LaunchAgent (Contents/Library/LaunchAgents/…) launches us at login with
+    // --background, so we come up menu-bar-only and just start services.
+    static let loginAgentPlist = "com.biswashost.bhserve.helper.plist"
+    private var loginAgent: SMAppService { SMAppService.agent(plistName: AppState.loginAgentPlist) }
+    var loginItemEnabled: Bool { loginAgent.status == .enabled }
 
     func setLoginItem(_ on: Bool) {
         do {
-            if on { try SMAppService.mainApp.register() }
-            else { try SMAppService.mainApp.unregister() }
+            if on { try loginAgent.register() }
+            else { try loginAgent.unregister() }
         } catch {
             errorText = "Login item: \(error.localizedDescription) (run the built .app, not `swift run`)"
         }

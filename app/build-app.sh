@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.4.2"
+VERSION="1.4.3"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
@@ -47,6 +47,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+
+# LaunchAgent: launches BHServe at login with --background (menu-bar-only, auto-starts
+# services). Registered/unregistered from Settings via SMAppService.agent(plistName:).
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cat > "$APP/Contents/Library/LaunchAgents/com.biswashost.bhserve.helper.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.biswashost.bhserve.helper</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/$APP_NAME.app/Contents/MacOS/$APP_NAME</string>
+    <string>--background</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
 </dict>
 </plist>
 PLIST

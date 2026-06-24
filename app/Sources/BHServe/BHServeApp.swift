@@ -8,7 +8,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let mainTitle = "BHServe"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        showInDock()
+        if AppState.isBackgroundLaunch {
+            // login launch → stay in the menu bar: no Dock icon, close the auto-opened window
+            NSApp.setActivationPolicy(.accessory)
+            DispatchQueue.main.async {
+                NSApp.windows.filter { $0.title == AppDelegate.mainTitle }.forEach { $0.close() }
+            }
+        } else {
+            showInDock()
+        }
+        // Bring services up once per launch (idempotent), regardless of any window.
+        Task { await AppState.shared.bootAutostart() }
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
             guard let w = note.object as? NSWindow,
@@ -41,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct BHServeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var state = AppState()
+    @State private var state = AppState.shared
     @State private var metrics = Metrics()
 
     var body: some Scene {
