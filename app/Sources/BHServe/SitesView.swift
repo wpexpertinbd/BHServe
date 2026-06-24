@@ -87,6 +87,7 @@ struct AddSiteSheet: View {
     @State private var name = ""
     @State private var php = ""
     @State private var server = "nginx"
+    @State private var type = "php"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -97,6 +98,19 @@ struct AddSiteSheet: View {
                 Text(".\(state.snapshot?.config.tld ?? "test")")
                     .foregroundStyle(.secondary)
             }
+            Picker("Type", selection: $type) {
+                Text("WordPress").tag("wordpress")
+                Text("PHP").tag("php")
+                Text("Others (static)").tag("others")
+            }
+            Group {
+                switch type {
+                case "wordpress": Text("Creates a database, downloads WordPress, and pre-fills wp-config (DB user root, no password). Just finish the title + admin step.")
+                case "php": Text("Creates a database named after the site (DB user root, no password).")
+                default: Text("Just sets up the domain — no database.")
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Picker("PHP version", selection: $php) {
                 ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
             }
@@ -117,7 +131,9 @@ struct AddSiteSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Add") {
-                    Task { await state.addSite(name: cleanName, php: php, server: server); dismiss() }
+                    let n = cleanName, p = php, s = server, t = type
+                    Task { await state.addSite(name: n, php: p, server: s, type: t) }
+                    dismiss()   // provisioning (incl. WP download) runs in the background
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(cleanName.isEmpty || php.isEmpty || (server == "apache" && !state.httpdInstalled))

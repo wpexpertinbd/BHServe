@@ -626,15 +626,17 @@ site_set_php() {
 vhost_server(){ local s; s="$(sed -n 's/.*server=\([^ ]*\).*/\1/p' "$1" | head -1)"; echo "${s:-nginx}"; }
 
 site_add() {
-  local name="" root="" phpv="" server=""
-  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]"
+  local name="" root="" phpv="" server="" type="others"
+  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others] [--type wordpress|php|others]"
   name="$1"; shift
   while [ $# -gt 0 ]; do case "$1" in
     --php) phpv="$2"; shift 2;;
     --root) root="$2"; shift 2;;
     --server) server="$2"; shift 2;;
+    --type) type="$2"; shift 2;;
     *) die "unknown flag: $1";;
   esac; done
+  case "$type" in wordpress|php|others) ;; *) die "--type must be wordpress|php|others" ;; esac
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
   [ -n "$root" ] || root="$(jget sites_root "$HOME/BHServe/www")/$name"
@@ -642,7 +644,7 @@ site_add() {
   local phpkey; phpkey="$(php_key "$phpv")"
 
   mkdir -p "$root"
-  [ -f "$root/index.php" ] || cat > "$root/index.php" <<PHP
+  [ -f "$root/index.php" ] || [ -f "$root/index.html" ] || cat > "$root/index.php" <<PHP
 <?php // BHServe placeholder for $domain
 echo "<h1>$domain</h1><p>BHServe is serving this site on PHP " . PHP_VERSION . ".</p>";
 phpinfo(INFO_GENERAL);
@@ -655,11 +657,83 @@ PHP
   render_site_vhost "$name" "$domain" "$root" "$phpkey" "$server"
   [ "$server" = apache ] && apache_start >/dev/null 2>&1 || true
   hdr "Site '$name' added"
-  info "domain : http://$domain  (https after: bhserve secure $domain)"
+  info "domain : http://$domain"
   info "root   : $root"
-  info "php    : $phpkey   server: $server"
-  info "https  : bhserve secure $domain"
+  info "php    : $phpkey   server: $server   type: $type"
+
+  site_provision "$name" "$type" "$root" "$domain"
+  site_autosecure "$name" "$domain"
   maybe_reload_nginx
+}
+
+# Sanitized DB name from a site name (mysql-safe).
+db_dbname(){ local d="${1//[^A-Za-z0-9_]/_}"; echo "$d"; }
+
+# Make sure a DB server is up; ensure root@localhost is blank-password (the
+# convention: apps connect as root, no password). Returns 0 if usable.
+db_ready_rootblank(){
+  svc_installed mariadb || svc_installed mysql || return 1
+  if [ ! -S /tmp/mysql.sock ]; then
+    brew_svc start mariadb >/dev/null 2>&1 || brew_svc start mysql >/dev/null 2>&1 || true
+    local i; for i in $(seq 1 15); do [ -S /tmp/mysql.sock ] && break; sleep 1; done
+  fi
+  [ -S /tmp/mysql.sock ] || return 1
+  mysql_run -e "ALTER USER 'root'@'localhost' IDENTIFIED BY ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
+  return 0
+}
+
+# Per-type provisioning: WordPress (DB + files + wp-config), PHP (DB), others (—).
+site_provision(){
+  local name="$1" type="$2" root="$3" domain="$4"
+  [ "$type" = others ] && return 0
+  local db; db="$(db_dbname "$name")"
+  if ! db_ready_rootblank; then
+    warn "no DB server running — install/start MariaDB, then create DB '$db' yourself"
+    return 0
+  fi
+  mysql_run -e "CREATE DATABASE IF NOT EXISTS \`$db\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
+    && ok "database '$db' ready  (user: root · password: none · host: localhost)" \
+    || warn "could not create database '$db'"
+  [ "$type" = wordpress ] && site_install_wordpress "$root" "$db"
+}
+
+# Download latest WordPress into the site root and pre-write wp-config.php.
+site_install_wordpress(){
+  local root="$1" db="$2"
+  if [ -f "$root/wp-load.php" ]; then ok "WordPress already present"; return 0; fi
+  hdr "Downloading WordPress (latest)"
+  local tmp; tmp="$(mktemp -d)"
+  if ! curl -fsSL https://wordpress.org/latest.zip -o "$tmp/wp.zip"; then warn "WP download failed"; rm -rf "$tmp"; return 0; fi
+  unzip -q "$tmp/wp.zip" -d "$tmp" || { warn "WP unzip failed"; rm -rf "$tmp"; return 0; }
+  cp -R "$tmp/wordpress/." "$root/"
+  rm -f "$root/index.php.bhserve" 2>/dev/null || true
+  rm -rf "$tmp"
+  ok "WordPress extracted to $root"
+  # wp-config.php from the sample: DB=root/none/localhost + fresh salts
+  if [ -f "$root/wp-config-sample.php" ] && [ ! -f "$root/wp-config.php" ]; then
+    cp "$root/wp-config-sample.php" "$root/wp-config.php"
+    sed -i '' "s/database_name_here/$db/; s/username_here/root/; s/'password_here'/''/" "$root/wp-config.php"
+    local salts; salts="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ 2>/dev/null || true)"
+    if [ -n "$salts" ]; then
+      awk -v s="$salts" '/put your unique phrase here/{ if(!d){printf "%s", s; d=1} next } {print}' \
+        "$root/wp-config.php" > "$root/wp-config.php.tmp" && mv "$root/wp-config.php.tmp" "$root/wp-config.php"
+    fi
+    ok "wrote wp-config.php — visit the site and just set the title + admin user"
+  fi
+}
+
+# Auto-issue a trusted cert if the mkcert CA is already installed (no prompt).
+site_autosecure(){
+  local name="$1" domain="$2"
+  svc_installed mkcert || return 0
+  local caroot; caroot="$("$BREW_PREFIX/bin/mkcert" -CAROOT 2>/dev/null)"
+  [ -n "$caroot" ] && [ -f "$caroot/rootCA.pem" ] || { info "https: bhserve secure $domain"; return 0; }
+  ( cd "$BH_HOME/certs" && "$BREW_PREFIX/bin/mkcert" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) >/dev/null 2>&1 \
+    && { local root php server; root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$BH_HOME/nginx/sites/$name.conf" | tr -d ';')"
+         php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$BH_HOME/nginx/sites/$name.conf" | head -1)"
+         server="$(vhost_server "$BH_HOME/nginx/sites/$name.conf")"
+         render_site_vhost "$name" "$domain" "$root" "$php" "$server"; ok "HTTPS enabled (mkcert)"; } \
+    || info "https: bhserve secure $domain"
 }
 
 site_rm() {
@@ -1453,7 +1527,7 @@ BHServe — usage:
   bhserve install <svc|all>      brew install a service
   bhserve update <svc|all>       brew upgrade a service
   bhserve uninstall <svc>        brew uninstall a service
-  bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache]
+  bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]
   bhserve site list|rm <name>
   bhserve site php <name> <ver>  switch a site's PHP version
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]

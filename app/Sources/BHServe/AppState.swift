@@ -360,10 +360,11 @@ final class AppState {
         await runUser(["install", key], note: "installing \(key)…")
     }
 
-    func addSite(name: String, php: String, server: String = "nginx") async {
+    func addSite(name: String, php: String, server: String = "nginx", type: String = "php") async {
         let clean = name.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return }
-        await runUser(["site", "add", clean, "--php", php, "--server", server], note: "adding \(clean)…")
+        let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
+        await runUser(["site", "add", clean, "--php", php, "--server", server, "--type", type], note: note)
     }
 
     func removeSite(_ name: String) async {
