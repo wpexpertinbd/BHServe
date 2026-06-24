@@ -386,12 +386,21 @@ final class AppState {
         await runUser(["install", key], note: "installing \(key)…")
     }
 
-    func addSite(name: String, php: String, server: String = "nginx", type: String = "php") async {
+    func addSite(name: String, php: String, server: String = "nginx", type: String = "php", root: String? = nil) async {
         let clean = name.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return }
+        var args = ["site", "add", clean, "--php", php, "--server", server, "--type", type]
+        if let r = root?.trimmingCharacters(in: .whitespaces), !r.isEmpty { args += ["--root", r] }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
-        await runUser(["site", "add", clean, "--php", php, "--server", server, "--type", type], note: note)
+        await runUser(args, note: note)
         await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
+    }
+
+    func setSiteRoot(_ name: String, _ path: String) async {
+        let p = path.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty else { return }
+        await runUser(["site", "root", name, p], note: "changing \(name) root…")
+        await control("restart", "nginx")
     }
 
     func restartAll() async { await control("restart", "all") }

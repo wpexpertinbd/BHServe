@@ -175,6 +175,7 @@ struct EditSiteSheet: View {
     let site: Site
     @State private var php = ""
     @State private var server = "nginx"
+    @State private var root = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -191,7 +192,14 @@ struct EditSiteSheet: View {
                 Label("Install httpd in Services first.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
-            LabeledContent("Root", value: site.root)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Root folder").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("/path/to/site", text: $root).textFieldStyle(.roundedBorder)
+                        .font(.caption.monospaced())
+                    Button("Choose…") { if let p = bhChooseFolder(start: root) { root = p } }
+                }
+            }
             HStack {
                 if site.secure {
                     Label("HTTPS enabled", systemImage: "lock.fill").foregroundStyle(.green).font(.caption)
@@ -212,6 +220,8 @@ struct EditSiteSheet: View {
                         if server != site.serverKind && !(server == "apache" && !state.httpdInstalled) {
                             await state.setSiteServer(site.name, server)
                         }
+                        let r = root.trimmingCharacters(in: .whitespaces)
+                        if r != site.root && r.hasPrefix("/") { await state.setSiteRoot(site.name, r) }
                         dismiss()
                     }
                 }
@@ -219,7 +229,7 @@ struct EditSiteSheet: View {
             }
         }
         .padding(20).frame(width: 420)
-        .onAppear { php = site.php; server = site.serverKind }
+        .onAppear { php = site.php; server = site.serverKind; root = site.root }
     }
 }
 

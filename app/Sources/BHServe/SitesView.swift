@@ -1,4 +1,17 @@
 import SwiftUI
+import AppKit
+
+/// Native folder chooser — returns the picked absolute path, or nil if cancelled.
+func bhChooseFolder(start: String? = nil) -> String? {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Choose"
+    if let s = start, !s.isEmpty { panel.directoryURL = URL(fileURLWithPath: s) }
+    return panel.runModal() == .OK ? panel.url?.path : nil
+}
 
 struct SitesView: View {
     @Environment(AppState.self) private var state
@@ -71,6 +84,12 @@ struct AddSiteSheet: View {
     @State private var php = ""
     @State private var server = "nginx"
     @State private var type = "php"
+    @State private var rootMode = "default"   // "default" | "custom"
+    @State private var customRoot = ""
+
+    private var defaultRoot: String {
+        (state.snapshot?.config.sitesRoot ?? "~/BHServe/www") + "/" + (cleanName.isEmpty ? "<name>" : cleanName)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -105,6 +124,19 @@ struct AddSiteSheet: View {
                 Label("Install httpd in Services to use Apache.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
+            Picker("Site root", selection: $rootMode) {
+                Text("Default folder").tag("default")
+                Text("Custom folder…").tag("custom")
+            }
+            if rootMode == "default" {
+                Text(defaultRoot).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            } else {
+                HStack {
+                    TextField("/path/to/site", text: $customRoot).textFieldStyle(.roundedBorder)
+                    Button("Choose…") { if let p = bhChooseFolder(start: state.snapshot?.config.sitesRoot) { customRoot = p } }
+                }
+            }
             if !name.isEmpty {
                 Label("Will be served at \(scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
                       systemImage: "info.circle")
@@ -115,11 +147,14 @@ struct AddSiteSheet: View {
                 Button("Cancel") { dismiss() }
                 Button("Add") {
                     let n = cleanName, p = php, s = server, t = type
-                    Task { await state.addSite(name: n, php: p, server: s, type: t) }
+                    let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
+                    Task { await state.addSite(name: n, php: p, server: s, type: t, root: r) }
                     dismiss()   // provisioning (incl. WP download) runs in the background
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(cleanName.isEmpty || php.isEmpty || (server == "apache" && !state.httpdInstalled))
+                .disabled(cleanName.isEmpty || php.isEmpty
+                          || (server == "apache" && !state.httpdInstalled)
+                          || (rootMode == "custom" && !customRoot.hasPrefix("/")))
             }
         }
         .padding(20)

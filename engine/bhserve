@@ -564,9 +564,10 @@ cmd_site() {
     list|ls) site_list ;;
     php) site_set_php "$@" ;;
     server) site_set_server "$@" ;;
+    root) site_set_root "$@" ;;
     enable)  site_toggle "${1:-}" on ;;
     disable) site_toggle "${1:-}" off ;;
-    *) die "usage: bhserve site {add|rm|list|php|server|enable|disable}" ;;
+    *) die "usage: bhserve site {add|rm|list|php|server|root|enable|disable}" ;;
   esac
 }
 
@@ -625,12 +626,30 @@ site_set_php() {
   maybe_reload_nginx
 }
 
+# Change a site's document root: re-render its vhost with the new root.
+site_set_root() {
+  [ $# -ge 2 ] || die "usage: bhserve site root <name> <path>"
+  local name="$1" newroot="$2"; valid_site_name "$name"
+  local conf="$BH_HOME/nginx/sites/$1.conf"
+  [ -f "$conf" ] || die "no site '$name'"
+  case "$newroot" in /*) ;; *) die "root must be an absolute path" ;; esac
+  local domain phpkey server
+  domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
+  phpkey="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
+  server="$(vhost_server "$conf")"
+  mkdir -p "$newroot"
+  render_site_vhost "$name" "$domain" "$newroot" "$phpkey" "$server"
+  ok "$name root → $newroot"
+  [ "$server" = apache ] && apache_reload || true
+  maybe_reload_nginx
+}
+
 # server type recorded in the vhost comment (default nginx for older vhosts)
 vhost_server(){ local s; s="$(sed -n 's/.*server=\([^ ]*\).*/\1/p' "$1" | head -1)"; echo "${s:-nginx}"; }
 
 site_add() {
   local name="" root="" phpv="" server="" type="others"
-  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others] [--type wordpress|php|others]"
+  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]"
   name="$1"; shift
   while [ $# -gt 0 ]; do case "$1" in
     --php) phpv="$2"; shift 2;;
