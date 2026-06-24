@@ -96,6 +96,7 @@ struct MenuBarView: View {
             HStack {
                 Button("Start All") { Task { await state.control("start", "all") } }
                 Button("Stop All") { Task { await state.control("stop", "all") } }
+                Button("Restart All") { Task { await state.restartAll() } }
             }
             .disabled(state.busy)
 

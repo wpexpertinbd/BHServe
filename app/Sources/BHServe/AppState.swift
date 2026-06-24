@@ -365,7 +365,10 @@ final class AppState {
         guard !clean.isEmpty else { return }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
         await runUser(["site", "add", clean, "--php", php, "--server", server, "--type", type], note: note)
+        await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
     }
+
+    func restartAll() async { await control("restart", "all") }
 
     func removeSite(_ name: String) async {
         await runUser(["site", "rm", name], note: "removing \(name)…")

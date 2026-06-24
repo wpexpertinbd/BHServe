@@ -654,6 +654,7 @@ PHP
   svc_installed httpd || [ "$server" != apache ] || die "apache backend needs httpd — bhserve install httpd"
 
   render_fpm_pool "$phpkey" || true
+  fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the site's PHP pool is up (no 502)
   render_site_vhost "$name" "$domain" "$root" "$phpkey" "$server"
   [ "$server" = apache ] && apache_start >/dev/null 2>&1 || true
   hdr "Site '$name' added"

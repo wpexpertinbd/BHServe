@@ -110,14 +110,18 @@ struct StatusFooter: View {
             }
             HStack(spacing: 6) {
                 Button { Task { await state.control("start", "all") } } label: {
-                    Label("Start All", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 Button { Task { await state.control("stop", "all") } } label: {
-                    Label("Stop All", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                    Label("Stop", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                }
+                Button { Task { await state.restartAll() } } label: {
+                    Label("Restart", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
                 }
             }
             .controlSize(.small)
             .disabled(state.busy)
+            .help("Start / Stop / Restart all enabled services")
             if let note = state.lastAction {
                 Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
