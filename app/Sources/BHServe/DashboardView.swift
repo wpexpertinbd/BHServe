@@ -28,16 +28,7 @@ struct DashboardView: View {
                                value: db?.running == true ? "MariaDB" : "stopped",
                                sub: db?.shortVersion ?? "—",
                                on: db?.running == true)
-                    if caches.isEmpty {
-                        StatusCard(title: "Cache", icon: "bolt.horizontal",
-                                   value: "not installed", sub: "Redis / Memcached", on: false)
-                    } else {
-                        ForEach(caches) { c in
-                            StatusCard(title: c.key.capitalized, icon: "bolt.horizontal",
-                                       value: c.running ? "running" : "stopped",
-                                       sub: c.shortVersion, on: c.running)
-                        }
-                    }
+                    CacheCard(caches: caches)
                 }
 
                 // System metrics (isolated so 2s ticks don't re-render the rest)
@@ -76,6 +67,40 @@ struct SystemMetricsGrid: View {
                        tint: .green)
         }
         .task { metrics.startSampling() }
+    }
+}
+
+/// Single Cache card listing each installed engine (Redis / Memcached) + status.
+struct CacheCard: View {
+    let caches: [Service]
+    private var anyRunning: Bool { caches.contains { $0.running } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "bolt.horizontal").foregroundStyle(.secondary)
+                Text("Cache").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Circle().fill(anyRunning ? Color.green : Color.secondary.opacity(0.4)).frame(width: 9, height: 9)
+            }
+            if caches.isEmpty {
+                Text("not installed").font(.title3.weight(.semibold))
+                Text("Redis / Memcached").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(caches) { c in
+                    HStack(spacing: 7) {
+                        Circle().fill(c.running ? Color.green : Color.secondary.opacity(0.4)).frame(width: 7, height: 7)
+                        Text(c.key.capitalized).font(.callout)
+                        Spacer()
+                        Text(c.running ? "running" : "stopped").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .background(.quaternary.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
