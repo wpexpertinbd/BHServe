@@ -5,47 +5,23 @@ import AppKit
 /// regular app (Dock icon + can take keyboard focus); when it's closed the app
 /// drops to .accessory — no Dock icon, keeps running, reachable from the menu bar.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let mainTitle = "BHServe"
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if AppState.isBackgroundLaunch {
-            // login launch → stay in the menu bar: no Dock icon, close the auto-opened window
-            NSApp.setActivationPolicy(.accessory)
-            DispatchQueue.main.async {
-                NSApp.windows.filter { $0.title == AppDelegate.mainTitle }.forEach { $0.close() }
-            }
-        } else {
-            showInDock()
-        }
-        // Bring services up once per launch (idempotent), regardless of any window.
+        // The dashboard is an AppKit window we create ONLY on demand (DashboardWindow),
+        // so a login (background) launch can never show it — we just start services and
+        // sit in the menu bar. A normal launch opens it explicitly.
+        NSApp.setActivationPolicy(.accessory)
         Task { await AppState.shared.bootAutostart() }
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-            guard let w = note.object as? NSWindow,
-                  w.title == AppDelegate.mainTitle, !w.isSheet else { return }
-            // last dashboard window closing → menu-bar only
-            DispatchQueue.main.async {
-                let stillOpen = NSApp.windows.contains {
-                    $0 !== w && $0.title == AppDelegate.mainTitle && $0.isVisible
-                }
-                if !stillOpen { NSApp.setActivationPolicy(.accessory) }
-            }
+        if !AppState.isBackgroundLaunch {
+            DashboardWindow.shared.show()
         }
     }
 
-    // Don't quit when the window is closed — the menu bar keeps the app alive.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    // Clicking the Dock icon (when visible) reopens.
+    // Double-clicking the app (running or not) → open the dashboard.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        AppState.shared.dashboardRequested = true   // user clicked the app → show the dashboard
-        showInDock()
+        DashboardWindow.shared.show()
         return true
-    }
-
-    func showInDock() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -53,14 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct BHServeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var state = AppState.shared
-    @State private var metrics = Metrics()
+    @State private var metrics = Metrics.shared
 
     var body: some Scene {
-        Window("BHServe", id: "main") {
-            ContentView().environment(state).environment(metrics)
-        }
-        .defaultSize(width: 820, height: 600)
-
+        // Menu bar is the ONLY scene — the dashboard window is AppKit-managed on demand.
         MenuBarExtra("BHServe", systemImage: "server.rack") {
             MenuBarView().environment(state).environment(metrics)
         }
@@ -68,11 +40,42 @@ struct BHServeApp: App {
     }
 }
 
+/// AppKit-managed dashboard window. It exists only after `show()` is called — never auto-
+/// created — so a background/login launch stays silent. Reused across open/close.
+@MainActor
+final class DashboardWindow: NSObject, NSWindowDelegate {
+    static let shared = DashboardWindow()
+    private var window: NSWindow?
+
+    func show() {
+        if window == nil {
+            let host = NSHostingController(
+                rootView: ContentView().environment(AppState.shared).environment(Metrics.shared))
+            let w = NSWindow(contentViewController: host)
+            w.title = "BHServe"
+            w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            w.setContentSize(NSSize(width: 860, height: 620))
+            w.titlebarAppearsTransparent = true
+            w.isReleasedWhenClosed = false
+            w.center()
+            w.delegate = self
+            window = w
+        }
+        NSApp.setActivationPolicy(.regular)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Closing the dashboard returns the app to the menu bar (no Dock icon).
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
 /// Compact menu-bar panel: status, Start/Stop All, quick links, open window.
 struct MenuBarView: View {
     @Environment(AppState.self) private var state
     @Environment(Metrics.self) private var metrics
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -145,12 +148,7 @@ struct MenuBarView: View {
 
             Divider()
             HStack {
-                Button("Open BHServe") {
-                    state.dashboardRequested = true
-                    NSApp.setActivationPolicy(.regular)
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+                Button("Open BHServe") { DashboardWindow.shared.show() }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
             }

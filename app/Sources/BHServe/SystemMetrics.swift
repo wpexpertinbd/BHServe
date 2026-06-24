@@ -6,6 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class Metrics {
+    @MainActor static let shared = Metrics()
     var cpu: Double = 0                 // 0…100 busy %
     var cpuHistory: [Double] = []       // recent samples for the sparkline
     var memUsed: UInt64 = 0
