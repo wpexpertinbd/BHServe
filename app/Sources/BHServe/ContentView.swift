@@ -38,9 +38,14 @@ struct ContentView: View {
             else { mainView }
         }
         .onAppear {
-            // window is showing → ensure a Dock icon (we drop to .accessory on close).
-            // Skip on a background login launch — there we stay menu-bar-only.
-            if !AppState.isBackgroundLaunch {
+            // Login (background) launch: stay silent — close the auto-opened dashboard
+            // window until the user explicitly opens it from the menu bar.
+            if AppState.isBackgroundLaunch && !state.dashboardRequested {
+                NSApp.setActivationPolicy(.accessory)
+                DispatchQueue.main.async {
+                    NSApp.windows.filter { $0.title == "BHServe" }.forEach { $0.close() }
+                }
+            } else {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
             }

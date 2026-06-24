@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Clicking the Dock icon (when visible) reopens.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppState.shared.dashboardRequested = true   // user clicked the app → show the dashboard
         showInDock()
         return true
     }
@@ -145,6 +146,7 @@ struct MenuBarView: View {
             Divider()
             HStack {
                 Button("Open BHServe") {
+                    state.dashboardRequested = true
                     NSApp.setActivationPolicy(.regular)
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)

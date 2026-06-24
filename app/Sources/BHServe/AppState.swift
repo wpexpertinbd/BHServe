@@ -19,6 +19,9 @@ final class AppState {
     /// stay menu-bar-only (no Dock, no window) and just bring services up.
     static let isBackgroundLaunch = CommandLine.arguments.contains("--background")
     private var didBoot = false
+    /// At a login (background) launch we stay silent — the dashboard window is shown
+    /// only after the user explicitly opens it (menu bar ▸ Open BHServe).
+    var dashboardRequested = false
 
     init() {
         engine = Engine(enginePath: AppState.resolveEnginePath())
