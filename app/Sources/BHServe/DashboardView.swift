@@ -6,8 +6,8 @@ struct DashboardView: View {
     private var web: Service? { state.snapshot?.services.first { $0.key == "nginx" } }
     private var phpRunning: [String] { state.services(role: .php).filter { $0.running }.map { $0.key.replacingOccurrences(of: "php@", with: "") } }
     private var db: Service? { state.snapshot?.services.first { ($0.key == "mariadb" || $0.key == "mysql") && $0.installed } }
-    private var cache: Service? { state.snapshot?.services.first { $0.key == "redis" } }
-    private var siteCount: Int { state.snapshot?.sites.count ?? 0 }
+    private var caches: [Service] { (state.snapshot?.services ?? []).filter { $0.role == "cache" && $0.installed } }
+    private var siteCount: Int { state.realSites.count }
 
     private let cols = [GridItem(.adaptive(minimum: 220), spacing: 14)]
 
@@ -28,10 +28,16 @@ struct DashboardView: View {
                                value: db?.running == true ? "MariaDB" : "stopped",
                                sub: db?.shortVersion ?? "—",
                                on: db?.running == true)
-                    StatusCard(title: "Cache", icon: "bolt.horizontal",
-                               value: cache?.running == true ? "Redis" : (cache?.installed == true ? "stopped" : "not installed"),
-                               sub: cache?.shortVersion ?? "—",
-                               on: cache?.running == true)
+                    if caches.isEmpty {
+                        StatusCard(title: "Cache", icon: "bolt.horizontal",
+                                   value: "not installed", sub: "Redis / Memcached", on: false)
+                    } else {
+                        ForEach(caches) { c in
+                            StatusCard(title: c.key.capitalized, icon: "bolt.horizontal",
+                                       value: c.running ? "running" : "stopped",
+                                       sub: c.shortVersion, on: c.running)
+                        }
+                    }
                 }
 
                 // System metrics (isolated so 2s ticks don't re-render the rest)

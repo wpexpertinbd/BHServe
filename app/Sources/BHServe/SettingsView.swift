@@ -58,7 +58,7 @@ struct SettingsView: View {
                     Text("apache").tag("apache")
                 }
                 LabeledContent("Sites root") {
-                    TextField("~/Sites", text: $sitesRoot)
+                    TextField("~/BHServe/www", text: $sitesRoot)
                 }
             }
             Section {

@@ -142,7 +142,7 @@ cmd_init() {
   "default_php": "8.4",
   "default_web": "nginx",
   "brew_prefix": "$BREW_PREFIX",
-  "sites_root": "$HOME/Sites",
+  "sites_root": "$HOME/BHServe/www",
   "autostart": false
 }
 JSON
@@ -637,7 +637,7 @@ site_add() {
   esac; done
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
-  [ -n "$root" ] || root="$(jget sites_root "$HOME/Sites")/$name"
+  [ -n "$root" ] || root="$(jget sites_root "$HOME/BHServe/www")/$name"
   [ -n "$server" ] || server="$(jget default_web nginx)"
   local phpkey; phpkey="$(php_key "$phpv")"
 
@@ -1067,7 +1067,7 @@ json_set(){
   local tld httpp httpsp dphp dweb bp sroot autostart
   tld="$(jget tld test)"; httpp="$(jget http_port 80)"; httpsp="$(jget https_port 443)"
   dphp="$(jget default_php 8.4)"; dweb="$(jget default_web nginx)"
-  bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/Sites")"
+  bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/BHServe/www")"
   autostart="$(jget autostart false)"
   case "$k" in
     tld) tld="$v";; http_port) httpp="$v";; https_port) httpsp="$v";;
