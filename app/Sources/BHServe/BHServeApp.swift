@@ -110,11 +110,8 @@ struct MenuBarView: View {
                     }
                 }
                 ForEach(state.realSites.prefix(5)) { site in
-                    if let url = site.url {
-                        Button { NSWorkspace.shared.open(url) } label: {
-                            Label(site.domain, systemImage: site.secure ? "lock.fill" : "globe")
-                        }
-                        .buttonStyle(.plain)
+                    MenuLinkRow(title: site.domain, systemImage: site.secure ? "lock.fill" : "globe") {
+                        if let url = site.url { NSWorkspace.shared.open(url) }
                     }
                 }
             }
@@ -124,13 +121,13 @@ struct MenuBarView: View {
                 Divider()
                 Text("Tools").font(.caption).foregroundStyle(.secondary)
                 if state.toolActive("phpmyadmin") {
-                    Button { state.openTool("phpmyadmin") } label: { Label("Open phpMyAdmin", systemImage: "cylinder.split.1x2") }.buttonStyle(.plain)
+                    MenuLinkRow(title: "Open phpMyAdmin", systemImage: "cylinder.split.1x2") { state.openTool("phpmyadmin") }
                 }
                 if state.toolActive("adminer") {
-                    Button { state.openTool("adminer") } label: { Label("Open Adminer", systemImage: "tablecells") }.buttonStyle(.plain)
+                    MenuLinkRow(title: "Open Adminer", systemImage: "tablecells") { state.openTool("adminer") }
                 }
                 if state.toolActive("mailpit") {
-                    Button { state.openTool("mailpit") } label: { Label("Open Mailpit", systemImage: "envelope") }.buttonStyle(.plain)
+                    MenuLinkRow(title: "Open Mailpit", systemImage: "envelope") { state.openTool("mailpit") }
                 }
             }
 
@@ -151,6 +148,27 @@ struct MenuBarView: View {
             metrics.startSampling()
             await state.reload()
         }
+    }
+}
+
+/// A menu-bar list row that highlights on hover (so it reads as clickable).
+struct MenuLinkRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(hovering ? Color.accentColor.opacity(0.18) : Color.clear))
+        .onHover { hovering = $0 }
     }
 }
 
