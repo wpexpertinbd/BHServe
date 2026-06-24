@@ -62,7 +62,7 @@ struct SettingsView: View {
             Section("Startup") {
                 Toggle("Launch BHServe at login", isOn: Binding(
                     get: { state.loginItemEnabled },
-                    set: { state.setLoginItem($0) }))
+                    set: { v in Task { await state.setLoginItem(v) } }))
                 Toggle("Start services when BHServe launches", isOn: Binding(
                     get: { state.autostartEnabled },
                     set: { v in Task { await state.setAutostart(v) } }))

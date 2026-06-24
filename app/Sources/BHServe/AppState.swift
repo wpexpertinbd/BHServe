@@ -31,30 +31,21 @@ final class AppState {
     func bootAutostart() async {
         guard !didBoot else { return }
         didBoot = true
-        migrateLoginItemIfNeeded()
+        retireOldSMAgents()
         await reload()
         if autostartEnabled { await control("start", "all") }
     }
 
-    // Bump when the bundled LaunchAgent plist changes so existing installs rebind it.
-    private static let loginAgentRev = "v2-open"
-
-    /// Keep the login agent correct across upgrades:
-    /// • migrate users off the old SMAppService.mainApp login item (it launched with a
-    ///   Dock icon), and off the v1 agent that exec'd the binary directly (→ code-signing
-    ///   SIGKILL on login). Re-register so the current `open`-based plist takes effect.
-    private func migrateLoginItemIfNeeded() {
+    /// One-time cleanup: earlier builds used SMAppService (mainApp, then a `.helper`
+    /// agent) for start-at-login. Both are fragile for an ad-hoc-signed app (the
+    /// `.helper` agent's code requirement goes stale on update → "spawn failed").
+    /// We now use a plain LaunchAgent managed by the engine; unregister the old ones.
+    private func retireOldSMAgents() {
         let d = UserDefaults.standard
-        let needRebind = d.string(forKey: "loginAgentRev") != AppState.loginAgentRev
-        if SMAppService.mainApp.status == .enabled {
-            try? SMAppService.mainApp.unregister()
-            try? loginAgent.register()
-            d.set(AppState.loginAgentRev, forKey: "loginAgentRev")
-        } else if loginItemEnabled && needRebind {
-            try? loginAgent.unregister()
-            try? loginAgent.register()
-            d.set(AppState.loginAgentRev, forKey: "loginAgentRev")
-        }
+        guard !d.bool(forKey: "retiredSMAgents") else { return }
+        try? SMAppService.mainApp.unregister()
+        try? SMAppService.agent(plistName: "com.biswashost.bhserve.helper.plist").unregister()
+        d.set(true, forKey: "retiredSMAgents")
     }
 
     /// Find the bhserve engine: explicit env override, then the user's config
@@ -483,19 +474,13 @@ final class AppState {
     // ── startup: login item (SMAppService) + autostart-on-launch ────────────
     var autostartEnabled: Bool { snapshot?.config.autostart ?? false }
 
-    // A bundled LaunchAgent (Contents/Library/LaunchAgents/…) launches us at login with
-    // --background, so we come up menu-bar-only and just start services.
-    static let loginAgentPlist = "com.biswashost.bhserve.helper.plist"
-    private var loginAgent: SMAppService { SMAppService.agent(plistName: AppState.loginAgentPlist) }
-    var loginItemEnabled: Bool { loginAgent.status == .enabled }
+    // Start-at-login is a plain LaunchAgent managed by the engine (no SMAppService —
+    // see retireOldSMAgents). It launches the app via `open --args --background`.
+    var loginItemEnabled: Bool { snapshot?.loginitem ?? false }
 
-    func setLoginItem(_ on: Bool) {
-        do {
-            if on { try loginAgent.register() }
-            else { try loginAgent.unregister() }
-        } catch {
-            errorText = "Login item: \(error.localizedDescription) (run the built .app, not `swift run`)"
-        }
+    func setLoginItem(_ on: Bool) async {
+        await runUser(["loginitem", on ? "enable" : "disable"],
+                      note: on ? "enabling start-at-login…" : "disabling start-at-login…")
     }
 
     func setAutostart(_ on: Bool) async {

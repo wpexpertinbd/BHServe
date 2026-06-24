@@ -10,6 +10,7 @@ struct Snapshot: Codable, Sendable, Equatable {
     var helper: Bool?
     var brew: Bool?
     var cloudflared: Bool?
+    var loginitem: Bool?
 }
 
 struct EngineConfig: Codable, Sendable, Equatable {

@@ -1531,6 +1531,55 @@ cmd_tunnel(){
   esac
 }
 
+# ── start-at-login (plain LaunchAgent, launched via `open` = no code-sign kill) ──
+# SMAppService attaches a LightWeight Code Requirement tied to the app's signature;
+# for an ad-hoc-signed app that goes stale on every update → "spawn failed". A plain
+# ~/Library/LaunchAgents plist that runs `/usr/bin/open` has no LWCR and just works.
+loginitem_plist(){ echo "$HOME/Library/LaunchAgents/com.biswashost.bhserve.login.plist"; }
+loginitem_label(){ echo "com.biswashost.bhserve.login"; }
+loginitem_enabled(){ [ -f "$(loginitem_plist)" ]; }
+
+cmd_loginitem(){
+  local sub="${1:-status}" uid pl label
+  uid="$(id -u)"; pl="$(loginitem_plist)"; label="$(loginitem_label)"
+  case "$sub" in
+    enable)
+      mkdir -p "$HOME/Library/LaunchAgents"
+      cat > "$pl" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/open</string>
+    <string>-a</string>
+    <string>/Applications/BHServe.app</string>
+    <string>--args</string>
+    <string>--background</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+</dict>
+</plist>
+PLIST
+      launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+      launchctl bootstrap "gui/$uid" "$pl" >/dev/null 2>&1 || true
+      launchctl enable "gui/$uid/$label" >/dev/null 2>&1 || true
+      launchctl bootout "gui/$uid/com.biswashost.bhserve.helper" >/dev/null 2>&1 || true   # retire old SMAppService agent
+      ok "start-at-login enabled"
+      ;;
+    disable)
+      launchctl bootout "gui/$uid/$label" >/dev/null 2>&1 || true
+      rm -f "$pl"
+      ok "start-at-login disabled"
+      ;;
+    status) loginitem_enabled && echo enabled || echo disabled ;;
+    *) die "usage: bhserve loginitem {enable|disable|status}" ;;
+  esac
+}
+
 cmd_mailpit(){ need_init; case "${1:-setup}" in setup) mailpit_setup ;; *) die "usage: bhserve mailpit setup" ;; esac; }
 mailpit_setup(){
   svc_installed mailpit || die "mailpit not installed — bhserve install mailpit"
@@ -1590,7 +1639,8 @@ cmd_api() {
   local helper=false; helper_installed && helper=true
   local brew=false; [ -n "$BREW" ] && brew=true
   local cf=false; cloudflared_installed && cf=true
-  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew" "$cf"
+  local li=false; loginitem_enabled && li=true
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s,"loginitem":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew" "$cf" "$li"
 }
 
 # Install the core stack in one go (after Homebrew exists). Used by GUI onboarding.
@@ -1687,6 +1737,7 @@ case "${1:-doctor}" in
   adminer) shift; cmd_adminer "$@" ;;
   mailpit) shift; cmd_mailpit "$@" ;;
   tunnel)  shift; cmd_tunnel "$@" ;;
+  loginitem) shift; cmd_loginitem "$@" ;;
   config)  shift; cmd_config "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
   secure)  shift; cmd_secure "$@" ;;
