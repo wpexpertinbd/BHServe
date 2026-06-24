@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="0.5.0"
+VERSION="1.0.0"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
@@ -15,6 +15,9 @@ BIN="$(swift build -c release --show-bin-path)/$APP_NAME"
 [ -x "$BIN" ] || { echo "✗ release binary not found"; exit 1; }
 
 echo "▶ assembling $APP..."
+# Keep Spotlight/LaunchServices from indexing the dev build as a 2nd "BHServe" app
+# (the installed copy in /Applications is the one users should see).
+mkdir -p "$DIST"; : > "$DIST/.metadata_never_index"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
