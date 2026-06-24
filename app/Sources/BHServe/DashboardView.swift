@@ -9,9 +9,17 @@ struct DashboardView: View {
     private var caches: [Service] { (state.snapshot?.services ?? []).filter { $0.role == "cache" && $0.installed } }
     private var siteCount: Int { state.realSites.count }
 
-    private let cols = [GridItem(.adaptive(minimum: 220), spacing: 14)]
+    // Force 2 or 4 columns (both divide the 8 cards evenly) — never 3, which left a
+    // gap. Flexible columns fill the width edge-to-edge with no right-side gap.
+    private func gridCols(_ width: CGFloat) -> [GridItem] {
+        let usable = width - 40                 // VStack padding (20 each side)
+        let n = usable >= (4 * 220 + 3 * 14) ? 4 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 14), count: n)
+    }
 
     var body: some View {
+        GeometryReader { geo in
+        let cols = gridCols(geo.size.width)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Service status cards
@@ -41,6 +49,7 @@ struct DashboardView: View {
                 ToolsPanel()
             }
             .padding(20)
+        }
         }
         .navigationTitle("Dashboard")
         .toolbar {
