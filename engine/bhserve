@@ -1466,6 +1466,71 @@ adminer_install(){
 }
 
 # ── Mailpit (mail catcher: SMTP :1025, web UI :8025) ─────────────────────────
+# ── Cloudflare quick tunnels (share a local site publicly, no account) ───────
+cloudflared_bin(){ echo "$BREW_PREFIX/bin/cloudflared"; }
+cloudflared_installed(){ [ -x "$(cloudflared_bin)" ]; }
+tunnel_pidf(){ echo "$BH_HOME/run/tunnel-$1.pid"; }
+tunnel_logf(){ echo "$BH_HOME/run/tunnel-$1.log"; }
+tunnel_urlf(){ echo "$BH_HOME/run/tunnel-$1.url"; }
+tunnel_running(){ pid_alive "$(cat "$(tunnel_pidf "$1")" 2>/dev/null)"; }
+tunnel_url(){ cat "$(tunnel_urlf "$1")" 2>/dev/null || true; }
+
+tunnel_start(){
+  local name="$1"; valid_site_name "$name"
+  cloudflared_installed || die "cloudflared not installed — bhserve tunnel install"
+  local conf="$BH_HOME/nginx/sites/$name.conf"
+  [ -f "$conf" ] || die "no site '$name'"
+  nginx_running || die "nginx not running — start it first"
+  if tunnel_running "$name"; then ok "tunnel already running"; local u; u="$(tunnel_url "$name")"; [ -n "$u" ] && info "public URL: $u"; return; fi
+  local tld domain origin; tld="$(jget tld test)"; domain="$name.$tld"
+  if grep -q 'listen 127.0.0.1:443 ssl' "$conf"; then origin="https://127.0.0.1:443"; else origin="http://127.0.0.1:80"; fi
+  local pidf logf urlf; pidf="$(tunnel_pidf "$name")"; logf="$(tunnel_logf "$name")"; urlf="$(tunnel_urlf "$name")"
+  : > "$logf"; rm -f "$urlf"
+  local args=(tunnel --no-autoupdate --url "$origin" --http-host-header "$domain")
+  [ "${origin%%:*}" = https ] && args+=(--no-tls-verify)
+  nohup "$(cloudflared_bin)" "${args[@]}" >"$logf" 2>&1 &
+  echo $! > "$pidf"
+  hdr "Cloudflare tunnel → $domain"
+  local i url=""
+  for i in $(seq 1 30); do
+    url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$logf" 2>/dev/null | head -1)" || true
+    [ -n "$url" ] && break
+    tunnel_running "$name" || { no "tunnel exited early — see $logf"; return 1; }
+    sleep 1
+  done
+  if [ -n "$url" ]; then printf '%s' "$url" > "$urlf"; ok "public URL: $url"; info "origin: $origin (Host: $domain)"
+  else warn "tunnel up but no URL yet — check $logf"; fi
+}
+
+tunnel_stop(){
+  local name="$1"; valid_site_name "$name"
+  local p; p="$(cat "$(tunnel_pidf "$name")" 2>/dev/null)"
+  if pid_alive "$p"; then kill "$p" 2>/dev/null || true; ok "tunnel stopped ($name)"; else warn "no tunnel running for $name"; fi
+  rm -f "$(tunnel_pidf "$name")" "$(tunnel_urlf "$name")"
+}
+
+tunnel_list(){
+  shopt -s nullglob
+  local f name
+  for f in "$BH_HOME"/run/tunnel-*.pid; do
+    name="$(basename "$f" .pid)"; name="${name#tunnel-}"
+    tunnel_running "$name" && printf '  %-16s %s\n' "$name" "$(tunnel_url "$name")"
+  done
+}
+
+cmd_tunnel(){
+  need_init
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    install) cloudflared_installed && ok "cloudflared already installed" || { hdr "Installing cloudflared"; brew install cloudflared && ok "cloudflared installed" || die "install failed"; } ;;
+    start)   [ -n "${1:-}" ] || die "usage: bhserve tunnel start <name>"; tunnel_start "$1" ;;
+    stop)    [ -n "${1:-}" ] || die "usage: bhserve tunnel stop <name>"; tunnel_stop "$1" ;;
+    url)     [ -n "${1:-}" ] || die "usage: bhserve tunnel url <name>"; tunnel_url "$1" ;;
+    status|list) tunnel_list ;;
+    *) die "usage: bhserve tunnel {install|start <name>|stop <name>|url <name>|list}" ;;
+  esac
+}
+
 cmd_mailpit(){ need_init; case "${1:-setup}" in setup) mailpit_setup ;; *) die "usage: bhserve mailpit setup" ;; esac; }
 mailpit_setup(){
   svc_installed mailpit || die "mailpit not installed — bhserve install mailpit"
@@ -1516,14 +1581,16 @@ cmd_api() {
     root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
     grep -q "ssl_certificate " "$f" && sec=true
     local srv; srv="$(vhost_server "$f")"
-    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s"}' \
-      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv")"
+    local tun=""; tunnel_running "$n" && tun="$(tunnel_url "$n")"
+    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s"}' \
+      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 
   local helper=false; helper_installed && helper=true
   local brew=false; [ -n "$BREW" ] && brew=true
-  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew"
+  local cf=false; cloudflared_installed && cf=true
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew" "$cf"
 }
 
 # Install the core stack in one go (after Homebrew exists). Used by GUI onboarding.
@@ -1619,6 +1686,7 @@ case "${1:-doctor}" in
   pma)     shift; cmd_pma "$@" ;;
   adminer) shift; cmd_adminer "$@" ;;
   mailpit) shift; cmd_mailpit "$@" ;;
+  tunnel)  shift; cmd_tunnel "$@" ;;
   config)  shift; cmd_config "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
   secure)  shift; cmd_secure "$@" ;;

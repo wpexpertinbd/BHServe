@@ -423,6 +423,16 @@ final class AppState {
         await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
     }
 
+    // ── Cloudflare quick tunnels (share a site publicly) ────────────────────
+    var cloudflaredInstalled: Bool { snapshot?.cloudflared ?? false }
+    func tunnelURL(_ name: String) -> String? {
+        let t = snapshot?.sites.first { $0.name == name }?.tunnel
+        return (t?.isEmpty == false) ? t : nil
+    }
+    func installCloudflared() async { await runUser(["tunnel", "install"], note: "installing cloudflared…") }
+    func startTunnel(_ name: String) async { await runUser(["tunnel", "start", name], note: "starting tunnel for \(name)…") }
+    func stopTunnel(_ name: String) async { await runUser(["tunnel", "stop", name], note: "stopping tunnel…") }
+
     func setSiteRoot(_ name: String, _ path: String) async {
         let p = path.trimmingCharacters(in: .whitespaces)
         guard !p.isEmpty else { return }

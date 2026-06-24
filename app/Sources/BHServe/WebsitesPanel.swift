@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Dashboard websites list (ServBay-style) with per-site actions.
 struct WebsitesPanel: View {
@@ -106,6 +107,7 @@ struct WebsiteRow: View {
     @State private var editing = false
     @State private var showingLogs = false
     @State private var confirmDelete = false
+    @State private var sharing = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -130,6 +132,9 @@ struct WebsiteRow: View {
                 CircleAction("folder", .gray, "Open folder") { state.openInFinder(site.root) }
                 CircleAction("pencil", .blue, "Edit") { editing = true }
                 CircleAction("doc.text.magnifyingglass", .gray, "Logs") { showingLogs = true }
+                CircleAction("antenna.radiowaves.left.and.right",
+                             state.tunnelURL(site.name) != nil ? .green : .gray,
+                             state.tunnelURL(site.name) != nil ? "Sharing publicly — manage" : "Share publicly (Cloudflare)") { sharing = true }
                 if site.enabled {
                     CircleAction("pause.fill", .orange, "Stop") { Task { await state.setSiteEnabled(site.name, false) } }
                 } else {
@@ -143,6 +148,7 @@ struct WebsiteRow: View {
         .disabled(state.busy)
         .sheet(isPresented: $editing) { EditSiteSheet(site: site) }
         .sheet(isPresented: $showingLogs) { SiteLogsSheet(site: site) }
+        .sheet(isPresented: $sharing) { ShareSheet(site: site) }
         .confirmationDialog("Remove “\(site.name)”? (site files are kept on disk)",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove \(site.name)", role: .destructive) { Task { await state.removeSite(site.name) } }
@@ -267,5 +273,69 @@ struct SiteLogsSheet: View {
     private func load() async {
         let log = await state.readLog("\(site.name)-\(kind).log")
         content = log.isEmpty ? "(empty — no \(kind) entries yet)" : log
+    }
+}
+
+/// Share a site publicly through a Cloudflare quick tunnel (no account needed).
+struct ShareSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    let site: Site
+    @State private var copied = false
+
+    private var url: String? { state.tunnelURL(site.name) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "antenna.radiowaves.left.and.right").foregroundStyle(.blue)
+                Text("Share “\(site.name)” publicly").font(.title3.bold())
+            }
+            Text("Cloudflare Tunnel gives this site a temporary public **https** address — no account or port-forwarding. The link works while sharing is on.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+
+            if !state.cloudflaredInstalled {
+                Label("cloudflared isn't installed yet.", systemImage: "shippingbox")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button { Task { await state.installCloudflared() } } label: {
+                    Label("Install cloudflared (Homebrew)", systemImage: "arrow.down.circle")
+                }.tint(.green)
+            } else if let u = url {
+                Label("Live — anyone with this link can reach your site.", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption).foregroundStyle(.green)
+                HStack {
+                    Text(u).font(.callout.monospaced()).textSelection(.enabled)
+                        .lineLimit(1).truncationMode(.middle)
+                        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    Button { copy(u) } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                        .help("Copy link")
+                    Button { if let url = URL(string: u) { NSWorkspace.shared.open(url) } } label: { Image(systemName: "safari") }
+                        .help("Open link")
+                }
+                Button(role: .destructive) { Task { await state.stopTunnel(site.name) } } label: {
+                    Label("Stop sharing", systemImage: "stop.circle")
+                }
+            } else {
+                if !state.nginxRunning {
+                    Label("Start nginx first — the tunnel forwards to your local server.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Button { Task { await state.startTunnel(site.name) } } label: {
+                    Label(state.busy ? "Starting…" : "Start sharing", systemImage: "antenna.radiowaves.left.and.right")
+                }.tint(.blue).disabled(state.busy || !state.nginxRunning)
+            }
+
+            Divider()
+            HStack { Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.defaultAction) }
+        }
+        .padding(20).frame(width: 460)
+    }
+
+    private func copy(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
     }
 }

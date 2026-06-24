@@ -67,7 +67,7 @@ open dist/BHServe.app            # or drag to /Applications
 Closing the window keeps BHServe running in the menu bar (no Dock icon); reopen from there.
 Tabs: **Services** (start/stop/install), **Sites** (add, per-site PHP switch, one-click HTTPS,
 open in browser), **Databases** (server start/stop, create/drop, per-DB + root passwords),
-**Logs**, **Settings** (ports/TLD/sites-root). Privileged actions (:80/:443, DNS) prompt for admin.
+**Logs**, **Settings** (ports/TLD/sites-root). Share any site publicly with a one-click **Cloudflare Tunnel** (temporary public HTTPS URL, no account). Privileged actions (:80/:443, DNS) prompt for admin.
 The built app bundles the engine, so it doesn't depend on this checkout.
 
 ## Security

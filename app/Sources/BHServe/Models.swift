@@ -9,6 +9,7 @@ struct Snapshot: Codable, Sendable, Equatable {
     let sites: [Site]
     var helper: Bool?
     var brew: Bool?
+    var cloudflared: Bool?
 }
 
 struct EngineConfig: Codable, Sendable, Equatable {
@@ -55,6 +56,7 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     let secure: Bool
     var enabled: Bool = true
     var server: String?
+    var tunnel: String?   // public Cloudflare quick-tunnel URL when sharing
     var id: String { name }
 
     var serverKind: String { (server ?? "nginx") }
