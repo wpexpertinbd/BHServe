@@ -108,20 +108,19 @@ struct StatusFooter: View {
                 Spacer()
                 if state.busy { ProgressView().controlSize(.small) }
             }
-            HStack(spacing: 6) {
+            VStack(spacing: 6) {
                 Button { Task { await state.control("start", "all") } } label: {
-                    Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Label("Start All", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 Button { Task { await state.control("stop", "all") } } label: {
-                    Label("Stop", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                    Label("Stop All", systemImage: "stop.fill").frame(maxWidth: .infinity)
                 }
                 Button { Task { await state.restartAll() } } label: {
-                    Label("Restart", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                    Label("Restart All", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
                 }
             }
-            .controlSize(.small)
+            .controlSize(.large)
             .disabled(state.busy)
-            .help("Start / Stop / Restart all enabled services")
             if let note = state.lastAction {
                 Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
