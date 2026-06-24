@@ -50,3 +50,13 @@ The built app bundles the engine, so it doesn't depend on this checkout.
 5. Packaging (.app bundle, LaunchAgent auto-start), sign/notarize.
 
 — BiswasHost · https://www.biswashost.com
+
+## ☕ Support
+
+BHServe is free and open-source. If it saved you time setting up your local dev
+stack, you can **buy me a coffee** — it genuinely helps me keep building and
+maintaining free tools like this. 🙏
+
+- **bKash** (Personal · *Send Money*): **`01710378396`**
+
+ধন্যবাদ! / Thank you!
