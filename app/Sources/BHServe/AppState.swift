@@ -45,7 +45,9 @@ final class AppState {
 
     var nginxRunning: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.running } ?? false }
     /// A tool is openable when its site exists and nginx is serving it.
-    func toolActive(_ name: String) -> Bool { siteExists(name) && nginxRunning }
+    // Show a tool's "Open" link whenever it's installed — don't hide it just because
+    // nginx is momentarily down (e.g. during a restart). Matches the dashboard Tools card.
+    func toolActive(_ name: String) -> Bool { siteExists(name) }
     func openTool(_ name: String) {
         let tld = snapshot?.config.tld ?? "test"
         if let u = URL(string: "http://\(name).\(tld)") { NSWorkspace.shared.open(u) }

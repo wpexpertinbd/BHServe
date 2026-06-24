@@ -821,13 +821,23 @@ cmd_secure() {
 }
 
 # ── process management ──────────────────────────────────────────────────────
+# Rewrite ONLY bare-port listen lines (e.g. "listen 80;") to loopback, in place.
+# Never re-renders a vhost, so it can't corrupt proxy/tool sites (mailpit/pma/adminer).
+# The `[0-9]+` anchor won't match an already-migrated "listen 127.0.0.1:80;" (has dots).
+migrate_vhost_binds(){
+  shopt -s nullglob
+  local f
+  for f in "$BH_HOME"/nginx/sites/*.conf; do
+    sed -i '' -E 's/^([[:space:]]*)listen ([0-9]+)( ssl)?;/\1listen 127.0.0.1:\2\3;/' "$f" 2>/dev/null || true
+  done
+}
 NGINX_BIN(){ echo "$BREW_PREFIX/bin/nginx"; }
 nginx_running(){ local p="$BH_HOME/run/nginx.pid"; [ -f "$p" ] && pid_alive "$(cat "$p")"; }
 needs_root_ports(){ local h; h="$(jget http_port 80)"; [ "$h" -lt 1024 ]; }
 
 nginx_start(){
   render_nginx_main "$(jget http_port 80)"
-  regen_all_vhosts >/dev/null 2>&1 || true   # keep existing vhosts in sync with current templates (e.g. loopback bind)
+  migrate_vhost_binds   # migrate any old 0.0.0.0 listen lines to 127.0.0.1 (safe, in-place — no re-render)
   local bin; bin="$(NGINX_BIN)"; [ -x "$bin" ] || die "nginx not installed — bhserve install nginx"
   if nginx_running; then ok "nginx already running (pid $(cat "$BH_HOME/run/nginx.pid"))"; return; fi
   local pre=""; needs_root_ports && pre="sudo"
@@ -939,7 +949,11 @@ cmd_stop() {
 cmd_restart() {
   need_init
   local what="${1:-all}"
-  cmd_stop "$what"; cmd_start "$what"
+  cmd_stop "$what"
+  # `brew services stop` is async — restarting immediately races and a DB/cache daemon
+  # can report "not started". Let the stop settle before starting again.
+  sleep 2
+  cmd_start "$what"
 }
 
 # ── databases (mysql/mariadb + postgresql) ──────────────────────────────────
@@ -1177,10 +1191,15 @@ JSON
 regen_all_vhosts(){
   shopt -s nullglob
   local tld; tld="$(jget tld test)"
-  local f n root php server
+  local f n root php server port
   for f in "$BH_HOME"/nginx/sites/*.conf; do
     n="$(basename "$f" .conf)"
+    # Proxy/tool sites (e.g. mailpit) have a proxy_pass and NO root — re-render them
+    # as a proxy, never as a normal site (that produced a broken `root ;` directive).
+    port="$(sed -n 's#.*proxy_pass http://127.0.0.1:\([0-9][0-9]*\).*#\1#p' "$f" | head -1)"
+    if [ -n "$port" ]; then render_nginx_proxy_site "$n" "$n.$tld" "$port"; continue; fi
     root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    [ -n "$root" ] || continue   # no root + no proxy → can't safely re-render, leave as-is
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
     server="$(vhost_server "$f")"
     render_site_vhost "$n" "$n.$tld" "$root" "$php" "$server"
