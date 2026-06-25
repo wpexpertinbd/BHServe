@@ -259,11 +259,29 @@ final class AppState {
 
     var httpdInstalled: Bool { snapshot?.services.contains { $0.key == "httpd" && $0.installed } ?? false }
 
+    func serviceInstalled(_ key: String) -> Bool { snapshot?.services.contains { $0.key == key && $0.installed } ?? false }
+
     var mysqlRunning: Bool {
         snapshot?.services.contains { ($0.key == "mariadb" || $0.key == "mysql") && $0.running } ?? false
     }
     var pgRunning: Bool {
         snapshot?.services.contains { $0.key == "postgresql@17" && $0.running } ?? false
+    }
+    /// The installed MySQL-family service key (MariaDB or MySQL), or "mariadb" as the
+    /// default install target when neither is installed yet.
+    var mysqlServiceKey: String {
+        serviceInstalled("mariadb") ? "mariadb" : (serviceInstalled("mysql") ? "mysql" : "mariadb")
+    }
+    var mysqlLabel: String { mysqlServiceKey == "mysql" ? "MySQL" : "MariaDB" }
+    var mysqlInstalled: Bool { serviceInstalled("mariadb") || serviceInstalled("mysql") }
+    var pgInstalled: Bool { serviceInstalled("postgresql@17") }
+
+    /// Engine choices for the "Create database" picker — only the installed engines.
+    var dbEngineOptions: [(tag: String, label: String)] {
+        var opts: [(String, String)] = []
+        if mysqlInstalled { opts.append(("mysql", mysqlLabel)) }
+        if pgInstalled { opts.append(("pg", "PostgreSQL")) }
+        return opts
     }
 
     func reloadDatabases() async {

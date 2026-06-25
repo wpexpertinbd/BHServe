@@ -143,7 +143,13 @@ auto-DB + WP download** in the Add sheet.
 
 **Mac file:** `DatabasesView.swift`.
 
-- **Database servers** list (MariaDB / MySQL / PostgreSQL) as `ServiceRow`s (start/stop/install).
+- **Database servers** — two always-shown `DbServerRow`s: the **MySQL family first** (MariaDB *or* MySQL,
+  whichever is installed; labelled accordingly) then **PostgreSQL**. Each is state-aware: **Install** when
+  absent, **Start** (disabled when running), **Stop** (disabled when stopped), **Root password…** (MySQL family,
+  when running), and a status line ("running · no password" / "stopped" / "not installed").
+- **Create-database engine dropdown auto-detects installed engines** (`AppState.dbEngineOptions`): shows just
+  MariaDB *or* MySQL, plus PostgreSQL if installed — so the options are e.g. only-MariaDB, MariaDB+PostgreSQL,
+  MySQL+PostgreSQL, or only-PostgreSQL. Create is disabled (with a hint) until the chosen engine is running.
 - **root user card** (`RootUserCard`) — shows whether root@localhost has a password; **Set/Change root password** sheet.
 - **Create database** (when a server runs): name + **engine picker** (MySQL/PostgreSQL) + **optional password** with
   a **Generate** button. Blank password = no dedicated user; a password creates a user named after the DB.
