@@ -1,75 +1,81 @@
 namespace BHServe.Core;
 
 /// <summary>
-/// Resolves managed binaries — ALL under BHServe's own portable installs at
-/// <c>%LOCALAPPDATA%\BHServe\bin\&lt;tool&gt;\…</c> (filled by <see cref="Downloader"/>).
-/// BHServe is self-contained: it does NOT borrow binaries from Laragon/XAMPP/etc.
-/// A null result means "not installed — run <c>bhserve install &lt;tool&gt;</c>".
+/// Resolves managed binaries from BHServe's own portable installs — in two roots:
+/// (1) the user's <c>%LOCALAPPDATA%\BHServe\bin\</c> (on-demand downloads/updates), and
+/// (2) the bundled <c>&lt;app&gt;\bin\</c> shipped inside the installer. The bundled root
+/// means a fresh install runs with ZERO runtime executable downloads — which keeps
+/// antivirus behavioral scanners from flagging bhserve.exe as a "dropper".
+/// BHServe never borrows binaries from Laragon/XAMPP/etc.
 /// </summary>
 public static class Tools
 {
-    /// <summary>Find a file under <paramref name="root"/> (first hit, shallowest path).</summary>
-    private static string? FindUnder(string root, string fileName)
+    /// <summary>Search roots, in priority order: user downloads first, then the bundled install.</summary>
+    private static IEnumerable<string> BinRoots()
     {
-        if (!Directory.Exists(root)) return null;
-        try
+        yield return Paths.Bin;
+        var appBin = Path.Combine(AppContext.BaseDirectory, "bin");
+        if (!string.Equals(appBin, Paths.Bin, StringComparison.OrdinalIgnoreCase)) yield return appBin;
+    }
+
+    /// <summary>First match for <paramref name="fileName"/> under <c>&lt;root&gt;\&lt;tool&gt;\…</c> across both roots.</summary>
+    private static string? Find(string tool, string fileName)
+    {
+        foreach (var root in BinRoots())
         {
-            return Directory.EnumerateFiles(root, fileName, SearchOption.AllDirectories)
-                            .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar))
-                            .FirstOrDefault();
+            var dir = Path.Combine(root, tool);
+            if (!Directory.Exists(dir)) continue;
+            try
+            {
+                var hit = Directory.EnumerateFiles(dir, fileName, SearchOption.AllDirectories)
+                                   .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar))
+                                   .FirstOrDefault();
+                if (hit is not null) return hit;
+            }
+            catch { }
         }
-        catch { return null; }
+        return null;
     }
 
-    public static string? PhpExe(string version)    => PhpDirExe(version, "php.exe");
-    public static string? PhpCgiExe(string version) => PhpDirExe(version, "php-cgi.exe");
+    public static string? PhpExe(string version)    => Find(Path.Combine("php", version), "php.exe");
+    public static string? PhpCgiExe(string version) => Find(Path.Combine("php", version), "php-cgi.exe");
 
-    private static string? PhpDirExe(string version, string exe)
-    {
-        var managed = Path.Combine(Paths.Bin, "php", version, exe);   // bin\php\8.4\php-cgi.exe
-        if (File.Exists(managed)) return managed;
-        return FindUnder(Path.Combine(Paths.Bin, "php", version), exe);
-    }
-
-    public static string? NginxExe() => FindUnder(Path.Combine(Paths.Bin, "nginx"), "nginx.exe");
-
-    /// <summary>The directory nginx treats as its prefix (the dir containing nginx.exe).</summary>
+    public static string? NginxExe() => Find("nginx", "nginx.exe");
     public static string? NginxPrefix() => NginxExe() is { } exe ? Path.GetDirectoryName(exe) : null;
 
-    public static string? MkcertExe() => FindUnder(Path.Combine(Paths.Bin, "mkcert"), "mkcert.exe");
+    public static string? MkcertExe() => Find("mkcert", "mkcert.exe");
 
-    public static string? MysqldExe() =>
-        FindUnder(Path.Combine(Paths.Bin, "mariadb"), "mysqld.exe")
-        ?? FindUnder(Path.Combine(Paths.Bin, "mysql"), "mysqld.exe");
+    public static string? MysqldExe()      => Find("mariadb", "mysqld.exe") ?? Find("mysql", "mysqld.exe");
+    public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
 
-    public static string? MysqlClientExe() =>
-        FindUnder(Path.Combine(Paths.Bin, "mariadb"), "mysql.exe")
-        ?? FindUnder(Path.Combine(Paths.Bin, "mysql"), "mysql.exe");
+    public static string? MailpitExe() => Find("mailpit", "mailpit.exe");
 
-    public static string? MailpitExe() => FindUnder(Path.Combine(Paths.Bin, "mailpit"), "mailpit.exe");
-
-    public static string? HttpdExe() => FindUnder(Path.Combine(Paths.Bin, "apache"), "httpd.exe");
-
-    /// <summary>Apache ServerRoot = the dir that contains bin\httpd.exe (its parent).</summary>
+    public static string? HttpdExe() => Find("apache", "httpd.exe");
     public static string? ApacheRoot() =>
         HttpdExe() is { } exe ? Path.GetDirectoryName(Path.GetDirectoryName(exe)!) : null;
 
-    public static string? RedisServerExe() => FindUnder(Path.Combine(Paths.Bin, "redis"), "redis-server.exe");
+    public static string? RedisServerExe() => Find("redis", "redis-server.exe");
 
     public static string? MemcachedExe()
     {
-        var dir = Path.Combine(Paths.Bin, "memcached");
-        if (!Directory.Exists(dir)) return null;
-        try
+        // prefer a 64-bit build if the extract has several
+        foreach (var root in BinRoots())
         {
-            return Directory.EnumerateFiles(dir, "memcached.exe", SearchOption.AllDirectories)
-                            .OrderByDescending(p => p.Contains("win64") || p.Contains("x64"))
-                            .FirstOrDefault();
+            var dir = Path.Combine(root, "memcached");
+            if (!Directory.Exists(dir)) continue;
+            try
+            {
+                var hit = Directory.EnumerateFiles(dir, "memcached.exe", SearchOption.AllDirectories)
+                                   .OrderByDescending(p => p.Contains("win64") || p.Contains("x64"))
+                                   .FirstOrDefault();
+                if (hit is not null) return hit;
+            }
+            catch { }
         }
-        catch { return null; }
+        return null;
     }
 
-    public static string? CloudflaredExe() => FindUnder(Path.Combine(Paths.Bin, "cloudflared"), "cloudflared.exe");
+    public static string? CloudflaredExe() => Find("cloudflared", "cloudflared.exe");
 
-    public static string? FnmExe() => FindUnder(Path.Combine(Paths.Bin, "fnm"), "fnm.exe");
+    public static string? FnmExe() => Find("fnm", "fnm.exe");
 }

@@ -38,6 +38,11 @@ Name: "addtopath"; Description: "Add the bhserve CLI to PATH"; GroupDescription:
 ; dotnet publish output (self-contained) goes to ..\publish\ — copy it all.
 ; This includes BHServe.App.exe (GUI), bhserve.exe (CLI), bhserve-elevate.exe (UAC helper).
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef Bundle
+; Bundled server binaries (nginx/php/mysql/redis/...) so the install needs NO runtime
+; downloads — which is what stops antivirus flagging bhserve.exe as a downloader.
+Source: "..\payload\bin\*"; DestDir: "{app}\bin"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"

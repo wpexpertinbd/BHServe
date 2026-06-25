@@ -30,6 +30,18 @@ public static class Downloader
         ZipFile.ExtractToDirectory(zip, destDir, overwriteFiles: true);
     }
 
+    /// <summary>Delete every *.exe under <paramref name="dir"/> except the named keepers (case-insensitive).</summary>
+    private static void PruneExes(string dir, params string[] keep)
+    {
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(dir, "*.exe", SearchOption.AllDirectories))
+                if (!keep.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
+                    try { File.Delete(f); } catch { }
+        }
+        catch { }
+    }
+
     public static async Task<string> InstallNginx()
     {
         var url = $"https://nginx.org/download/nginx-{NginxPinned}.zip";
@@ -185,6 +197,9 @@ public static class Downloader
         var dir = Path.Combine(Paths.Bin, "memcached");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);
+        // The mingw build bundles throwaway helper exes (e.g. sizes.exe) that trip generic
+        // AV heuristics. Keep only memcached.exe + its DLLs so nothing junk ships to users.
+        PruneExes(dir, keep: "memcached.exe");
         return Tools.MemcachedExe() ?? throw new InvalidOperationException("memcached.exe not found after extract");
     }
 
