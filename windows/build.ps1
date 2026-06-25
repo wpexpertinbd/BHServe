@@ -22,6 +22,11 @@ dotnet publish src/BHServe.Cli/BHServe.Cli.csproj `
     -c $Configuration -r $Rid --self-contained true `
     -o $publish
 
+# and the privileged helper (bhserve-elevate.exe) — hosts file + mkcert CA via one UAC prompt
+dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj `
+    -c $Configuration -r $Rid --self-contained true `
+    -o $publish
+
 Write-Host "build  installer (Inno Setup)..." -ForegroundColor Cyan
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {

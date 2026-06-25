@@ -11,24 +11,36 @@ try
 {
     switch (cmd)
     {
-        case "init":     engine.Init(); Console.WriteLine($"initialized at {Paths.Home}"); break;
-        case "install":  engine.Install(Arg(rest, 0)); break;
-        case "update":   engine.Update(Arg(rest, 0)); break;
-        case "uninstall":engine.Uninstall(Arg(rest, 0)); break;
-        case "start":    engine.Start(rest.FirstOrDefault() ?? "all"); break;
-        case "stop":     engine.Stop(rest.FirstOrDefault() ?? "all"); break;
-        case "restart":  engine.Restart(rest.FirstOrDefault() ?? "all"); break;
-        case "enable":   engine.Enable(Arg(rest, 0)); break;
-        case "disable":  engine.Disable(Arg(rest, 0)); break;
-        case "secure":   engine.Secure(Arg(rest, 0)); break;
-        case "api":      Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(engine.Api())); break;
+        case "init":      engine.Init(); break;
+        case "install":   engine.Install(Arg(rest, 0)); break;
+        case "update":    engine.Update(Arg(rest, 0)); break;
+        case "uninstall": engine.Uninstall(Arg(rest, 0)); break;
+        case "start":     engine.Start(rest.FirstOrDefault() ?? "all"); break;
+        case "stop":      engine.Stop(rest.FirstOrDefault() ?? "all"); break;
+        case "restart":   engine.Restart(rest.FirstOrDefault() ?? "all"); break;
+        case "enable":    engine.Enable(Arg(rest, 0)); break;
+        case "disable":   engine.Disable(Arg(rest, 0)); break;
+        case "secure":    engine.Secure(Arg(rest, 0)); break;
+        case "status":    engine.Status(); break;
+        case "api":       Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(engine.Api())); break;
 
         case "site":
             switch (Arg(rest, 0))
             {
-                case "add": engine.SiteAdd(Arg(rest, 1)); break;
-                case "rm":  engine.SiteRemove(Arg(rest, 1)); break;
-                case "php": engine.SitePhp(Arg(rest, 1), Arg(rest, 2)); break;
+                case "add":
+                {
+                    var name = Arg(rest, 1);
+                    var f = Flags(rest.Skip(2));
+                    engine.SiteAdd(name,
+                        php:    f.GetValueOrDefault("php", ""),
+                        root:   f.GetValueOrDefault("root"),
+                        server: f.GetValueOrDefault("server", ""),
+                        type:   f.GetValueOrDefault("type", "others"));
+                    break;
+                }
+                case "rm" or "remove":     engine.SiteRemove(Arg(rest, 1)); break;
+                case "php":                engine.SitePhp(Arg(rest, 1), Arg(rest, 2)); break;
+                case "list" or "ls" or "": engine.Status(); break;
                 default: Usage(); return 1;
             }
             break;
@@ -50,6 +62,11 @@ try
     }
     return 0;
 }
+catch (BhException ex)
+{
+    Console.Error.WriteLine($"  ✗ {ex.Message}");
+    return 1;
+}
 catch (NotImplementedException)
 {
     Console.Error.WriteLine($"[stub] '{cmd}' not implemented yet — see docs/WINDOWS-PORT.md");
@@ -58,15 +75,30 @@ catch (NotImplementedException)
 
 static string Arg(string[] a, int i) => i < a.Length ? a[i] : "";
 
+// Parse "--php 8.4 --root C:\x" → { php:8.4, root:C:\x }
+static Dictionary<string, string> Flags(IEnumerable<string> a)
+{
+    var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var arr = a.ToArray();
+    for (var i = 0; i < arr.Length; i++)
+    {
+        if (!arr[i].StartsWith("--")) continue;
+        var key = arr[i][2..];
+        var val = (i + 1 < arr.Length && !arr[i + 1].StartsWith("--")) ? arr[++i] : "true";
+        d[key] = val;
+    }
+    return d;
+}
+
 static void Usage() => Console.WriteLine("""
     BHServe (Windows) — usage:
       bhserve init
-      bhserve install|update|uninstall <tool>
+      bhserve install <nginx|php@8.4|mkcert>
       bhserve start|stop|restart [svc|all]
       bhserve enable|disable <svc>
-      bhserve site add|rm|php <name> [args]
+      bhserve site add <name> [--php 8.4] [--root path] [--type wordpress|php|others]
+      bhserve site rm|php|list <name> [args]
       bhserve secure <domain>
       bhserve php ini path|reload <ver>
-      bhserve db|node <sub> [args]
-      bhserve api | status
+      bhserve status | api
     """);

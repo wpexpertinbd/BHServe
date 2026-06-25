@@ -1,66 +1,350 @@
+using System.Text.RegularExpressions;
+
 namespace BHServe.Core;
 
 /// <summary>
 /// The brains — the C# analog of the mac <c>engine/bhserve</c> script. The WinUI
 /// app calls these methods in-process; <c>bhserve.exe</c> exposes the same surface
-/// on the command line. Most methods are stubs to fill in on Windows (see the
-/// matching mac function names in <c>engine/bhserve</c> for reference behavior).
+/// on the command line.
 /// </summary>
 public sealed class Engine
 {
-    /// <summary>`bhserve init` — create the data-dir skeleton + default config.</summary>
-    public void Init()
+    /// <summary>Stdout sink (the CLI sets this to Console.WriteLine; the GUI can capture it).</summary>
+    public Action<string> Out { get; init; } = Console.WriteLine;
+    public Action<string> Err { get; init; } = Console.Error.WriteLine;
+
+    private void Ok(string m)   => Out($"  ✓ {m}");
+    private void No(string m)   => Err($"  ✗ {m}");
+    private void Warn(string m) => Out($"  ! {m}");
+    private void Info(string m) => Out($"    {m}");
+    private void Hdr(string m)  => Out($"\n{m}");
+
+    private static void NeedInit()
     {
-        Paths.EnsureSkeleton();
-        if (!File.Exists(Paths.ConfigJson))
-        {
-            File.WriteAllText(Paths.ConfigJson, """
-            {
-              "tld": "test",
-              "http_port": 80,
-              "https_port": 443,
-              "default_php": "8.4",
-              "default_web": "nginx",
-              "sites_root": "%USERPROFILE%\\BHServe\\www",
-              "autostart": false
-            }
-            """);
-        }
-        // TODO(windows): render_nginx_main()
+        if (!Directory.Exists(Paths.Config))
+            throw new BhException("not initialized — run: bhserve init");
     }
 
-    // ── service registry / status ────────────────────────────────────────────
-    public Snapshot Api() => throw new NotImplementedException("collect services + sites → Snapshot");
+    // ── init ────────────────────────────────────────────────────────────────────
+    public void Init()
+    {
+        Hdr($"Initializing BHServe at {Paths.Home}");
+        Paths.EnsureSkeleton();
+        foreach (var d in new[] { "client_body", "proxy", "fastcgi", "uwsgi", "scgi" })
+            Directory.CreateDirectory(Path.Combine(Paths.Tmp, d));
+        Directory.CreateDirectory(Path.Combine(Paths.Home, "nginx", "sites"));
 
-    // ── install / lifecycle (download pinned portable zips into Paths.Bin) ─────
-    public void Install(string tool)   => throw new NotImplementedException();
-    public void Update(string tool)    => throw new NotImplementedException();
-    public void Uninstall(string tool) => throw new NotImplementedException();
+        var cfg = Config.Load();
+        if (!File.Exists(Paths.ConfigJson)) { cfg.Save(); Ok($"wrote default config: {Paths.ConfigJson}"); }
+        else Ok($"config already exists: {Paths.ConfigJson}");
 
-    public void Start(string svc)   => throw new NotImplementedException(); // "all" → start every PHP version an enabled site uses (502 fix)
-    public void Stop(string svc)    => throw new NotImplementedException();
-    public void Restart(string svc) => throw new NotImplementedException();
-    public void Enable(string svc)  => throw new NotImplementedException();  // auto-start ★
-    public void Disable(string svc) => throw new NotImplementedException();
+        NginxConfig.RenderMain(cfg);
+        Ok($"directories ready under {Paths.Home}");
+    }
 
-    // ── sites ─────────────────────────────────────────────────────────────────
-    public void SiteAdd(string name, string php = "8.4", string? root = null,
-                        string server = "nginx", string type = "php")
-        => throw new NotImplementedException(); // render vhost + hosts line + auto-DB + (WP download)
-    public void SiteRemove(string name)             => throw new NotImplementedException();
-    public void SitePhp(string name, string version) => throw new NotImplementedException();
-    public void Secure(string domain)               => throw new NotImplementedException(); // mkcert into Windows cert store
+    // ── install / lifecycle ─────────────────────────────────────────────────────
+    public void Install(string tool)
+    {
+        NeedInit();
+        if (string.IsNullOrEmpty(tool)) throw new BhException("usage: bhserve install <nginx|php@8.4|mkcert>");
+        var cfg = Config.Load();
+        try
+        {
+            if (tool == "nginx")
+            {
+                if (Services.Installed("nginx", cfg)) { Ok("nginx already installed"); return; }
+                Hdr("Installing nginx (portable zip from nginx.org)");
+                var exe = Downloader.InstallNginx().GetAwaiter().GetResult();
+                Ok($"nginx installed: {exe}");
+            }
+            else if (tool == "mkcert")
+            {
+                if (Services.Installed("mkcert", cfg)) { Ok("mkcert already installed"); return; }
+                Hdr("Installing mkcert (GitHub release)");
+                Ok($"mkcert installed: {Downloader.InstallMkcert().GetAwaiter().GetResult()}");
+            }
+            else if (tool.StartsWith("php"))
+            {
+                var verArg = tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..];
+                var ver = Services.PhpVersion(Services.PhpKey(verArg, cfg), cfg);
+                if (Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return; }
+                Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
+                Ok($"php {ver} installed: {Downloader.InstallPhp(ver).GetAwaiter().GetResult()}");
+            }
+            else throw new BhException($"unknown tool: {tool}");
+        }
+        catch (BhException) { throw; }
+        catch (Exception ex) { No($"install {tool} failed: {ex.Message}"); }
+    }
 
-    // ── php.ini editor (parity with the mac `php ini` verb we just shipped) ─────
-    /// <summary>Resolve the loaded php.ini for a version (seed one if the build ships none).</summary>
-    public string PhpIniPath(string version) => throw new NotImplementedException();
-    /// <summary>Restart that version's php-cgi so an edited php.ini takes effect.</summary>
-    public void PhpIniReload(string version) => throw new NotImplementedException();
+    public void Update(string tool)    => throw new BhException("update: not yet on Windows (reinstall the tool for now)");
+    public void Uninstall(string tool) => throw new BhException("uninstall: not yet on Windows");
 
-    // ── databases / node / tools ───────────────────────────────────────────────
-    public void Db(string sub, params string[] args)   => throw new NotImplementedException();
-    public void Node(string sub, params string[] args) => throw new NotImplementedException(); // fnm-win
-    public void PhpMyAdmin() => throw new NotImplementedException();
-    public void Adminer()    => throw new NotImplementedException();
-    public void Mailpit()    => throw new NotImplementedException();
+    // ── start/stop ──────────────────────────────────────────────────────────────
+    /// <summary>"all" → start nginx + every PHP version an enabled site uses (the 502 fix).</summary>
+    public void Start(string svc)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        if (svc is "all" or "")
+        {
+            foreach (var v in SitePhpVersions(cfg))
+                if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
+                else Warn($"php {v} not installed — bhserve install php@{v}");
+            var (ok, msg) = Nginx.Start(cfg);
+            if (ok) Ok(msg); else No(msg);
+            return;
+        }
+        if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
+        if (svc.StartsWith("php"))
+        {
+            var v = PhpVersionOf(svc, cfg);
+            if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}"); else No($"php {v} not installed");
+            return;
+        }
+        throw new BhException($"don't know how to start '{svc}'");
+    }
+
+    public void Stop(string svc)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        if (svc is "all" or "")
+        {
+            Nginx.Stop(); Ok("nginx stopped");
+            foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
+            return;
+        }
+        if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
+        if (svc.StartsWith("php")) { var v = PhpVersionOf(svc, cfg); PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); return; }
+        throw new BhException($"don't know how to stop '{svc}'");
+    }
+
+    public void Restart(string svc) { Stop(svc); Start(svc); }
+    public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
+    public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
+
+    // ── sites ─────────────────────────────────────────────────────────────────────
+    public void SiteAdd(string name, string php = "", string? root = null, string server = "", string type = "others")
+    {
+        NeedInit();
+        if (string.IsNullOrWhiteSpace(name)) throw new BhException("usage: bhserve site add <name> [--php 8.4] [--root path]");
+        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$"))
+            throw new BhException($"invalid site name '{name}' (lowercase letters, digits, hyphens)");
+
+        var cfg = Config.Load();
+        var domain = $"{name}.{cfg.Tld}";
+        root ??= Path.Combine(cfg.SitesRoot, name);
+        if (string.IsNullOrEmpty(server)) server = cfg.DefaultWeb;
+        if (server != "nginx") throw new BhException("only --server nginx is implemented on Windows so far");
+        var phpKey = Services.PhpKey(php, cfg);
+        var version = Services.PhpVersion(phpKey, cfg);
+
+        Directory.CreateDirectory(root);
+        if (!File.Exists(Path.Combine(root, "index.php")) && !File.Exists(Path.Combine(root, "index.html")))
+            File.WriteAllText(Path.Combine(root, "index.php"),
+                $"<?php // BHServe placeholder for {domain}\n" +
+                $"echo \"<h1>{domain}</h1><p>BHServe is serving this site on PHP \" . PHP_VERSION . \".</p>\";\n" +
+                "phpinfo(INFO_GENERAL);\n");
+
+        if (PhpCgi.Start(version)) Ok($"php-cgi {version} on :{PhpCgi.PortFor(version)}");
+        else Warn($"php {version} not installed — bhserve install php@{version} (site will 502 until then)");
+
+        NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        Ok($"site vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}");
+
+        EnsureHosts(domain);
+
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        else { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
+
+        Hdr($"Site '{name}' added");
+        Info($"url    : http://{domain}");
+        Info($"root   : {root}");
+        Info($"php    : {phpKey}   server: {server}   type: {type}");
+    }
+
+    public void SiteRemove(string name)
+    {
+        NeedInit();
+        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$")) throw new BhException($"invalid site name '{name}'");
+        var cfg = Config.Load();
+        foreach (var f in new[] { $"{name}.conf", $"{name}.conf.disabled" })
+            try { File.Delete(Path.Combine(Paths.NginxSites, f)); } catch { }
+        Ok($"removed vhost for {name}");
+        var rmDomain = $"{name}.{cfg.Tld}";
+        if (!Hosts.Remove(rmDomain) && Hosts.Has(rmDomain)) Elevation.Run("hosts-remove", rmDomain);
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Info("(site files left on disk; remove manually if desired)");
+    }
+
+    public void SitePhp(string name, string version)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
+        var (domain, root, _) = ParseVhost(conf);
+        var phpKey = Services.PhpKey(version, cfg);
+        var v = Services.PhpVersion(phpKey, cfg);
+        PhpCgi.Start(v);
+        NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Ok($"{name} now on {phpKey}");
+    }
+
+    public void Secure(string domain)
+    {
+        NeedInit();
+        var mkc = Tools.MkcertExe() ?? throw new BhException("mkcert not installed — run: bhserve install mkcert");
+        Directory.CreateDirectory(Paths.Certs);
+        Hdr($"Provisioning trusted cert for {domain}");
+
+        EnsureMkcertCa(mkc);
+
+        var (_, outp) = RunCapture(mkc,
+            $"-cert-file \"{domain}.pem\" -key-file \"{domain}-key.pem\" {domain}", Paths.Certs);
+        if (!File.Exists(Path.Combine(Paths.Certs, $"{domain}.pem")))
+            throw new BhException("mkcert failed:\n" + outp);
+        Ok($"cert: {Path.Combine(Paths.Certs, domain + ".pem")}");
+
+        var name = domain.Split('.')[0];
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (File.Exists(conf))
+        {
+            var cfg = Config.Load();
+            var (dom, root, phpKey) = ParseVhost(conf);
+            NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
+            if (Nginx.Running()) Nginx.Reload(cfg);
+            Ok("re-rendered vhost with HTTPS");
+        }
+    }
+
+    // ── status / api ────────────────────────────────────────────────────────────
+    public Snapshot Api()
+    {
+        var cfg = Config.Load();
+        var services = Services.All.Select(s =>
+        {
+            var installed = Services.Installed(s.Key, cfg);
+            var running = s.Role switch
+            {
+                ServiceRole.Web => s.Key == "nginx" && Nginx.Running(),
+                ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
+                _ => false,
+            };
+            return new Service(s.Key, s.Role, installed, running, "", Services.Enabled(s.Key, cfg));
+        }).ToList();
+        return new Snapshot(services, ListSites(cfg));
+    }
+
+    public void Status()
+    {
+        var snap = Api();
+        Hdr("Services");
+        foreach (var s in snap.Services.Where(s => s.Installed || s.Running || s.AutoStart))
+            Out($"  {(s.Running ? "●" : "○")} {s.Key,-12} {(s.Installed ? "installed" : "—"),-10} {(s.Running ? "running" : "stopped"),-8} {(s.AutoStart ? "auto" : "")}");
+        Hdr("Sites");
+        if (snap.Sites.Count == 0) Info("no sites yet — bhserve site add <name>");
+        foreach (var st in snap.Sites)
+            Out($"  ✓ {st.Name,-18} {st.Domain}  [{st.Php}]  {(st.Secure ? "https" : "http")}");
+    }
+
+    // ── elevation-backed helpers ────────────────────────────────────────────────
+    /// <summary>Ensure 127.0.0.1 → domain in the hosts file (direct if admin, else one UAC prompt).</summary>
+    private void EnsureHosts(string domain)
+    {
+        if (Hosts.Has(domain)) { Ok($"hosts: {domain} (already mapped)"); return; }
+        if (Hosts.Add(domain)) { Ok($"hosts: {domain} → 127.0.0.1"); return; }
+        Info("requesting admin to update the hosts file (UAC)…");
+        if (Elevation.Run("hosts-add", domain)) Ok($"hosts: {domain} → 127.0.0.1 (elevated)");
+        else Warn($"hosts not updated — add manually: 127.0.0.1 {domain}");
+    }
+
+    /// <summary>Ensure mkcert's local CA exists + is trusted (first run needs admin/UAC).</summary>
+    private void EnsureMkcertCa(string mkc)
+    {
+        var (_, caroot) = RunCapture(mkc, "-CAROOT", null);
+        caroot = caroot.Trim();
+        var rootPem = string.IsNullOrEmpty(caroot) ? null : Path.Combine(caroot, "rootCA.pem");
+        if (rootPem is not null && File.Exists(rootPem)) return;   // CA already present/trusted
+
+        Info("installing mkcert local CA (one-time, needs admin)…");
+        if (Elevation.Run("mkcert-install")) Ok("mkcert CA installed (browsers will trust BHServe certs)");
+        else Warn("mkcert CA not installed in trust store — certs work but show untrusted (curl -k is fine)");
+    }
+
+    private static (int code, string output) RunCapture(string exe, string args, string? cwd)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = exe, Arguments = args,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = cwd ?? Path.GetDirectoryName(exe)!,
+        };
+        var p = System.Diagnostics.Process.Start(psi)!;
+        var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        return (p.ExitCode, outp);
+    }
+
+    // ── helpers ───────────────────────────────────────────────────────────────────
+    private static string PhpVersionOf(string svc, Config cfg) =>
+        Services.PhpVersion(Services.PhpKey(svc == "php" ? "default" : svc[(svc.IndexOf('@') + 1)..], cfg), cfg);
+
+    /// <summary>Distinct PHP versions referenced by the existing site vhosts (+ the default).</summary>
+    private static IEnumerable<string> SitePhpVersions(Config cfg)
+    {
+        var set = new HashSet<string> { cfg.DefaultPhp };
+        if (Directory.Exists(Paths.NginxSites))
+            foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf"))
+            {
+                var m = Regex.Match(File.ReadAllText(f), @"php=php@?([0-9.]+)");
+                if (m.Success) set.Add(m.Groups[1].Value);
+            }
+        return set;
+    }
+
+    private static (string domain, string root, string phpKey) ParseVhost(string conf)
+    {
+        var text = File.ReadAllText(conf);
+        var domain = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
+        var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
+        var phpKey = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
+        if (string.IsNullOrEmpty(phpKey)) phpKey = "php";
+        return (domain, root, phpKey);
+    }
+
+    private static IReadOnlyList<Site> ListSites(Config cfg)
+    {
+        var list = new List<Site>();
+        if (!Directory.Exists(Paths.NginxSites)) return list;
+        foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf"))
+        {
+            var name = Path.GetFileNameWithoutExtension(f);
+            var text = File.ReadAllText(f);
+            var domain = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
+            var php    = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
+            var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
+            var secure = text.Contains("ssl_certificate ");
+            list.Add(new Site(name, domain, php, root, secure, true,
+                              text.Contains("server=apache") ? "apache" : "nginx"));
+        }
+        return list;
+    }
+
+    // ── not-yet-on-Windows (phase 4/5) ─────────────────────────────────────────────
+    public string PhpIniPath(string version)  => Tools.PhpExe(version) is { } e
+        ? Path.Combine(Path.GetDirectoryName(e)!, "php.ini")
+        : throw new BhException($"php {version} not installed");
+    public void PhpIniReload(string version)   { PhpCgi.Stop(version); PhpCgi.Start(version); Ok($"php-cgi {version} reloaded"); }
+    public void Db(string sub, params string[] args)   => throw new BhException("db: phase 4 (MariaDB) — not yet on Windows");
+    public void Node(string sub, params string[] args) => throw new BhException("node: phase 4 (fnm) — not yet on Windows");
+    public void PhpMyAdmin() => throw new BhException("pma: phase 4 — not yet on Windows");
+    public void Adminer()    => throw new BhException("adminer: phase 4 — not yet on Windows");
+    public void Mailpit()    => throw new BhException("mailpit: phase 4 — not yet on Windows");
 }
+
+/// <summary>A clean, user-facing error (the CLI prints the message; no stack trace).</summary>
+public sealed class BhException(string message) : Exception(message);
