@@ -23,6 +23,7 @@ public sealed partial class SettingsPage : Page
         RootText.Text  = cfg.SitesRoot;
         HomeText.Text  = Paths.Home;
         AutostartToggle.IsOn = Autostart.IsEnabled();
+        TrayToggle.IsOn = cfg.MinimizeToTray;
         Version.Text = "BHServe for Windows · 0.1.0";
         _loading = false;
     }
@@ -31,6 +32,14 @@ public sealed partial class SettingsPage : Page
     {
         if (_loading) return;
         if (AutostartToggle.IsOn) Autostart.Enable(); else Autostart.Disable();
+    }
+
+    private void Tray_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        var cfg = Config.Load();
+        cfg.MinimizeToTray = TrayToggle.IsOn;
+        cfg.Save();
     }
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
