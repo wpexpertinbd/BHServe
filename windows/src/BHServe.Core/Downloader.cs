@@ -12,7 +12,7 @@ public static class Downloader
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(15) };
     private const string NginxPinned = "1.27.4";
-    private const string MysqlPinned = "8.4.3";        // Oracle MySQL portable zip (keeps --initialize-insecure)
+    private const string MysqlPinned = "9.7.1";        // latest Oracle MySQL innovation (keeps --initialize-insecure)
 
     // ── downloads go through Windows' built-in, Microsoft-SIGNED tools ───────────────
     // curl.exe fetches files and tar.exe extracts them, so the process that pulls
@@ -213,7 +213,7 @@ public static class Downloader
         return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
     }
 
-    private const string MariadbPinned = "11.4.4";
+    private const string MariadbPinned = "12.3.2";   // latest MariaDB stable line (12.3)
 
     /// <summary>Download MariaDB (portable winx64 zip) into bin\mariadb.</summary>
     public static async Task<string> InstallMariadb()
@@ -222,19 +222,21 @@ public static class Downloader
         var zip = await DownloadToTmp(url, "mariadb.zip");
         var dir = Path.Combine(Paths.Bin, "mariadb");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
-        ExtractZip(zip, dir);   // → bin\mariadb\mariadb-11.4.4-winx64\bin\mysqld.exe
+        ExtractZip(zip, dir);   // → bin\mariadb\mariadb-12.3.2-winx64\bin\mysqld.exe
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 
     /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql.</summary>
     public static async Task<string> InstallDb()
     {
-        // dev.mysql.com/get/ 302-redirects to the CDN; HttpClient follows it.
-        var url = $"https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-{MysqlPinned}-winx64.zip";
+        // dev.mysql.com/get/ 302-redirects to the CDN; HttpClient follows it. The series subdir
+        // (MySQL-9.7) is derived from the pinned version so a bump only needs MysqlPinned changed.
+        var series = string.Join('.', MysqlPinned.Split('.').Take(2));
+        var url = $"https://dev.mysql.com/get/Downloads/MySQL-{series}/mysql-{MysqlPinned}-winx64.zip";
         var zip = await DownloadToTmp(url, "mysql.zip");
         var dir = Path.Combine(Paths.Bin, "mysql");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
-        ExtractZip(zip, dir);   // → bin\mysql\mysql-8.4.3-winx64\bin\mysqld.exe
+        ExtractZip(zip, dir);   // → bin\mysql\mysql-9.7.1-winx64\bin\mysqld.exe
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 

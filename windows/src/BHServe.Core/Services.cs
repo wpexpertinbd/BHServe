@@ -39,8 +39,8 @@ public static class Services
     {
         "nginx"     => "nginx 1.27",
         "apache"    => "httpd 2.4",
-        "mysql"     => "MySQL 8.4",
-        "mariadb"   => "MariaDB 11.4",
+        "mysql"     => "MySQL 9.7",
+        "mariadb"   => "MariaDB 12.3",
         "postgresql"=> "PostgreSQL 16",
         "redis"     => "Redis",
         "memcached" => "Memcached",
