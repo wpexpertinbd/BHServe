@@ -23,6 +23,7 @@ public sealed class Config
     [JsonPropertyName("sites_page_size")]     public int SitesPageSize { get; set; } = 15;
     [JsonPropertyName("auto_update")]              public bool AutoUpdate { get; set; } = true;
     [JsonPropertyName("start_services_on_launch")] public bool StartServicesOnLaunch { get; set; } = false;
+    [JsonPropertyName("root_password")]            public string RootPassword { get; set; } = "";   // "" = passwordless root
 
     private static readonly JsonSerializerOptions Opts = new()
     {

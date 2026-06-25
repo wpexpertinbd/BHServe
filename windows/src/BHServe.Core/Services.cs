@@ -32,6 +32,21 @@ public static class Services
     public static bool Exists(string key) => All.Any(s => s.Key == key);
     public static ServiceRole RoleOf(string key) => All.FirstOrDefault(s => s.Key == key)?.Role ?? ServiceRole.Other;
 
+    /// <summary>A short version/label for a service row (best-effort, no process spawn).</summary>
+    public static string ShortVersion(string key, Config cfg) => key switch
+    {
+        "nginx"     => "nginx 1.27",
+        "apache"    => "httpd 2.4",
+        "mariadb"   => "MySQL 8.4",
+        "redis"     => "Redis",
+        "memcached" => "Memcached",
+        "mailpit"   => "Mailpit",
+        "mkcert"    => "mkcert",
+        "fnm"       => "fnm",
+        _ when RoleOf(key) == ServiceRole.Php => "PHP " + PhpVersion(key, cfg),
+        _ => "",
+    };
+
     /// <summary>Normalize a --php value ("8.4" | "php@8.4" | "default" | "") to a registry key (mirrors bash php_key).</summary>
     public static string PhpKey(string? v, Config cfg)
     {

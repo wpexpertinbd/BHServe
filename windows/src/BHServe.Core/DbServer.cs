@@ -106,7 +106,10 @@ public static class DbServer
         var admin = Tools.MysqlClientExe() is { } cli
             ? Path.Combine(Path.GetDirectoryName(cli)!, "mysqladmin.exe") : null;
         if (admin is not null && File.Exists(admin) && Running())
-            RunWait(admin, $"-u root -h 127.0.0.1 -P {Port} --connect-timeout=5 shutdown");
+        {
+            var pw = Config.Load().RootPassword;
+            RunWait(admin, $"-u root {(pw.Length > 0 ? $"-p{pw} " : "")}-h 127.0.0.1 -P {Port} --connect-timeout=5 shutdown");
+        }
 
         try
         {

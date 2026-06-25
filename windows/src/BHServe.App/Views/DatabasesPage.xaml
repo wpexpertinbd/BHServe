@@ -22,6 +22,8 @@
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
             <Button x:Name="StartDbBtn" Content="Start server" Click="StartDb_Click" Style="{StaticResource AccentButtonStyle}"/>
             <Button x:Name="StopDbBtn"  Content="Stop server"  Click="StopDb_Click"/>
+            <Button Content="Root password…" Click="RootPw_Click"/>
+            <TextBlock x:Name="RootPwStatus" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
             <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
         </StackPanel>
 
@@ -30,9 +32,10 @@
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                 <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="220"/>
-                <TextBox x:Name="PassBox" PlaceholderText="user password (optional)" Width="200"/>
+                <TextBox x:Name="PassBox" PlaceholderText="user password (optional)" Width="180"/>
+                <Button Content="Generate" Click="GenPw_Click"/>
                 <Button Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
-                <TextBlock Text="blank = root/no-password" Opacity="0.6" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Text="blank = no dedicated user" Opacity="0.6" VerticalAlignment="Center" FontSize="12"/>
             </StackPanel>
         </Border>
 
@@ -48,7 +51,10 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="{x:Bind}" VerticalAlignment="Center"/>
-                            <Button Grid.Column="1" Content="Drop" Tag="{x:Bind}" Click="Drop_Click"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Password…" Tag="{x:Bind}" Click="DbPassword_Click"/>
+                                <Button Content="Drop" Tag="{x:Bind}" Click="Drop_Click"/>
+                            </StackPanel>
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>

@@ -5,54 +5,68 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BHServe.App.Views">
 
-    <Grid Padding="24" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="14">
+            <Grid>
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Services" FontSize="26" FontWeight="SemiBold"/>
+                    <TextBlock Text="Install downloads portable builds on demand into BHServe's own bin folder."
+                               Opacity="0.7"/>
+                </StackPanel>
+                <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
 
-        <TextBlock Grid.Row="0" Text="Services" FontSize="26" FontWeight="SemiBold"/>
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
-            <TextBlock Text="Install downloads portable builds on demand into BHServe's own bin folder."
-                       Opacity="0.7" VerticalAlignment="Center"/>
-            <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20"/>
-        </StackPanel>
-
-        <Border Grid.Row="2" BorderThickness="1" CornerRadius="8" Padding="4"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <ListView x:Name="List" SelectionMode="None">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="local:SvcRow">
-                        <Grid Padding="8,6" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{x:Bind Key}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1" Text="{x:Bind StatusText}" Opacity="0.7" VerticalAlignment="Center"/>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                <Button Content="Install" Tag="{x:Bind Key}" Click="Install_Click" IsEnabled="{x:Bind NotInstalled}"/>
-                                <Button Content="Start"   Tag="{x:Bind Key}" Click="Start_Click"   IsEnabled="{x:Bind CanStart}"/>
-                                <Button Content="Stop"    Tag="{x:Bind Key}" Click="Stop_Click"    IsEnabled="{x:Bind Running}"/>
-                                <Button ToolTipService.ToolTip="More" IsEnabled="{x:Bind Installed}">
-                                    <FontIcon Glyph="&#xE712;" FontSize="14"/>
-                                    <Button.Flyout>
-                                        <MenuFlyout>
-                                            <MenuFlyoutItem Text="Edit php.ini" Tag="{x:Bind Key}" Click="EditIni_Click" Visibility="{x:Bind PhpVis}"/>
-                                            <MenuFlyoutItem Text="Reinstall (update)" Tag="{x:Bind Key}" Click="Update_Click"/>
-                                            <MenuFlyoutSeparator/>
-                                            <MenuFlyoutItem Text="Uninstall" Tag="{x:Bind Key}" Click="Uninstall_Click"/>
-                                        </MenuFlyout>
-                                    </Button.Flyout>
-                                </Button>
+            <ItemsControl x:Name="Groups">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:SvcGroup">
+                        <Border CornerRadius="8" Padding="10" Margin="0,0,0,8" BorderThickness="1"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" Opacity="0.8" Margin="4,2,0,6"/>
+                                <ItemsControl ItemsSource="{x:Bind Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="local:SvcRow">
+                                            <Grid Padding="6,5" ColumnSpacing="10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="14"/>
+                                                    <ColumnDefinition Width="120"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Ellipse Grid.Column="0" Width="9" Height="9" Fill="{x:Bind DotBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind Key}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="2" Text="{x:Bind StatusText}" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
+                                                <ToggleButton Grid.Column="3" Tag="{x:Bind Key}" IsChecked="{x:Bind AutoStart}" Click="AutoStar_Click"
+                                                              ToolTipService.ToolTip="Start automatically" VerticalAlignment="Center" Padding="6">
+                                                    <FontIcon Glyph="&#xE734;" FontSize="13"/>
+                                                </ToggleButton>
+                                                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                                                    <Button Content="Install" Tag="{x:Bind Key}" Click="Install_Click" IsEnabled="{x:Bind NotInstalled}"/>
+                                                    <Button Content="Start"   Tag="{x:Bind Key}" Click="Start_Click"   IsEnabled="{x:Bind CanStart}"/>
+                                                    <Button Content="Stop"    Tag="{x:Bind Key}" Click="Stop_Click"    IsEnabled="{x:Bind Running}"/>
+                                                    <Button ToolTipService.ToolTip="More" IsEnabled="{x:Bind Installed}">
+                                                        <FontIcon Glyph="&#xE712;" FontSize="14"/>
+                                                        <Button.Flyout>
+                                                            <MenuFlyout>
+                                                                <MenuFlyoutItem Text="Edit php.ini" Tag="{x:Bind Key}" Click="EditIni_Click" Visibility="{x:Bind PhpVis}"/>
+                                                                <MenuFlyoutItem Text="Reinstall (update)" Tag="{x:Bind Key}" Click="Update_Click"/>
+                                                                <MenuFlyoutSeparator/>
+                                                                <MenuFlyoutItem Text="Uninstall" Tag="{x:Bind Key}" Click="Uninstall_Click"/>
+                                                            </MenuFlyout>
+                                                        </Button.Flyout>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
-                        </Grid>
+                        </Border>
                     </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Border>
-    </Grid>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
 </Page>

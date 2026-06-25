@@ -768,9 +768,16 @@ public sealed class Engine
                 if (name == "") throw new BhException("usage: bhserve db drop <name>");
                 Database.Drop(name); Ok($"dropped database '{name}'");
                 break;
-            default: throw new BhException("usage: bhserve db {list|create|drop|passwd} [name] [password]");
+            case "rootpw":
+                Database.SetRootPassword(name);   // name = the new password ("" clears it)
+                Ok(name.Length > 0 ? "root password set" : "root password cleared");
+                break;
+            default: throw new BhException("usage: bhserve db {list|create|drop|passwd|rootpw} [name] [password]");
         }
     }
+
+    /// <summary>True if root@localhost currently has a password set.</summary>
+    public bool DbHasRootPassword() { NeedInit(); return Database.HasRootPassword; }
 
     /// <summary>Node version management via fnm (the mac engine's `node` verb).</summary>
     public void Node(string sub, params string[] args)
