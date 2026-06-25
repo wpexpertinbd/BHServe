@@ -73,8 +73,22 @@ public sealed partial class SitesPage : Page
     private SiteRow? Row(string name) => _all.FirstOrDefault(r => r.Name == name);
 
     private string SelectedPhp => (PhpBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
-    private string SelectedType => (TypeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "others";
     private string SelectedServer => (ServerBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "nginx";
+    private string SelectedType => ((TypeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "") switch
+    {
+        "WordPress"       => "wordpress",
+        "PHP"             => "php",
+        "Node app"        => "node",
+        _                 => "others",
+    };
+
+    // PHP version + web server don't apply to a Node app — grey them out when it's selected.
+    private void Type_Changed(object s, SelectionChangedEventArgs e)
+    {
+        var isNode = SelectedType == "node";
+        if (PhpBox != null)    PhpBox.IsEnabled = !isNode;
+        if (ServerBox != null) ServerBox.IsEnabled = !isNode;
+    }
 
     private async void Add_Click(object s, RoutedEventArgs e)
     {
@@ -84,12 +98,48 @@ public sealed partial class SitesPage : Page
         // Read the UI controls HERE on the UI thread - the engine runs on a background
         // thread and touching XAML controls from there throws (RPC_E_WRONG_THREAD).
         string php = SelectedPhp, server = SelectedServer, type = SelectedType;
+        if (type == "node") { await AddNodeApp(name); return; }   // node apps have their own setup sheet
         Busy.IsActive = true; AddBtn.IsEnabled = false;
         var (ok, output) = await EngineHost.Instance.RunCaptured(
             () => EngineHost.Instance.Engine.SiteAdd(name, php: php, server: server, type: type));
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
 
+        await ShowResult(name, ok, output);
+        if (ok) NameBox.Text = "";
+    }
+
+    /// <summary>Node-app setup sheet (revealed when Type = Node app), then create + show the result.</summary>
+    private async Task AddNodeApp(string name)
+    {
+        var feDir = new TextBox  { Header = "Frontend folder", PlaceholderText = @"C:\path\to\frontend" };
+        var feCmd = new TextBox  { Header = "Frontend command", Text = "npm run dev" };
+        var fePort = new NumberBox { Header = "Frontend port", Value = 3000, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var beDir = new TextBox  { Header = "Backend folder (optional)" };
+        var beCmd = new TextBox  { Header = "Backend command (optional)", PlaceholderText = "npm start" };
+        var bePort = new NumberBox { Header = "Backend port (optional)", Value = double.NaN, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var api   = new TextBox  { Header = "API path → backend", Text = "/api" };
+        var panel = new StackPanel { Spacing = 8 };
+        foreach (var c in new FrameworkElement[] { feDir, feCmd, fePort, beDir, beCmd, bePort, api }) panel.Children.Add(c);
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Node app · {name}", Content = new ScrollViewer { Content = panel, MaxHeight = 480 },
+            PrimaryButtonText = "Create", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        string feD = feDir.Text.Trim(), feC = feCmd.Text.Trim(), beD = beDir.Text.Trim(),
+               beC = beCmd.Text.Trim(), apiP = api.Text.Trim();
+        int feP = (int)fePort.Value, bp = double.IsNaN(bePort.Value) ? 0 : (int)bePort.Value;
+        if (feD.Length == 0) { await Info("Node app", "A frontend folder is required."); return; }
+
+        Busy.IsActive = true; AddBtn.IsEnabled = false;
+        var (ok, output) = await EngineHost.Instance.RunCaptured(
+            () => EngineHost.Instance.Engine.NodeSiteAdd(name, feD, feC, feP, beD, beC, bp, apiP));
+        Busy.IsActive = false; AddBtn.IsEnabled = true;
+        Refresh();
         await ShowResult(name, ok, output);
         if (ok) NameBox.Text = "";
     }
