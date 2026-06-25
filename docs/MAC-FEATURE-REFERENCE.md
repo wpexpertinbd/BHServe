@@ -67,11 +67,12 @@ signature feature — Windows needs a `PerformanceCounter`/WMI sampler feeding t
 - **The "…" menu** (installed services): **Update to latest** · **Edit php.ini** (PHP rows only — opens an
   editor sheet, saves + reloads that version's FPM) · **Uninstall** (confirm dialog).
 - Buttons disabled while `busy`; nginx/all/dns may show an admin prompt unless the password-less helper is on.
-- **Update to latest = safe auto-upgrade** (engine `update_one`): `brew update` + `brew upgrade <formula>`
-  installs the **latest stable**, then the service is **restarted onto the new binary** so sites keep working.
-  Before any **database** upgrade (mariadb/mysql) it takes a **full `mysqldump --all-databases` backup** to
-  `~/.bhserve/backups/` (the data directory is never touched), and if the DB doesn't come back up it tells the
-  user the data is safe + how to recover. nginx that can't restart (no root) keeps serving on the old binary.
+- **Update to latest = auto-upgrade to latest stable** (engine `update_one`, the standard live-server flow):
+  `brew update` + `brew upgrade <formula>` installs the **latest stable**, then the service is **restarted onto
+  the new binary** so sites keep working, and for **MariaDB/MySQL** it runs **`mariadb-upgrade`** (= the
+  upgrade-command you'd run on a live box; migrates the system/privilege tables to the new version). **No full
+  DB dump** — the data directory stays compatible, so dumping every time would only create disk bloat. nginx
+  that can't restart (no root) keeps serving on the old binary until the next restart.
 
 → **Windows gap:** role-grouped list, ★ auto-start, install/uninstall, **and the per-row "…" menu with
 Edit php.ini** (the engine already has `php ini path|reload` — wire the GUI editor sheet to it).
