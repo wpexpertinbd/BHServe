@@ -34,8 +34,9 @@ public sealed partial class DatabasesPage : Page
     {
         var name = NameBox.Text.Trim();
         if (name.Length == 0) return;
-        await Op(() => EngineHost.Instance.Engine.Db("create", name));
-        NameBox.Text = "";
+        var pw = PassBox.Text;
+        await Op(() => EngineHost.Instance.Engine.Db("create", pw.Length > 0 ? new[] { name, pw } : new[] { name }));
+        NameBox.Text = ""; PassBox.Text = "";
     }
 
     private async void Drop_Click(object s, RoutedEventArgs e)

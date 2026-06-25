@@ -29,8 +29,10 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="240"/>
+                <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="220"/>
+                <TextBox x:Name="PassBox" PlaceholderText="user password (optional)" Width="200"/>
                 <Button Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
+                <TextBlock Text="blank = root/no-password" Opacity="0.6" VerticalAlignment="Center" FontSize="12"/>
             </StackPanel>
         </Border>
 

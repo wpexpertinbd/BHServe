@@ -666,14 +666,24 @@ public sealed class Engine
                 foreach (var d in dbs) Ok(d);
                 break;
             case "create":
-                if (name == "") throw new BhException("usage: bhserve db create <name>");
-                Ok($"database '{Database.Create(name)}' ready  (root · no password · 127.0.0.1:{DbServer.Port})");
+            {
+                if (name == "") throw new BhException("usage: bhserve db create <name> [password]");
+                var pw = args.Length > 1 ? args[1] : "";
+                Database.Create(name, pw);
+                if (pw.Length > 0) Ok($"database '{name}' ready  (user: {name} · password: {pw} · 127.0.0.1:{DbServer.Port})");
+                else Ok($"database '{name}' ready  (root · no password · 127.0.0.1:{DbServer.Port})");
+                break;
+            }
+            case "passwd":
+                if (name == "" || args.Length < 2) throw new BhException("usage: bhserve db passwd <name> <password>");
+                Database.SetPassword(name, args[1]);
+                Ok($"set password for user '{name}'");
                 break;
             case "drop":
                 if (name == "") throw new BhException("usage: bhserve db drop <name>");
                 Database.Drop(name); Ok($"dropped database '{name}'");
                 break;
-            default: throw new BhException("usage: bhserve db {list|create|drop} [name]");
+            default: throw new BhException("usage: bhserve db {list|create|drop|passwd} [name] [password]");
         }
     }
 
