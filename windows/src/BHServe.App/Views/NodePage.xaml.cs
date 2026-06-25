@@ -73,9 +73,10 @@ public sealed partial class NodePage : Page
         if ((s as FrameworkElement)?.Tag is string url)
             try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
     }
-    private async void StartApp_Click(object s, RoutedEventArgs e)  => await AppOp(() => EngineHost.Instance.Engine.NodeSiteStart(Tag(s)));
-    private async void StopApp_Click(object s, RoutedEventArgs e)   => await AppOp(() => EngineHost.Instance.Engine.NodeSiteStop(Tag(s)));
-    private async void RemoveApp_Click(object s, RoutedEventArgs e) => await AppOp(() => EngineHost.Instance.Engine.NodeSiteRemove(Tag(s)));
+    // Tag(s) reads a UI element — capture it on the UI thread, never inside the engine lambda.
+    private async void StartApp_Click(object s, RoutedEventArgs e)  { var n = Tag(s); await AppOp(() => EngineHost.Instance.Engine.NodeSiteStart(n)); }
+    private async void StopApp_Click(object s, RoutedEventArgs e)   { var n = Tag(s); await AppOp(() => EngineHost.Instance.Engine.NodeSiteStop(n)); }
+    private async void RemoveApp_Click(object s, RoutedEventArgs e) { var n = Tag(s); await AppOp(() => EngineHost.Instance.Engine.NodeSiteRemove(n)); }
 
     private static string Tag(object s) => (s as FrameworkElement)?.Tag as string ?? "";
 
@@ -100,12 +101,12 @@ public sealed partial class NodePage : Page
         };
         if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var n = name.Text.Trim();
-        if (n.Length == 0 || feDir.Text.Trim().Length == 0) return;
-        var bp = double.IsNaN(bePort.Value) ? 0 : (int)bePort.Value;
-        await AppOp(() => EngineHost.Instance.Engine.NodeSiteAdd(
-            n, feDir.Text.Trim(), feCmd.Text.Trim(), (int)fePort.Value,
-            beDir.Text.Trim(), beCmd.Text.Trim(), bp, api.Text.Trim()));
+        // Snapshot every control value on the UI thread before handing off to the engine thread.
+        string n = name.Text.Trim(), feD = feDir.Text.Trim(), feC = feCmd.Text.Trim(),
+               beD = beDir.Text.Trim(), beC = beCmd.Text.Trim(), apiP = api.Text.Trim();
+        int feP = (int)fePort.Value, bp = double.IsNaN(bePort.Value) ? 0 : (int)bePort.Value;
+        if (n.Length == 0 || feD.Length == 0) return;
+        await AppOp(() => EngineHost.Instance.Engine.NodeSiteAdd(n, feD, feC, feP, beD, beC, bp, apiP));
     }
 
     private async Task AppOp(Action action)
