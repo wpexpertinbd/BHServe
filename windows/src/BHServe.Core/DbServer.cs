@@ -77,7 +77,8 @@ public static class DbServer
         {
             FileName = mysqld,
             // --bind-address=127.0.0.1: never expose the DB (esp. passwordless root) to the LAN.
-            Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --port={Port} --mysqlx=0",
+            // --max-allowed-packet=1G: allow large SQL imports/dumps (default 64M chokes big phpMyAdmin imports).
+            Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --max-allowed-packet=1024M --port={Port} --mysqlx=0",
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(mysqld)!,
