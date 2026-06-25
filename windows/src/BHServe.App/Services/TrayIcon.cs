@@ -142,8 +142,10 @@ public sealed class TrayIcon : IDisposable
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
 
-    [DllImport("user32.dll", SetLastError = true)] private static extern ushort RegisterClass(ref WNDCLASS wc);
-    [DllImport("user32.dll")] private static extern bool UnregisterClass(string cls, IntPtr hInst);
+    // CharSet.Unicode is REQUIRED: WNDCLASS uses LPWStr names and CreateWindowEx is Unicode,
+    // so the class must register via RegisterClassW or CreateWindowExW can't find it (hwnd=0).
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern ushort RegisterClass(ref WNDCLASS wc);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool UnregisterClass(string cls, IntPtr hInst);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr CreateWindowEx(
         uint exStyle, string cls, string name, uint style, int x, int y, int w, int h,
         IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
@@ -158,6 +160,6 @@ public sealed class TrayIcon : IDisposable
     [DllImport("user32.dll")] private static extern int TrackPopupMenu(IntPtr menu, uint flags, int x, int y, int res, IntPtr hwnd, IntPtr rect);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(uint msg, ref NOTIFYICONDATA data);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool Shell_NotifyIcon(uint msg, ref NOTIFYICONDATA data);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
 }
