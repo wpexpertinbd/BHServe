@@ -13,10 +13,44 @@ func bhChooseFolder(start: String? = nil) -> String? {
     return panel.runModal() == .OK ? panel.url?.path : nil
 }
 
+/// Shared site-list paging (10 per page) for the Sites tab + the Dashboard panel.
+enum SitePaging {
+    static let pageSize = 10
+    static func pageCount(_ count: Int) -> Int { max(1, (count + pageSize - 1) / pageSize) }
+    /// The slice of `items` for `page`, clamped so an out-of-range page never crashes.
+    static func page<T>(_ items: [T], _ page: Int) -> [T] {
+        guard !items.isEmpty else { return [] }
+        let p = min(max(0, page), pageCount(items.count) - 1)
+        let start = p * pageSize
+        return Array(items[start ..< min(start + pageSize, items.count)])
+    }
+}
+
+/// Prev / "Page X of Y" / Next — only renders when there's more than one page.
+struct PageBar: View {
+    @Binding var page: Int
+    let pageCount: Int
+    var body: some View {
+        if pageCount > 1 {
+            HStack(spacing: 14) {
+                Button { if page > 0 { page -= 1 } } label: { Image(systemName: "chevron.left") }
+                    .disabled(page <= 0)
+                Text("Page \(min(page, pageCount - 1) + 1) of \(pageCount)")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Button { if page < pageCount - 1 { page += 1 } } label: { Image(systemName: "chevron.right") }
+                    .disabled(page >= pageCount - 1)
+            }
+            .buttonStyle(.borderless)
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
 struct SitesView: View {
     @Environment(AppState.self) private var state
     @State private var showingAdd = false
     @State private var query = ""
+    @State private var page = 0
     @FocusState private var searchFocused: Bool
 
     private var sites: [Site] {
@@ -56,13 +90,20 @@ struct SitesView: View {
                     } else {
                         ScrollView {
                             VStack(spacing: 0) {
-                                ForEach(sites) { WebsiteRow(site: $0) }
+                                ForEach(SitePaging.page(sites, page)) { WebsiteRow(site: $0) }
                             }
                             .background(.quaternary.opacity(0.4))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .padding([.horizontal, .bottom], 16)
+                            .padding([.horizontal], 16)
                         }
+                        PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count))
+                            .padding(.horizontal, 16).padding(.vertical, 10)
                     }
+                }
+                .onChange(of: query) { page = 0 }
+                .onChange(of: sites.count) {
+                    let last = SitePaging.pageCount(sites.count) - 1
+                    if page > last { page = max(0, last) }
                 }
             }
         }

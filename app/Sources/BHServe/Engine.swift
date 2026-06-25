@@ -28,8 +28,16 @@ final class Engine: Sendable {
         p.standardOutput = out
         p.standardError = err
         try p.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        // Drain stdout AND stderr CONCURRENTLY. Reading one to EOF before the other
+        // deadlocks: if the child fills the unread pipe's 64KB buffer it blocks on
+        // write and never closes the pipe we're reading → the app freezes forever
+        // (busy stays true). Concurrent reads keep both buffers flowing.
+        var data = Data(), errData = Data()
+        let group = DispatchGroup()
+        let q = DispatchQueue(label: "bhserve.engine.io", attributes: .concurrent)
+        q.async(group: group) { data = out.fileHandleForReading.readDataToEndOfFile() }
+        q.async(group: group) { errData = err.fileHandleForReading.readDataToEndOfFile() }
+        group.wait()
         p.waitUntilExit()
         if p.terminationStatus != 0 {
             let e = String(data: errData, encoding: .utf8) ?? ""

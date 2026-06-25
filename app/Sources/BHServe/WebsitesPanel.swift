@@ -6,6 +6,7 @@ struct WebsitesPanel: View {
     @Environment(AppState.self) private var state
     @State private var showingAdd = false
     @State private var query = ""
+    @State private var page = 0
     @FocusState private var searchFocused: Bool
 
     private var allCount: Int { state.realSites.count }
@@ -39,15 +40,22 @@ struct WebsitesPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(sites) { WebsiteRow(site: $0) }
+                    ForEach(SitePaging.page(sites, page)) { WebsiteRow(site: $0) }
                 }
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count))
+                    .padding(.top, 10)
             }
         }
         .padding(16)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
         .sheet(isPresented: $showingAdd) { AddSiteSheet() }
+        .onChange(of: query) { page = 0 }
+        .onChange(of: sites.count) {
+            let last = SitePaging.pageCount(sites.count) - 1
+            if page > last { page = max(0, last) }
+        }
     }
 }
 
