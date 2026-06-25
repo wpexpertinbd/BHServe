@@ -39,13 +39,14 @@
                                                 <TextBlock Grid.Column="1" Text="{x:Bind Key}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                 <TextBlock Grid.Column="2" Text="{x:Bind StatusText}" Opacity="0.6" FontSize="12" VerticalAlignment="Center"/>
                                                 <ToggleButton Grid.Column="3" Tag="{x:Bind Key}" IsChecked="{x:Bind AutoStart}" Click="AutoStar_Click"
-                                                              ToolTipService.ToolTip="Start automatically" VerticalAlignment="Center" Padding="6">
+                                                              ToolTipService.ToolTip="Start automatically" VerticalAlignment="Center" Padding="6"
+                                                              Visibility="{x:Bind ManageVis}">
                                                     <FontIcon Glyph="&#xE734;" FontSize="13"/>
                                                 </ToggleButton>
                                                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6">
                                                     <Button Content="Install" Tag="{x:Bind Key}" Click="Install_Click" IsEnabled="{x:Bind NotInstalled}"/>
-                                                    <Button Content="Start"   Tag="{x:Bind Key}" Click="Start_Click"   IsEnabled="{x:Bind CanStart}"/>
-                                                    <Button Content="Stop"    Tag="{x:Bind Key}" Click="Stop_Click"    IsEnabled="{x:Bind Running}"/>
+                                                    <Button Content="Start"   Tag="{x:Bind Key}" Click="Start_Click"   IsEnabled="{x:Bind CanStart}" Visibility="{x:Bind ManageVis}"/>
+                                                    <Button Content="Stop"    Tag="{x:Bind Key}" Click="Stop_Click"    IsEnabled="{x:Bind Running}" Visibility="{x:Bind ManageVis}"/>
                                                     <Button ToolTipService.ToolTip="More" IsEnabled="{x:Bind Installed}">
                                                         <FontIcon Glyph="&#xE712;" FontSize="14"/>
                                                         <Button.Flyout>

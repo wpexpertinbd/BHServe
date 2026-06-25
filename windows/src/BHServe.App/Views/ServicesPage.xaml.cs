@@ -25,12 +25,17 @@ public sealed class SvcRow
     public bool CanStart => Installed && !Running && Manageable;
     public bool IsPhp => Key.StartsWith("php");
     public Visibility PhpVis => IsPhp ? Visibility.Visible : Visibility.Collapsed;
-    public Brush DotBrush => new SolidColorBrush(Running ? Colors.SeaGreen : Installed ? Colors.Gray : Colors.DimGray);
+    // mkcert / fnm are one-shot tools, not daemons — they have no run state, so don't show
+    // Start/Stop or the ★ auto-start, and treat "installed" as ready (green).
+    public Visibility ManageVis => Manageable ? Visibility.Visible : Visibility.Collapsed;
+    public bool ReadyTool => Installed && !Manageable;
+    public Brush DotBrush => new SolidColorBrush(
+        Running || ReadyTool ? Colors.SeaGreen : Installed ? Colors.Gray : Colors.DimGray);
     public string StatusText
     {
         get
         {
-            var st = Running ? "running" : Installed ? "stopped" : "not installed";
+            var st = !Installed ? "not installed" : !Manageable ? "installed" : Running ? "running" : "stopped";
             return Version.Length > 0 ? $"{Version}  ·  {st}" : st;
         }
     }
