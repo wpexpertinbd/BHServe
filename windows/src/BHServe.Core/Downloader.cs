@@ -42,7 +42,10 @@ public static class Downloader
     private static Task CurlTo(string url, string dest)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        Shell(CurlExe, $"-fL --retry 3 --retry-delay 2 -A \"{UA}\" -o \"{dest}\" \"{url}\"");
+        // -s --show-error: no progress meter (it floods callers); --retry + --speed-limit/--speed-time:
+        // abort a STALLED transfer (< 2 KB/s for 20s) and retry — wordpress.org's CDN tail-stalls.
+        Shell(CurlExe, $"-fL -s --show-error --retry 5 --retry-delay 2 --speed-limit 2048 --speed-time 20 " +
+                       $"--connect-timeout 30 -A \"{UA}\" -o \"{dest}\" \"{url}\"");
         if (!File.Exists(dest) || new FileInfo(dest).Length == 0)
             throw new InvalidOperationException($"download produced no file: {url}");
         return Task.CompletedTask;
