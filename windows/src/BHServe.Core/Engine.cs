@@ -95,6 +95,7 @@ public sealed class Engine
             {
                 var (dok, dmsg) = DbServer.Start(); if (dok) Ok(dmsg); else Warn(dmsg);
             }
+            if (AnyApacheSite()) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
             var (ok, msg) = Nginx.Start(cfg);
             if (ok) Ok(msg); else No(msg);
             return;
@@ -121,6 +122,7 @@ public sealed class Engine
             foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
             if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
             if (MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
+            if (Apache.Running()) { Apache.Stop(); Ok("apache stopped"); }
             return;
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
@@ -146,7 +148,8 @@ public sealed class Engine
         var domain = $"{name}.{cfg.Tld}";
         root ??= Path.Combine(cfg.SitesRoot, name);
         if (string.IsNullOrEmpty(server)) server = cfg.DefaultWeb;
-        if (server != "nginx") throw new BhException("only --server nginx is implemented on Windows so far");
+        if (server is not ("nginx" or "apache")) throw new BhException("--server must be nginx or apache");
+        if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache (Laragon ships it)");
         var phpKey = Services.PhpKey(php, cfg);
         var version = Services.PhpVersion(phpKey, cfg);
 
@@ -160,8 +163,14 @@ public sealed class Engine
         if (PhpCgi.Start(version)) Ok($"php-cgi {version} on :{PhpCgi.PortFor(version)}");
         else Warn($"php {version} not installed — bhserve install php@{version} (site will 502 until then)");
 
-        NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
-        Ok($"site vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}");
+        if (server == "apache")
+        {
+            Apache.RenderVhost(name, domain, root, phpKey, cfg);
+            var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg);
+            NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
+        }
+        else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        Ok($"site vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}  (server={server})");
 
         // Serve it first (so the site works immediately), then map the hostname.
         if (Nginx.Running()) Nginx.Reload(cfg);
@@ -204,10 +213,12 @@ public sealed class Engine
         var cfg = Config.Load();
         foreach (var f in new[] { $"{name}.conf", $"{name}.conf.disabled" })
             try { File.Delete(Path.Combine(Paths.NginxSites, f)); } catch { }
+        Apache.RemoveVhost(name);
         Ok($"removed vhost for {name}");
         var rmDomain = $"{name}.{cfg.Tld}";
         if (!Hosts.Remove(rmDomain) && Hosts.Has(rmDomain)) Elevation.Run("hosts-remove", rmDomain);
         if (Nginx.Running()) Nginx.Reload(cfg);
+        Apache.Reload();
         Info("(site files left on disk; remove manually if desired)");
     }
 
@@ -219,12 +230,47 @@ public sealed class Engine
         if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
         var (domain, root, _) = ParseVhost(conf);
         var phpKey = Services.PhpKey(version, cfg);
-        var v = Services.PhpVersion(phpKey, cfg);
-        PhpCgi.Start(v);
-        NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        RenderSite(name, domain, root, phpKey, VhostServer(conf), cfg);
         if (Nginx.Running()) Nginx.Reload(cfg);
         Ok($"{name} now on {phpKey}");
     }
+
+    /// <summary>Switch a site between the nginx and apache backends.</summary>
+    public void SiteServer(string name, string server)
+    {
+        NeedInit();
+        if (server is not ("nginx" or "apache")) throw new BhException("usage: bhserve site server <name> <nginx|apache>");
+        var cfg = Config.Load();
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
+        if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache");
+        var (domain, root, phpKey) = ParseVhost(conf);
+        if (server == "nginx") Apache.RemoveVhost(name);   // leaving apache → drop its vhost
+        RenderSite(name, domain, root, phpKey, server, cfg);
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Apache.Reload();
+        Ok($"{name} now served by {server}");
+    }
+
+    /// <summary>Render a site's vhost(s) for the chosen backend + ensure its php-cgi is up.</summary>
+    private void RenderSite(string name, string domain, string root, string phpKey, string server, Config cfg)
+    {
+        PhpCgi.Start(Services.PhpVersion(phpKey, cfg));
+        if (server == "apache")
+        {
+            Apache.RenderVhost(name, domain, root, phpKey, cfg);
+            Apache.Start();
+            NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
+        }
+        else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+    }
+
+    private static string VhostServer(string conf) =>
+        File.ReadAllText(conf).Contains("server=apache") ? "apache" : "nginx";
+
+    private static bool AnyApacheSite() =>
+        Directory.Exists(Paths.NginxSites) &&
+        Directory.EnumerateFiles(Paths.NginxSites, "*.conf").Any(f => File.ReadAllText(f).Contains("server=apache"));
 
     public void Secure(string domain)
     {

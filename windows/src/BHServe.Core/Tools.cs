@@ -98,6 +98,18 @@ public static class Tools
 
     public static string? MailpitExe() => FindUnder(Path.Combine(Paths.Bin, "mailpit"), "mailpit.exe");
 
+    /// <summary>httpd.exe (Apache) — our bin\apache\** first, then Laragon.</summary>
+    public static string? HttpdExe()
+    {
+        var managed = FindUnder(Path.Combine(Paths.Bin, "apache"), "httpd.exe");
+        if (managed is not null) return managed;
+        return FindUnder(Path.Combine(LaragonBin, "apache"), "httpd.exe");
+    }
+
+    /// <summary>Apache ServerRoot = the dir that contains bin\httpd.exe (its parent).</summary>
+    public static string? ApacheRoot() =>
+        HttpdExe() is { } exe ? Path.GetDirectoryName(Path.GetDirectoryName(exe)!) : null;
+
     public static string? FnmExe()
     {
         var managed = FindUnder(Path.Combine(Paths.Bin, "fnm"), "fnm.exe");
