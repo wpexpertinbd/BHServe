@@ -15,10 +15,10 @@
                              Loaded="Nav_Loaded">
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home"/>
+                <muxc:NavigationViewItem Content="Services"  Tag="services"  Icon="AllApps"/>
                 <muxc:NavigationViewItem Content="Sites"     Tag="sites"     Icon="World"/>
                 <muxc:NavigationViewItem Content="Databases" Tag="databases" Icon="Library"/>
                 <muxc:NavigationViewItem Content="Node"      Tag="node"      Icon="Repair"/>
-                <muxc:NavigationViewItem Content="Services"  Tag="services"  Icon="AllApps"/>
                 <muxc:NavigationViewItem Content="Logs"      Tag="logs"      Icon="Document"/>
             </muxc:NavigationView.MenuItems>
 

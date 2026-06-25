@@ -29,22 +29,31 @@ public static class Updater
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("BHServe-Updater");
-            var resp = await http.GetAsync($"https://api.github.com/repos/{Repo}/releases/latest");
-            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return new Result(false, CurrentVersion, null, null, "No published releases yet.");
-            resp.EnsureSuccessStatusCode();
+            // IMPORTANT: read ALL releases and filter the Windows channel (win-v* tags).
+            // NOT /releases/latest — that is the macOS .pkg channel and would mis-report
+            // the Mac version as a Windows update.
+            using var doc = JsonDocument.Parse(
+                await http.GetStringAsync($"https://api.github.com/repos/{Repo}/releases?per_page=50"));
 
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            var tag = (doc.RootElement.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
-            string? asset = null;
-            if (doc.RootElement.TryGetProperty("assets", out var assets))
-                asset = assets.EnumerateArray()
-                    .Select(a => a.GetProperty("browser_download_url").GetString())
-                    .FirstOrDefault(u => u is not null && u.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
-            var notes = doc.RootElement.TryGetProperty("body", out var b) ? b.GetString() : null;
+            string? bestVer = null, bestAsset = null, bestNotes = null;
+            foreach (var rel in doc.RootElement.EnumerateArray())
+            {
+                var tag = rel.GetProperty("tag_name").GetString() ?? "";
+                if (!tag.StartsWith("win-v", StringComparison.OrdinalIgnoreCase)) continue;
+                var ver = tag["win-v".Length..];
+                if (bestVer is not null && Compare(ver, bestVer) <= 0) continue;
 
-            var newer = Compare(tag, CurrentVersion) > 0;
-            return new Result(newer, tag, asset, notes, null);
+                var exe = rel.TryGetProperty("assets", out var assets)
+                    ? assets.EnumerateArray()
+                            .Select(a => a.GetProperty("browser_download_url").GetString())
+                            .FirstOrDefault(u => u is not null && u.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    : null;
+                bestVer = ver; bestAsset = exe;
+                bestNotes = rel.TryGetProperty("body", out var b) ? b.GetString() : null;
+            }
+
+            if (bestVer is null) return new Result(false, CurrentVersion, null, null, "No Windows releases published yet.");
+            return new Result(Compare(bestVer, CurrentVersion) > 0, bestVer, bestAsset, bestNotes, null);
         }
         catch (Exception ex) { return new Result(false, CurrentVersion, null, null, ex.Message); }
     }
