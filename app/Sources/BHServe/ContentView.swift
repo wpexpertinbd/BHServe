@@ -47,7 +47,15 @@ struct ContentView: View {
     private var mainView: some View {
         NavigationSplitView {
             List(SidebarItem.allCases, selection: $selection) { item in
-                Label(item.title, systemImage: item.icon).tag(item)
+                HStack {
+                    Label(item.title, systemImage: item.icon)
+                    if item == .settings && state.updateAvailable {
+                        Spacer()
+                        Circle().fill(.blue).frame(width: 7, height: 7)
+                            .help("An update is available")
+                    }
+                }
+                .tag(item)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
             .safeAreaInset(edge: .bottom) { StatusFooter() }

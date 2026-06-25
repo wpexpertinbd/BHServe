@@ -34,6 +34,7 @@ final class AppState {
         retireOldSMAgents()
         await reload()
         if autostartEnabled { await control("start", "all") }
+        if autoUpdateCheckEnabled { await checkForUpdate(auto: true) }
     }
 
     /// One-time cleanup: earlier builds used SMAppService (mainApp, then a `.helper`
@@ -379,6 +380,16 @@ final class AppState {
     }
     var updateStatus: UpdateStatus = .idle
 
+    /// Persisted "check for updates automatically" preference (default ON). When on,
+    /// we run one quiet check at launch so a waiting update is visible without the
+    /// user opening Settings (a dot appears on the sidebar's Settings row).
+    private static let autoUpdateKey = "autoUpdateCheck"
+    var autoUpdateCheckEnabled: Bool = (UserDefaults.standard.object(forKey: AppState.autoUpdateKey) as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(autoUpdateCheckEnabled, forKey: AppState.autoUpdateKey) }
+    }
+    /// True only when a newer version was found — drives the sidebar badge.
+    var updateAvailable: Bool { if case .available = updateStatus { return true }; return false }
+
     struct Release: Decodable {
         let tagName: String, htmlURL: String, assets: [Asset]
         struct Asset: Decodable { let name: String; let url: String
@@ -386,26 +397,31 @@ final class AppState {
         enum CodingKeys: String, CodingKey { case tagName = "tag_name"; case htmlURL = "html_url"; case assets }
     }
 
-    func checkForUpdate() async {
-        updateStatus = .checking
+    /// `auto` = the silent launch check: don't surface a "checking…" spinner or a
+    /// scary "check failed" (offline at login is normal) — only promote to
+    /// `.available`, otherwise leave the status untouched.
+    func checkForUpdate(auto: Bool = false) async {
+        if !auto { updateStatus = .checking }
         guard let url = URL(string: "https://api.github.com/repos/\(AppState.repoSlug)/releases/latest") else {
-            updateStatus = .failed("bad URL"); return
+            if !auto { updateStatus = .failed("bad URL") }; return
         }
         do {
             var req = URLRequest(url: url)
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { updateStatus = .upToDate; return }
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+                if !auto { updateStatus = .upToDate }; return
+            }
             let rel = try JSONDecoder().decode(Release.self, from: data)
             let latest = rel.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
             if AppState.isNewer(latest, than: appVersion),
                let pkg = rel.assets.first(where: { $0.name.hasSuffix(".pkg") })?.url {
                 updateStatus = .available(version: latest, pkg: pkg)
-            } else {
+            } else if !auto {
                 updateStatus = .upToDate
             }
         } catch {
-            updateStatus = .failed(error.localizedDescription)
+            if !auto { updateStatus = .failed(error.localizedDescription) }
         }
     }
 

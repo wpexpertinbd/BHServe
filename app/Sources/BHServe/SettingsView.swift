@@ -27,6 +27,12 @@ struct SettingsView: View {
             }
             Section("Updates") {
                 LabeledContent("Current version", value: "v\(state.appVersion)")
+                Toggle("Automatically check for updates", isOn: Binding(
+                    get: { state.autoUpdateCheckEnabled },
+                    set: { v in
+                        state.autoUpdateCheckEnabled = v
+                        if v { Task { await state.checkForUpdate() } }   // re-check immediately when turned on
+                    }))
                 switch state.updateStatus {
                 case .idle:
                     Button { Task { await state.checkForUpdate() } } label: {
