@@ -111,8 +111,34 @@ public sealed class Engine
         return Downloader.InstallPhp(ver).GetAwaiter().GetResult();
     }
 
-    public void Update(string tool)    => throw new BhException("update: not yet on Windows (reinstall the tool for now)");
-    public void Uninstall(string tool) => throw new BhException("uninstall: not yet on Windows");
+    public void Update(string tool) { Uninstall(tool); Install(tool); }
+
+    public void Uninstall(string tool)
+    {
+        NeedInit();
+        if (string.IsNullOrEmpty(tool)) throw new BhException("usage: bhserve uninstall <tool>");
+        var cfg = Config.Load();
+        try { Stop(tool); } catch { }
+        System.Threading.Thread.Sleep(400);   // let the process release file locks
+
+        var dir = tool switch
+        {
+            "nginx"      => Path.Combine(Paths.Bin, "nginx"),
+            "apache" or "httpd"  => Path.Combine(Paths.Bin, "apache"),
+            "mariadb" or "mysql" => Path.Combine(Paths.Bin, "mysql"),
+            "redis"      => Path.Combine(Paths.Bin, "redis"),
+            "memcached"  => Path.Combine(Paths.Bin, "memcached"),
+            "mkcert"     => Path.Combine(Paths.Bin, "mkcert"),
+            "mailpit"    => Path.Combine(Paths.Bin, "mailpit"),
+            "fnm" or "node" => Path.Combine(Paths.Bin, "fnm"),
+            "cloudflared"   => Path.Combine(Paths.Bin, "cloudflared"),
+            _ when tool.StartsWith("php") =>
+                Path.Combine(Paths.Bin, "php", Services.PhpVersion(Services.PhpKey(tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..], cfg), cfg)),
+            _ => throw new BhException($"unknown tool: {tool}"),
+        };
+        if (Directory.Exists(dir)) { try { Directory.Delete(dir, true); Ok($"{tool} uninstalled"); } catch (Exception ex) { No($"uninstall {tool}: {ex.Message}"); } }
+        else Warn($"{tool} not installed");
+    }
 
     // ── start/stop ──────────────────────────────────────────────────────────────
     /// <summary>"all" → start nginx + every PHP version an enabled site uses (the 502 fix).</summary>

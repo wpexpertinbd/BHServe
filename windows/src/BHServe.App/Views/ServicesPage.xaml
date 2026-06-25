@@ -37,6 +37,17 @@
                                 <Button Content="Install" Tag="{x:Bind Key}" Click="Install_Click" IsEnabled="{x:Bind NotInstalled}"/>
                                 <Button Content="Start"   Tag="{x:Bind Key}" Click="Start_Click"   IsEnabled="{x:Bind CanStart}"/>
                                 <Button Content="Stop"    Tag="{x:Bind Key}" Click="Stop_Click"    IsEnabled="{x:Bind Running}"/>
+                                <Button ToolTipService.ToolTip="More" IsEnabled="{x:Bind Installed}">
+                                    <FontIcon Glyph="&#xE712;" FontSize="14"/>
+                                    <Button.Flyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Edit php.ini" Tag="{x:Bind Key}" Click="EditIni_Click" Visibility="{x:Bind PhpVis}"/>
+                                            <MenuFlyoutItem Text="Reinstall (update)" Tag="{x:Bind Key}" Click="Update_Click"/>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="Uninstall" Tag="{x:Bind Key}" Click="Uninstall_Click"/>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
