@@ -14,7 +14,7 @@
 
         <TextBlock Grid.Row="0" Text="Services" FontSize="26" FontWeight="SemiBold"/>
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
-            <TextBlock Text="Install pulls portable builds (or reuses a local Laragon install)."
+            <TextBlock Text="Install downloads portable builds on demand into BHServe's own bin folder."
                        Opacity="0.7" VerticalAlignment="Center"/>
             <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20"/>
         </StackPanel>
