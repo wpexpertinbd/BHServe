@@ -39,6 +39,7 @@ struct ServiceRow: View {
     let service: Service
 
     @State private var confirmUninstall = false
+    @State private var editingIni = false
 
     private var manageable: Bool {
         // these the engine can start/stop today
@@ -82,6 +83,11 @@ struct ServiceRow: View {
                     Button { Task { await state.updateService(service.key) } } label: {
                         Label("Update to latest", systemImage: "arrow.up.circle")
                     }
+                    if service.role == "php" {
+                        Button { editingIni = true } label: {
+                            Label("Edit php.ini", systemImage: "doc.text")
+                        }
+                    }
                     Button(role: .destructive) { confirmUninstall = true } label: {
                         Label("Uninstall", systemImage: "trash")
                     }
@@ -98,6 +104,71 @@ struct ServiceRow: View {
                 Task { await state.uninstallService(service.key) }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $editingIni) {
+            EditPhpIniSheet(service: service)
+        }
+    }
+}
+
+struct EditPhpIniSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    let service: Service
+
+    @State private var content = ""
+    @State private var path: String?
+    @State private var loading = true
+    @State private var loadError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Edit php.ini — \(service.key)").font(.headline)
+                    if let path { Text(path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+                Spacer()
+            }
+            if loading {
+                Spacer(); ProgressView("Loading…").frame(maxWidth: .infinity); Spacer()
+            } else if let loadError {
+                Spacer()
+                Label(loadError, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                Spacer()
+            } else {
+                TextEditor(text: $content)
+                    .font(.system(.caption, design: .monospaced))
+                    .autocorrectionDisabled()
+                    .frame(minWidth: 640, minHeight: 440)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            }
+            HStack {
+                Text("Saving restarts php-fpm \(service.key) if it's running.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    Task {
+                        if let path { await state.savePhpIni(service.key, path: path, content: content) }
+                        dismiss()
+                    }
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(loading || loadError != nil || state.busy)
+            }
+        }
+        .padding(16)
+        .frame(width: 720, height: 560)
+        .task {
+            guard let p = await state.phpIniPath(service.key) else {
+                loadError = "Couldn't locate php.ini for \(service.key)."; loading = false; return
+            }
+            path = p
+            do { content = try String(contentsOfFile: p, encoding: .utf8) }
+            catch { loadError = error.localizedDescription }
+            loading = false
         }
     }
 }

@@ -899,6 +899,20 @@ nginx_stop(){
 # Is a php pool running? (by its pid file)
 fpm_running(){ local pid="$BH_HOME/run/php-$(php_label "$1").pid"; [ -f "$pid" ] && pid_alive "$(cat "$pid")"; }
 
+# PHP keys referenced by ENABLED site vhosts (php-8.3.sock -> php@8.3, php-default.sock -> php).
+# Used so a site's pool starts even when that version isn't individually starred —
+# otherwise the site 502s (no FPM socket) until the pool is started by hand.
+site_php_keys(){
+  local f s label
+  for f in "$BH_HOME"/nginx/sites/*.conf; do
+    [ -f "$f" ] || continue
+    grep -ho 'php-[0-9.]*\.sock\|php-default\.sock' "$f" 2>/dev/null
+  done | sort -u | while read -r s; do
+    label="${s#php-}"; label="${label%.sock}"
+    [ "$label" = default ] && echo php || echo "php@$label"
+  done
+}
+
 # brew-services managed daemons (db/cache/mail)
 brew_svc(){ # action key
   local action="$1" key="$2" formula; formula="$(svc_formula "$key")"
@@ -912,6 +926,14 @@ start_all(){
   hdr "Starting enabled services"
   # ensure the default PHP pool conf exists so a fresh install has something to start
   [ -n "$(fpm_keys)" ] || render_fpm_pool "$(php_key default)" >/dev/null 2>&1 || true
+  # start every PHP version an enabled site needs (sockets must exist before nginx
+  # proxies them), even if that version isn't starred for auto-start.
+  local pk
+  for pk in $(site_php_keys); do
+    svc_installed "$pk" || continue
+    fpm_running "$pk" && continue
+    ( fpm_start "$pk" ) || warn "$pk failed to start (continuing)"
+  done
   local IFS='|' key formula probe role
   while read -r key formula probe role; do
     [ -n "$key" ] || continue
@@ -1336,7 +1358,64 @@ cmd_php(){
   case "$sub" in
     ioncube) php_ioncube "$@" ;;
     status)  php_status ;;
-    *) die "usage: bhserve php {ioncube [version|all]|status}" ;;
+    ini)     php_ini "$@" ;;
+    *) die "usage: bhserve php {ioncube [version|all]|status|ini {path|reload} <ver>}" ;;
+  esac
+}
+
+# php-cli binary for a php key (sibling of the fpm binary).
+php_cli_bin(){ local b; b="$(php_fpm_bin "$1")"; echo "${b%/sbin/php-fpm}/bin/php"; }
+
+# Resolve the loaded php.ini for a php key, creating one if the version has none
+# (Homebrew leaves some kegs without an etc/php/<mm>/php.ini). Prints the path.
+php_ini_path(){
+  local key="$1" b ini dir
+  b="$(php_cli_bin "$key")"; [ -x "$b" ] || b="$BREW_PREFIX/bin/php"
+  [ -x "$b" ] || die "$key not installed"
+  ini="$("$b" -r 'echo php_ini_loaded_file() ?: "";' 2>/dev/null)"
+  if [ -z "$ini" ]; then
+    dir="$("$b" -r 'echo PHP_CONFIG_FILE_PATH;' 2>/dev/null)"
+    [ -n "$dir" ] || dir="$BREW_PREFIX/etc/php/$(php_mm "$key")"
+    mkdir -p "$dir"; ini="$dir/php.ini"
+    # Seed from a dist template, else a sibling version's php.ini, else a stub.
+    local src=""
+    for t in "$dir/php.ini-development" "$dir/php.ini-production"; do [ -f "$t" ] && { src="$t"; break; }; done
+    if [ -z "$src" ]; then
+      local IFS='|' k _f _p _r sb
+      while read -r k _f _p _r; do
+        [ "$_r" = php ] || continue; [ "$k" = "$key" ] && continue
+        svc_installed "$k" || continue
+        sb="$(php_cli_bin "$k")"; [ -x "$sb" ] || continue
+        local cand; cand="$("$sb" -r 'echo php_ini_loaded_file() ?: "";' 2>/dev/null)"
+        [ -n "$cand" ] && [ -f "$cand" ] && { src="$cand"; break; }
+      done < <(services)
+    fi
+    if [ -n "$src" ]; then cp "$src" "$ini"
+    else printf '; BHServe-created php.ini for %s\n; Add your directives below.\n' "$key" > "$ini"; fi
+  fi
+  printf '%s\n' "$ini"
+}
+
+# Restart a php version's FPM (only if running) so edited php.ini takes effect.
+php_ini_reload(){
+  local key="$1"
+  if fpm_running "$key"; then
+    fpm_stop "$key" >/dev/null 2>&1 || true
+    fpm_start "$key" >/dev/null 2>&1 && ok "php-fpm $key reloaded" || warn "$key reload failed"
+  else
+    info "$key not running — changes apply on next start"
+  fi
+}
+
+php_ini(){
+  local act="${1:-path}"; shift || true
+  local key; key="$(php_key "${1:-}")"
+  svc_exists "$key" || die "unknown php version: ${1:-}"
+  svc_installed "$key" || die "$key not installed"
+  case "$act" in
+    path)   php_ini_path "$key" ;;
+    reload) php_ini_reload "$key" ;;
+    *) die "usage: bhserve php ini {path|reload} <ver>" ;;
   esac
 }
 
@@ -1704,7 +1783,7 @@ BHServe — usage:
   bhserve site php <name> <ver>  switch a site's PHP version
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
   bhserve node {list|remote|install|use|uninstall} [version]   (multi-version via fnm)
-  bhserve php {ioncube [version|all]|status}                   (ionCube loader + per-version config)
+  bhserve php {ioncube [version|all]|status|ini {path|reload} <ver>}   (ionCube + status + edit php.ini)
   bhserve site server <name> <nginx|apache>                   (switch a site's web server)
   bhserve pma install                                          (phpMyAdmin at phpmyadmin.test, 2GB uploads)
   bhserve adminer install                                      (Adminer at adminer.test)

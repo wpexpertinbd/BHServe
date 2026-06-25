@@ -345,6 +345,31 @@ final class AppState {
         await runUser(["uninstall", key], note: "uninstalling \(key)…")
     }
 
+    // ── php.ini editing ─────────────────────────────────────────────────────
+    /// Resolve (creating if needed) the loaded php.ini path for a php version.
+    func phpIniPath(_ key: String) async -> String? {
+        let eng = engine
+        let out = try? await Task.detached(operation: { try eng.run(["php", "ini", "path", key]) }).value
+        let p = out?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (p?.isEmpty == false) ? p : nil
+    }
+
+    /// Write the edited php.ini, then restart that version's FPM so it takes effect.
+    func savePhpIni(_ key: String, path: String, content: String) async {
+        guard !busy else { return }
+        busy = true
+        lastAction = "saving php.ini for \(key)…"
+        defer { busy = false; lastAction = nil }
+        do {
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            let eng = engine
+            try await Task.detached { _ = try eng.run(["php", "ini", "reload", key]) }.value
+            await reload()
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
     // ── self-update via GitHub Releases ─────────────────────────────────────
     static let repoSlug = "wpexpertinbd/BHServe"
     enum UpdateStatus: Equatable {
