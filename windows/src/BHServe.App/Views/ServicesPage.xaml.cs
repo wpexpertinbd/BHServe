@@ -34,7 +34,7 @@ public sealed partial class ServicesPage : Page
         List.ItemsSource = snap.Services.Select(s => new SvcRow
         {
             Key = s.Key, Installed = s.Installed, Running = s.Running,
-            Manageable = s.Role is ServiceRole.Php || s.Key == "nginx",
+            Manageable = s.Role is ServiceRole.Php || s.Key is "nginx" or "mariadb",
         }).ToList();
     }
 

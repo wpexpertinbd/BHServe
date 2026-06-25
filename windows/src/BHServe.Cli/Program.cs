@@ -54,8 +54,9 @@ try
             }
             break;
 
-        case "db":   engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
-        case "node": engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "db":      engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "node":    engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "adminer": engine.Adminer(); break;
 
         case "help" or "-h" or "--help": Usage(); break;
         default: Usage(); return 1;

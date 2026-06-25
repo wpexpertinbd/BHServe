@@ -91,11 +91,16 @@ public sealed class Engine
             foreach (var v in SitePhpVersions(cfg))
                 if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
                 else Warn($"php {v} not installed — bhserve install php@{v}");
+            if (Services.Enabled("mariadb", cfg) && Tools.MysqldExe() is not null)
+            {
+                var (dok, dmsg) = DbServer.Start(); if (dok) Ok(dmsg); else Warn(dmsg);
+            }
             var (ok, msg) = Nginx.Start(cfg);
             if (ok) Ok(msg); else No(msg);
             return;
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
+        if (svc == "mariadb") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc.StartsWith("php"))
         {
             var v = PhpVersionOf(svc, cfg);
@@ -113,9 +118,11 @@ public sealed class Engine
         {
             Nginx.Stop(); Ok("nginx stopped");
             foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
+            if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
             return;
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
+        if (svc == "mariadb") { DbServer.Stop(); Ok("database stopped"); return; }
         if (svc.StartsWith("php")) { var v = PhpVersionOf(svc, cfg); PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); return; }
         throw new BhException($"don't know how to stop '{svc}'");
     }
@@ -153,10 +160,11 @@ public sealed class Engine
         NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
         Ok($"site vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}");
 
-        EnsureHosts(domain);
-
+        // Serve it first (so the site works immediately), then map the hostname.
         if (Nginx.Running()) Nginx.Reload(cfg);
         else { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
+
+        EnsureHosts(domain);
 
         Hdr($"Site '{name}' added");
         Info($"url    : http://{domain}");
@@ -231,6 +239,7 @@ public sealed class Engine
             {
                 ServiceRole.Web => s.Key == "nginx" && Nginx.Running(),
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
+                ServiceRole.Db  => s.Key == "mariadb" && DbServer.Running(),
                 _ => false,
             };
             return new Service(s.Key, s.Role, installed, running, "", Services.Enabled(s.Key, cfg));
@@ -255,6 +264,12 @@ public sealed class Engine
     private void EnsureHosts(string domain)
     {
         if (Hosts.Has(domain)) { Ok($"hosts: {domain} (already mapped)"); return; }
+        // Escape hatch for CI/automation where no one can click the UAC prompt.
+        if (Environment.GetEnvironmentVariable("BHSERVE_SKIP_HOSTS") is { Length: > 0 })
+        {
+            Warn($"hosts skipped (BHSERVE_SKIP_HOSTS) — add manually: 127.0.0.1 {domain}");
+            return;
+        }
         if (Hosts.Add(domain)) { Ok($"hosts: {domain} → 127.0.0.1"); return; }
         Info("requesting admin to update the hosts file (UAC)…");
         if (Elevation.Run("hosts-add", domain)) Ok($"hosts: {domain} → 127.0.0.1 (elevated)");
@@ -339,11 +354,51 @@ public sealed class Engine
         ? Path.Combine(Path.GetDirectoryName(e)!, "php.ini")
         : throw new BhException($"php {version} not installed");
     public void PhpIniReload(string version)   { PhpCgi.Stop(version); PhpCgi.Start(version); Ok($"php-cgi {version} reloaded"); }
-    public void Db(string sub, params string[] args)   => throw new BhException("db: phase 4 (MariaDB) — not yet on Windows");
+    public void Db(string sub, params string[] args)
+    {
+        NeedInit();
+        var name = args.Length > 0 ? args[0] : "";
+        switch (sub)
+        {
+            case "" or "list":
+                var dbs = Database.List();
+                Hdr("Databases (MySQL/MariaDB)");
+                if (dbs.Count == 0) Info("none — start the server (bhserve start mariadb) then create one");
+                foreach (var d in dbs) Ok(d);
+                break;
+            case "create":
+                if (name == "") throw new BhException("usage: bhserve db create <name>");
+                Ok($"database '{Database.Create(name)}' ready  (root · no password · 127.0.0.1:{DbServer.Port})");
+                break;
+            case "drop":
+                if (name == "") throw new BhException("usage: bhserve db drop <name>");
+                Database.Drop(name); Ok($"dropped database '{name}'");
+                break;
+            default: throw new BhException("usage: bhserve db {list|create|drop} [name]");
+        }
+    }
+
     public void Node(string sub, params string[] args) => throw new BhException("node: phase 4 (fnm) — not yet on Windows");
-    public void PhpMyAdmin() => throw new BhException("pma: phase 4 — not yet on Windows");
-    public void Adminer()    => throw new BhException("adminer: phase 4 — not yet on Windows");
-    public void Mailpit()    => throw new BhException("mailpit: phase 4 — not yet on Windows");
+    public void PhpMyAdmin() => throw new BhException("pma: phase 4 — use Adminer for now (bhserve adminer)");
+
+    /// <summary>Download Adminer (single-file DB UI) and serve it at adminer.&lt;tld&gt;.</summary>
+    public void Adminer()
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var root = Path.Combine(cfg.SitesRoot, "adminer");
+        Directory.CreateDirectory(root);
+        var index = Path.Combine(root, "index.php");
+        if (!File.Exists(index))
+        {
+            Hdr("Downloading Adminer");
+            Downloader.InstallAdminer(index).GetAwaiter().GetResult();
+            Ok($"adminer: {index}");
+        }
+        SiteAdd("adminer", root: root, type: "others");
+    }
+
+    public void Mailpit() => throw new BhException("mailpit: phase 4 — not yet on Windows");
 }
 
 /// <summary>A clean, user-facing error (the CLI prints the message; no stack trace).</summary>

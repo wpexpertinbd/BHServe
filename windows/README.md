@@ -38,21 +38,27 @@ dotnet run --project src\BHServe.App
 
 ### Status
 
-**Phase 1 + 2 are implemented and working via `bhserve.exe`** (CLI-first):
+**Phases 1–4 are implemented and working** (CLI `bhserve.exe` + a functional WinUI GUI):
 
 - `init`, `install <nginx|php@8.4|mkcert>` (portable-zip downloads; falls back to a
   local Laragon install on dev boxes), `site add/rm/php`, `start/stop/restart`,
-  `enable/disable`, `secure <domain>`, `status`/`api`.
+  `enable/disable`, `secure <domain>`, `status`/`api`, `db {list|create|drop}`, `adminer`.
 - PHP runs as **`php-cgi.exe` over TCP** (no php-fpm on Windows) — port scheme
   `9100 + maj*10 + min` (8.4→9184); nginx uses `fastcgi_pass 127.0.0.1:<port>`.
 - **HTTPS** via mkcert (`secure`) — issues a trusted cert, re-renders the vhost's
   ssl block, reloads nginx.
+- **Databases**: BHServe runs its own MySQL/MariaDB on `127.0.0.1:3306` (fresh data
+  dir under `data\`, passwordless root) + `db create/list/drop`. **Adminer** is a
+  one-command DB UI served at `adminer.<tld>`.
 - Admin-only steps (hosts file, mkcert CA install) go through
   **`bhserve-elevate.exe`** (requireAdministrator) for a single UAC prompt.
+  (CI/automation can set `BHSERVE_SKIP_HOSTS=1` to skip the hosts step.)
+- **WinUI GUI** (`BHServe.App`): Dashboard (live status, start/stop all, log),
+  Sites, Services, Settings (autostart). Run it from a **self-contained** build (or
+  install the Windows App Runtime 1.6) — see Release below.
 
-The **WinUI GUI** (`BHServe.App`, NavigationView shell) is still a scaffold — that's
-phase 3 (needs the Windows App SDK). `Db`/`Node`/pma/adminer/mailpit are phase 4.
-See `WINDOWS-PORT.md` §6 for the remaining phases.
+Still TODO: system tray (close-to-tray), Node/fnm, Mailpit, php.ini editor + ionCube,
+auto-updater, Inno Setup installer + signing. See `WINDOWS-PORT.md` §6.
 
 ## Release
 

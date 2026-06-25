@@ -102,6 +102,14 @@ public static class Downloader
         return Path.Combine(dir, "mkcert.exe");
     }
 
+    /// <summary>Download the latest single-file Adminer to <paramref name="dest"/>.</summary>
+    public static async Task InstallAdminer(string dest)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        var php = await Http.GetStringAsync("https://www.adminer.org/latest.php");
+        await File.WriteAllTextAsync(dest, php);
+    }
+
     static Downloader()
     {
         Http.DefaultRequestHeaders.UserAgent.ParseAdd("BHServe/0.1 (+https://github.com/wpexpertinbd/BHServe)");
