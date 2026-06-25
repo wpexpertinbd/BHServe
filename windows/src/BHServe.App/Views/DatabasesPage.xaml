@@ -14,7 +14,7 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="MySQL / MariaDB" Width="120" VerticalAlignment="Center" Opacity="0.7"/>
+                    <TextBlock x:Name="DbEngineLabel" Text="MySQL / MariaDB" Width="140" VerticalAlignment="Center" Opacity="0.7"/>
                     <Button x:Name="StartDbBtn" Content="Start" Click="StartDb_Click" Style="{StaticResource AccentButtonStyle}"/>
                     <Button x:Name="StopDbBtn"  Content="Stop"  Click="StopDb_Click"/>
                     <Button Content="Root password…" Click="RootPw_Click"/>
@@ -35,14 +35,11 @@
         <Border BorderThickness="1" CornerRadius="8" Padding="12"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <ComboBox x:Name="EngineBox" Width="130" SelectedIndex="0">
-                    <ComboBoxItem Content="MySQL"/>
-                    <ComboBoxItem Content="PostgreSQL"/>
-                </ComboBox>
+                <ComboBox x:Name="EngineBox" Width="140" PlaceholderText="no engine running" SelectionChanged="Engine_Changed"/>
                 <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="200"/>
                 <TextBox x:Name="PassBox" PlaceholderText="user password (MySQL, optional)" Width="200"/>
-                <Button Content="Generate" Click="GenPw_Click"/>
-                <Button Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
+                <Button x:Name="GenBtn" Content="Generate" Click="GenPw_Click"/>
+                <Button x:Name="CreateBtn" Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
             </StackPanel>
         </Border>
 

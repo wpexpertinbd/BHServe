@@ -167,18 +167,24 @@ public sealed class Engine
         var cfg = Config.Load();
         if (svc is "all" or "")
         {
+            // Start only ACTIVE (auto-start ★) + installed services — never an installed-but-inactive one.
+            // php-cgi is on-demand for sites, so it always starts for the versions sites use.
             foreach (var v in SitePhpVersions(cfg))
                 if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
                 else Warn($"php {v} not installed — bhserve install php@{v}");
-            if (Services.Enabled("mariadb", cfg) && Tools.MysqldExe() is not null)
+
+            if ((Services.Enabled("mariadb", cfg) || Services.Enabled("mysql", cfg)) && Tools.MysqldExe() is not null && !DbServer.Running())
             {
-                var (dok, dmsg) = DbServer.Start(); if (dok) Ok(dmsg); else Warn(dmsg);
+                var engine = Services.Enabled("mysql", cfg) && !Services.Enabled("mariadb", cfg) ? "mysql" : "mariadb";
+                var (dok, dmsg) = DbServer.Start(engine); if (dok) Ok(dmsg); else Warn(dmsg);
             }
+            if (Services.Enabled("postgresql", cfg) && Tools.PostgresExe() is not null && !PgServer.Running())
+            { var (pok, pmsg) = PgServer.Start(); if (pok) Ok(pmsg); else Warn(pmsg); }
             if (Services.Enabled("redis", cfg) && Tools.RedisServerExe() is not null && Redis.Start()) Ok($"redis on :{Redis.Port}");
             if (Services.Enabled("memcached", cfg) && Tools.MemcachedExe() is not null && Memcached.Start()) Ok($"memcached on :{Memcached.Port}");
-            if (AnyApacheSite()) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
-            var (ok, msg) = Nginx.Start(cfg);
-            if (ok) Ok(msg); else No(msg);
+            if (Services.Enabled("mailpit", cfg) && Tools.MailpitExe() is not null && MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort}");
+            if (Services.Enabled("apache", cfg) && Tools.HttpdExe() is not null) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
+            if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null) { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
             return;
         }
         // Single-service start: THROW on failure (don't just print) so the GUI/notice bar reflects
