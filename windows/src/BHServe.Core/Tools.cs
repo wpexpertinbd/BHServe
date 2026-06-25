@@ -49,6 +49,17 @@ public static class Tools
     // (only one DB runs on :3306 at a time; each engine keeps its own data dir).
     public static string? MysqldExe()      => Find("mariadb", "mysqld.exe") ?? Find("mysql", "mysqld.exe");
     public static string? MysqldExe(string engine) => engine == "mariadb" ? Find("mariadb", "mysqld.exe") : Find("mysql", "mysqld.exe");
+
+    /// <summary>The ACTUAL installed version of a DB engine, parsed from its versioned extract dir
+    /// (…\mariadb\mariadb-12.3.2-winx64\…), or null if not installed. Lets the UI show the real
+    /// version instead of a hardcoded label.</summary>
+    public static string? DbVersionFor(string engine)
+    {
+        if (MysqldExe(engine) is not { } exe) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(
+            exe.Replace('\\', '/'), @"/(?:mariadb|mysql)-(\d+\.\d+(?:\.\d+)?)");
+        return m.Success ? m.Groups[1].Value : null;
+    }
     public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
     public static bool MysqlInstalled   => Find("mysql", "mysqld.exe") is not null;
     public static bool MariadbInstalled => Find("mariadb", "mysqld.exe") is not null;

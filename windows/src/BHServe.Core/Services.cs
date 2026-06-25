@@ -39,8 +39,9 @@ public static class Services
     {
         "nginx"     => "nginx 1.27",
         "apache"    => "httpd 2.4",
-        "mysql"     => "MySQL 9.7",
-        "mariadb"   => "MariaDB 12.3",
+        // Show the REAL installed version (parsed from the binary dir); generic name when absent.
+        "mysql"     => Tools.DbVersionFor("mysql")   is { } mv ? $"MySQL {mv}"   : "MySQL",
+        "mariadb"   => Tools.DbVersionFor("mariadb") is { } dv ? $"MariaDB {dv}" : "MariaDB",
         "postgresql"=> "PostgreSQL 16",
         "redis"     => "Redis",
         "memcached" => "Memcached",
