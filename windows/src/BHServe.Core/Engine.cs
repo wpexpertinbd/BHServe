@@ -64,6 +64,7 @@ public sealed class Engine
                 "nginx"      => Get("nginx",   cfg, () => Downloader.InstallNginx()),
                 "apache" or "httpd" => GetApache(cfg),
                 "mariadb" or "mysql" => Get("mariadb", cfg, () => Downloader.InstallDb()),
+                "postgresql" or "postgres" => Get("postgresql", cfg, () => Downloader.InstallPostgres()),
                 "redis"      => Get("redis",     cfg, () => Downloader.InstallRedis()),
                 "memcached"  => Get("memcached", cfg, () => Downloader.InstallMemcached()),
                 "mkcert"     => Get("mkcert",    cfg, () => Downloader.InstallMkcert()),
@@ -126,6 +127,7 @@ public sealed class Engine
             "nginx"      => Path.Combine(Paths.Bin, "nginx"),
             "apache" or "httpd"  => Path.Combine(Paths.Bin, "apache"),
             "mariadb" or "mysql" => Path.Combine(Paths.Bin, "mysql"),
+            "postgresql" or "postgres" => Path.Combine(Paths.Bin, "postgresql"),
             "redis"      => Path.Combine(Paths.Bin, "redis"),
             "memcached"  => Path.Combine(Paths.Bin, "memcached"),
             "mkcert"     => Path.Combine(Paths.Bin, "mkcert"),
@@ -164,6 +166,7 @@ public sealed class Engine
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "mariadb") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc is "postgresql" or "postgres") { var (ok, msg) = PgServer.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else No("redis not installed — bhserve install redis"); return; }
         if (svc == "memcached") { if (Memcached.Start()) Ok($"memcached on :{Memcached.Port}"); else No("memcached not installed — bhserve install memcached"); return; }
@@ -186,6 +189,7 @@ public sealed class Engine
             Nginx.Stop(); Ok("nginx stopped");
             foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
             if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
+            if (PgServer.Running()) { PgServer.Stop(); Ok("PostgreSQL stopped"); }
             if (Redis.Running()) { Redis.Stop(); Ok("redis stopped"); }
             if (Memcached.Running()) { Memcached.Stop(); Ok("memcached stopped"); }
             if (MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
@@ -194,6 +198,7 @@ public sealed class Engine
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
         if (svc == "mariadb") { DbServer.Stop(); Ok("database stopped"); return; }
+        if (svc is "postgresql" or "postgres") { PgServer.Stop(); Ok("PostgreSQL stopped"); return; }
         if (svc == "apache")  { Apache.Stop(); Ok("apache stopped"); return; }
         if (svc == "redis")     { Redis.Stop(); Ok("redis stopped"); return; }
         if (svc == "memcached") { Memcached.Stop(); Ok("memcached stopped"); return; }
@@ -472,7 +477,7 @@ public sealed class Engine
             {
                 ServiceRole.Web => (s.Key == "nginx" && Nginx.Running()) || (s.Key == "apache" && Apache.Running()),
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
-                ServiceRole.Db    => s.Key == "mariadb" && DbServer.Running(),
+                ServiceRole.Db    => (s.Key == "mariadb" && DbServer.Running()) || (s.Key == "postgresql" && PgServer.Running()),
                 ServiceRole.Mail  => s.Key == "mailpit" && MailpitServer.Running(),
                 ServiceRole.Cache => (s.Key == "redis" && Redis.Running()) || (s.Key == "memcached" && Memcached.Running()),
                 _ => false,
@@ -778,6 +783,34 @@ public sealed class Engine
 
     /// <summary>True if root@localhost currently has a password set.</summary>
     public bool DbHasRootPassword() { NeedInit(); return Database.HasRootPassword; }
+
+    /// <summary>PostgreSQL database ops (mirrors Db, but for the postgres server).</summary>
+    public void Pg(string sub, params string[] args)
+    {
+        NeedInit();
+        var name = args.Length > 0 ? args[0] : "";
+        switch (sub)
+        {
+            case "" or "list":
+                var dbs = PgDatabase.List();
+                Hdr("Databases (PostgreSQL)");
+                if (dbs.Count == 0) Info("none — start the server (bhserve start postgresql) then create one");
+                foreach (var d in dbs) Ok(d);
+                break;
+            case "create":
+                if (name == "") throw new BhException("usage: bhserve pg create <name>");
+                PgDatabase.Create(name); Ok($"PostgreSQL database '{name}' ready (postgres · 127.0.0.1:{PgServer.Port})");
+                break;
+            case "drop":
+                if (name == "") throw new BhException("usage: bhserve pg drop <name>");
+                PgDatabase.Drop(name); Ok($"dropped PostgreSQL database '{name}'");
+                break;
+            default: throw new BhException("usage: bhserve pg {list|create|drop} [name]");
+        }
+    }
+
+    public IReadOnlyList<string> PgList() { NeedInit(); return PgDatabase.List(); }
+    public bool PgRunning() => PgServer.Running();
 
     /// <summary>Node version management via fnm (the mac engine's `node` verb).</summary>
     public void Node(string sub, params string[] args)

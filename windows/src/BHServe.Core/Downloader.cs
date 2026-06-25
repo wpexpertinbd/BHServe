@@ -201,6 +201,19 @@ public static class Downloader
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 
+    private const string PgPinned = "16.4-1";
+
+    /// <summary>Download PostgreSQL (EDB portable Windows binaries) into bin\postgresql.</summary>
+    public static async Task<string> InstallPostgres()
+    {
+        var url = $"https://get.enterprisedb.com/postgresql/postgresql-{PgPinned}-windows-x64-binaries.zip";
+        var zip = await DownloadToTmp(url, "postgresql.zip");
+        var dir = Path.Combine(Paths.Bin, "postgresql");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);   // → bin\postgresql\pgsql\bin\postgres.exe
+        return Tools.PostgresExe() ?? throw new InvalidOperationException("postgres.exe not found after extract");
+    }
+
     /// <summary>Download Apache (Apache Lounge build) into bin\apache.</summary>
     public static async Task<string> InstallApache()
     {

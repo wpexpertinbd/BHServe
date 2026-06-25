@@ -48,6 +48,12 @@ public static class Tools
     public static string? MysqldExe()      => Find("mariadb", "mysqld.exe") ?? Find("mysql", "mysqld.exe");
     public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
 
+    public static string? PostgresExe() => Find("postgresql", "postgres.exe");
+    public static string? PgCtlExe()    => Find("postgresql", "pg_ctl.exe");
+    public static string? PsqlExe()     => Find("postgresql", "psql.exe");
+    public static string? InitdbExe()   => Find("postgresql", "initdb.exe");
+    public static string? CreatedbExe() => Find("postgresql", "createdb.exe");
+
     public static string? MailpitExe() => Find("mailpit", "mailpit.exe");
 
     public static string? HttpdExe() => Find("apache", "httpd.exe");

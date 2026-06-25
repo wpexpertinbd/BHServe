@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using BHServe.App.Services;
 using BHServe.Core;
 using Microsoft.UI.Xaml;
@@ -8,6 +10,15 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 
 namespace BHServe.App.Views;
+
+public sealed class DbRow
+{
+    public required string Name { get; init; }
+    public required bool IsMysql { get; init; }
+    public string Engine => IsMysql ? "MySQL" : "PostgreSQL";
+    public string Key => (IsMysql ? "my:" : "pg:") + Name;
+    public Visibility MysqlVis => IsMysql ? Visibility.Visible : Visibility.Collapsed;
+}
 
 public sealed partial class DatabasesPage : Page
 {
@@ -17,16 +28,66 @@ public sealed partial class DatabasesPage : Page
 
     private async void Refresh()
     {
-        var (running, dbs) = await System.Threading.Tasks.Task.Run(() =>
-            (DbServer.Running(), DbServer.Running() ? Database.List().ToList() : new System.Collections.Generic.List<string>()));
+        var snap = await Task.Run(() => (
+            myRunning: DbServer.Running(),
+            myDbs:     DbServer.Running() ? Database.List().ToList() : new List<string>(),
+            pgInstalled: Tools.PostgresExe() is not null,
+            pgRunning: PgServer.Running(),
+            pgDbs:     PgServer.Running() ? PgDatabase.List().ToList() : new List<string>()));
+
         var hasRootPw = Config.Load().RootPassword.Length > 0;
-        ServerStatus.Text = running
-            ? $"Running on 127.0.0.1:3306 (root {(hasRootPw ? "· password set" : "· no password")}) · {dbs.Count} database(s)"
-            : "Stopped — start the server to manage databases";
-        RootPwStatus.Text = hasRootPw ? "root: password set" : "root: no password";
-        StartDbBtn.IsEnabled = !running;
-        StopDbBtn.IsEnabled = running;
-        DbList.ItemsSource = dbs;
+        RootPwStatus.Text = snap.myRunning ? (hasRootPw ? "running · root password set" : "running · no password") : "stopped";
+        StartDbBtn.IsEnabled = !snap.myRunning;
+        StopDbBtn.IsEnabled = snap.myRunning;
+
+        PgStatus.Text = !snap.pgInstalled ? "not installed" : snap.pgRunning ? "running" : "stopped";
+        InstallPgBtn.Visibility = snap.pgInstalled ? Visibility.Collapsed : Visibility.Visible;
+        StartPgBtn.IsEnabled = snap.pgInstalled && !snap.pgRunning;
+        StopPgBtn.IsEnabled = snap.pgRunning;
+
+        var rows = snap.myDbs.Select(d => new DbRow { Name = d, IsMysql = true })
+            .Concat(snap.pgDbs.Select(d => new DbRow { Name = d, IsMysql = false })).ToList();
+        DbList.ItemsSource = rows;
+        EmptyDbs.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void StartDb_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start("mariadb"));
+    private async void StopDb_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.Stop("mariadb"));
+    private async void StartPg_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start("postgresql"));
+    private async void StopPg_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.Stop("postgresql"));
+    private async void InstallPg_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Install("postgresql"));
+
+    private bool IsPgSelected => (EngineBox.SelectedItem as ComboBoxItem)?.Content?.ToString() == "PostgreSQL";
+
+    private async void Create_Click(object s, RoutedEventArgs e)
+    {
+        var name = NameBox.Text.Trim();
+        if (name.Length == 0) return;
+        if (IsPgSelected)
+        {
+            await Op(() => EngineHost.Instance.Engine.Pg("create", name));
+        }
+        else
+        {
+            var pw = PassBox.Text;
+            await Op(() => EngineHost.Instance.Engine.Db("create", pw.Length > 0 ? new[] { name, pw } : new[] { name }));
+        }
+        NameBox.Text = ""; PassBox.Text = "";
+    }
+
+    private async void Drop_Click(object s, RoutedEventArgs e)
+    {
+        if ((s as Button)?.Tag is not string key) return;
+        var isMy = key.StartsWith("my:");
+        var name = key[3..];
+        var dlg = new ContentDialog
+        {
+            Title = "Drop database", Content = $"Permanently drop '{name}' ({(isMy ? "MySQL" : "PostgreSQL")})? This cannot be undone.",
+            PrimaryButtonText = "Drop", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            await Op(() => { if (isMy) EngineHost.Instance.Engine.Db("drop", name); else EngineHost.Instance.Engine.Pg("drop", name); });
     }
 
     private static string GenPassword(int len = 16)
@@ -67,39 +128,13 @@ public sealed partial class DatabasesPage : Page
         await Op(() => EngineHost.Instance.Engine.Db("passwd", name, pw));
     }
 
-    private async void StartDb_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start("mariadb"));
-    private async void StopDb_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.Stop("mariadb"));
-
-    private async void Create_Click(object s, RoutedEventArgs e)
-    {
-        var name = NameBox.Text.Trim();
-        if (name.Length == 0) return;
-        var pw = PassBox.Text;
-        await Op(() => EngineHost.Instance.Engine.Db("create", pw.Length > 0 ? new[] { name, pw } : new[] { name }));
-        NameBox.Text = ""; PassBox.Text = "";
-    }
-
-    private async void Drop_Click(object s, RoutedEventArgs e)
-    {
-        if ((s as Button)?.Tag is not string name) return;
-        var dlg = new ContentDialog
-        {
-            Title = "Drop database",
-            Content = $"Permanently drop '{name}'? This cannot be undone.",
-            PrimaryButtonText = "Drop", CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close, XamlRoot = this.XamlRoot,
-        };
-        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
-            await Op(() => EngineHost.Instance.Engine.Db("drop", name));
-    }
-
     private async void Pma_Click(object s, RoutedEventArgs e)     => await Tool(() => EngineHost.Instance.Engine.PhpMyAdmin(), "http://phpmyadmin." + Tld());
     private async void Adminer_Click(object s, RoutedEventArgs e) => await Tool(() => EngineHost.Instance.Engine.Adminer(),   "http://adminer." + Tld());
     private async void Mailpit_Click(object s, RoutedEventArgs e) => await Tool(() => EngineHost.Instance.Engine.Mailpit(),   "http://127.0.0.1:8025");
 
     private static string Tld() => Config.Load().Tld;
 
-    private async System.Threading.Tasks.Task Tool(Action action, string url)
+    private async Task Tool(Action action, string url)
     {
         Busy.IsActive = true;
         await EngineHost.Instance.Run(action);
@@ -107,7 +142,7 @@ public sealed partial class DatabasesPage : Page
         try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
     }
 
-    private async System.Threading.Tasks.Task Op(Action action)
+    private async Task Op(Action action)
     {
         Busy.IsActive = true;
         await EngineHost.Instance.Run(action);

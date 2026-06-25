@@ -5,67 +5,81 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BHServe.App.Views">
 
-    <Grid Padding="24" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <ScrollViewer>
+    <StackPanel Padding="24" Spacing="16">
+        <TextBlock Text="Databases" FontSize="26" FontWeight="SemiBold"/>
 
-        <StackPanel Grid.Row="0" Spacing="2">
-            <TextBlock Text="Databases" FontSize="26" FontWeight="SemiBold"/>
-            <TextBlock x:Name="ServerStatus" Opacity="0.7" Text="MySQL/MariaDB on 127.0.0.1:3306 (root · no password)"/>
-        </StackPanel>
-
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
-            <Button x:Name="StartDbBtn" Content="Start server" Click="StartDb_Click" Style="{StaticResource AccentButtonStyle}"/>
-            <Button x:Name="StopDbBtn"  Content="Stop server"  Click="StopDb_Click"/>
-            <Button Content="Root password…" Click="RootPw_Click"/>
-            <TextBlock x:Name="RootPwStatus" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
-            <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
-        </StackPanel>
-
-        <Border Grid.Row="2" BorderThickness="1" CornerRadius="8" Padding="12"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="220"/>
-                <TextBox x:Name="PassBox" PlaceholderText="user password (optional)" Width="180"/>
-                <Button Content="Generate" Click="GenPw_Click"/>
-                <Button Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
-                <TextBlock Text="blank = no dedicated user" Opacity="0.6" VerticalAlignment="Center" FontSize="12"/>
+        <!-- servers -->
+        <Border BorderThickness="1" CornerRadius="8" Padding="12"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="MySQL / MariaDB" Width="120" VerticalAlignment="Center" Opacity="0.7"/>
+                    <Button x:Name="StartDbBtn" Content="Start" Click="StartDb_Click" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button x:Name="StopDbBtn"  Content="Stop"  Click="StopDb_Click"/>
+                    <Button Content="Root password…" Click="RootPw_Click"/>
+                    <TextBlock x:Name="RootPwStatus" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="PostgreSQL" Width="120" VerticalAlignment="Center" Opacity="0.7"/>
+                    <Button x:Name="StartPgBtn" Content="Start" Click="StartPg_Click"/>
+                    <Button x:Name="StopPgBtn"  Content="Stop"  Click="StopPg_Click"/>
+                    <Button x:Name="InstallPgBtn" Content="Install PostgreSQL" Click="InstallPg_Click"/>
+                    <TextBlock x:Name="PgStatus" VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+                    <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
+                </StackPanel>
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="3" BorderThickness="1" CornerRadius="8" Padding="4"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <ListView x:Name="DbList" SelectionMode="None">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="x:String">
-                        <Grid Padding="8,6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{x:Bind}" VerticalAlignment="Center"/>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                                <Button Content="Password…" Tag="{x:Bind}" Click="DbPassword_Click"/>
-                                <Button Content="Drop" Tag="{x:Bind}" Click="Drop_Click"/>
-                            </StackPanel>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+        <!-- create -->
+        <Border BorderThickness="1" CornerRadius="8" Padding="12"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <ComboBox x:Name="EngineBox" Width="130" SelectedIndex="0">
+                    <ComboBoxItem Content="MySQL"/>
+                    <ComboBoxItem Content="PostgreSQL"/>
+                </ComboBox>
+                <TextBox x:Name="NameBox" PlaceholderText="new database name" Width="200"/>
+                <TextBox x:Name="PassBox" PlaceholderText="user password (MySQL, optional)" Width="200"/>
+                <Button Content="Generate" Click="GenPw_Click"/>
+                <Button Content="Create" Click="Create_Click" Style="{StaticResource AccentButtonStyle}"/>
+            </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10">
+        <!-- list -->
+        <Border BorderThickness="1" CornerRadius="8" Padding="4"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel>
+                <TextBlock x:Name="EmptyDbs" Text="No databases yet." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
+                <ItemsControl x:Name="DbList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:DbRow">
+                            <Grid Padding="8,6" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Name}" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" VerticalAlignment="Center" CornerRadius="4" Padding="7,2" Margin="0,0,6,0"
+                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                    <TextBlock Text="{x:Bind Engine}" FontSize="11" Opacity="0.8"/>
+                                </Border>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Password…" Tag="{x:Bind Name}" Click="DbPassword_Click" Visibility="{x:Bind MysqlVis}"/>
+                                    <Button Content="Drop" Tag="{x:Bind Key}" Click="Drop_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
             <TextBlock Text="DB tools:" VerticalAlignment="Center" Opacity="0.7"/>
             <Button Content="phpMyAdmin" Click="Pma_Click"/>
             <Button Content="Adminer"    Click="Adminer_Click"/>
             <Button Content="Mailpit"    Click="Mailpit_Click"/>
         </StackPanel>
-    </Grid>
+    </StackPanel>
+    </ScrollViewer>
 </Page>

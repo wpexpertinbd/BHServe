@@ -21,6 +21,7 @@ public static class Services
         list.Add(new("nginx",     ServiceRole.Web));
         list.Add(new("apache",    ServiceRole.Web));
         list.Add(new("mariadb",   ServiceRole.Db));
+        list.Add(new("postgresql",ServiceRole.Db));
         list.Add(new("redis",     ServiceRole.Cache));
         list.Add(new("memcached", ServiceRole.Cache));
         list.Add(new("mkcert",    ServiceRole.Tool));
@@ -38,6 +39,7 @@ public static class Services
         "nginx"     => "nginx 1.27",
         "apache"    => "httpd 2.4",
         "mariadb"   => "MySQL 8.4",
+        "postgresql"=> "PostgreSQL 16",
         "redis"     => "Redis",
         "memcached" => "Memcached",
         "mailpit"   => "Mailpit",
@@ -68,6 +70,7 @@ public static class Services
         "nginx"     => Tools.NginxExe() is not null,
         "apache"    => Tools.HttpdExe() is not null,
         "mariadb"   => Tools.MysqldExe() is not null,
+        "postgresql"=> Tools.PostgresExe() is not null,
         "redis"     => Tools.RedisServerExe() is not null,
         "memcached" => Tools.MemcachedExe() is not null,
         "mkcert"    => Tools.MkcertExe() is not null,
