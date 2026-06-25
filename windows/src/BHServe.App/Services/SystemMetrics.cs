@@ -1,13 +1,41 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 
 namespace BHServe.App.Services;
 
-/// <summary>Live CPU / RAM / disk for the dashboard — raw Win32 (no extra packages).</summary>
+/// <summary>Live CPU / RAM / disk / network for the dashboard — raw Win32 (no extra packages).</summary>
 public static class SystemMetrics
 {
     private static ulong _prevIdle, _prevKernel, _prevUser;
+    private static long _prevRx, _prevTx, _prevNetTick;
+
+    /// <summary>Per-second network throughput (down, up) in KB/s across non-loopback interfaces.</summary>
+    public static (double downKbps, double upKbps) Network()
+    {
+        try
+        {
+            long rx = 0, tx = 0;
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up || ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                var st = ni.GetIPv4Statistics();
+                rx += st.BytesReceived; tx += st.BytesSent;
+            }
+            var now = Environment.TickCount64;
+            double down = 0, up = 0;
+            if (_prevNetTick != 0)
+            {
+                var secs = (now - _prevNetTick) / 1000.0;
+                if (secs > 0) { down = Math.Max(0, (rx - _prevRx) / 1024.0 / secs); up = Math.Max(0, (tx - _prevTx) / 1024.0 / secs); }
+            }
+            _prevRx = rx; _prevTx = tx; _prevNetTick = now;
+            return (down, up);
+        }
+        catch { return (0, 0); }
+    }
 
     public static double CpuPercent()
     {
