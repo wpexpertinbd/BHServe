@@ -7,6 +7,7 @@ struct WebsitesPanel: View {
     @State private var showingAdd = false
     @State private var query = ""
     @State private var page = 0
+    @State private var perPage = 10            // overwritten from Settings on appear
     @FocusState private var searchFocused: Bool
 
     private var allCount: Int { state.realSites.count }
@@ -25,6 +26,7 @@ struct WebsitesPanel: View {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
                 Spacer()
+                PerPagePicker(size: $perPage, settingsDefault: state.homeSitesPerPage)
                 TextField("Search", text: $query)
                     .textFieldStyle(.roundedBorder).frame(width: 180)
                     .focused($searchFocused)
@@ -40,20 +42,22 @@ struct WebsitesPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(SitePaging.page(sites, page)) { WebsiteRow(site: $0) }
+                    ForEach(SitePaging.page(sites, page, size: perPage)) { WebsiteRow(site: $0) }
                 }
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count))
+                PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count, size: perPage))
                     .padding(.top, 10)
             }
         }
         .padding(16)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
         .sheet(isPresented: $showingAdd) { AddSiteSheet() }
+        .onAppear { perPage = state.homeSitesPerPage }
         .onChange(of: query) { page = 0 }
+        .onChange(of: perPage) { page = 0 }
         .onChange(of: sites.count) {
-            let last = SitePaging.pageCount(sites.count) - 1
+            let last = SitePaging.pageCount(sites.count, size: perPage) - 1
             if page > last { page = max(0, last) }
         }
     }

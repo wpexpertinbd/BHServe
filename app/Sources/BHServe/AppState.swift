@@ -390,6 +390,18 @@ final class AppState {
     /// True only when a newer version was found — drives the sidebar badge.
     var updateAvailable: Bool { if case .available = updateStatus { return true }; return false }
 
+    // ── site-list page-size preferences (persisted; each list's "Show" menu can override) ──
+    private static let homePerPageKey = "homeSitesPerPage"
+    private static let sidebarPerPageKey = "sidebarSitesPerPage"
+    /// Default sites-per-page on the Dashboard websites panel (default 10).
+    var homeSitesPerPage: Int = (UserDefaults.standard.object(forKey: AppState.homePerPageKey) as? Int) ?? 10 {
+        didSet { UserDefaults.standard.set(max(1, homeSitesPerPage), forKey: AppState.homePerPageKey) }
+    }
+    /// Default sites-per-page on the Sites tab (default 15).
+    var sidebarSitesPerPage: Int = (UserDefaults.standard.object(forKey: AppState.sidebarPerPageKey) as? Int) ?? 15 {
+        didSet { UserDefaults.standard.set(max(1, sidebarSitesPerPage), forKey: AppState.sidebarPerPageKey) }
+    }
+
     struct Release: Decodable {
         let tagName: String, htmlURL: String, assets: [Asset]
         struct Asset: Decodable { let name: String; let url: String

@@ -77,8 +77,12 @@ Edit php.ini** (the engine already has `php ini path|reload` — wire the GUI ed
 
 The Sites tab and the Dashboard websites panel share the **same row + add sheet**.
 
-- **Header:** site count + **search box**; **＋** add button. List is **paginated 10 per page** (`SitePaging` /
-  `PageBar`) — prev/next, resets to page 1 on search.
+- **Header:** site count + **search box**; **＋** add button; a **"Show:" menu** (`PerPagePicker`) =
+  **10 / 15 / 20 / 50 / 100 / All**, defaulting to the per-list page size from Settings (§7) and able to
+  override it per view.
+- **Pagination** (`SitePaging` / `PageBar`): configurable page size (default **10** on Dashboard, **15** on
+  the Sites tab — both set in Settings); footer shows prev / **"Page X of Y"** / next **plus a jump-to-page box**
+  (type a number → Go jumps straight there). Resets to page 1 on search or page-size change. "All" = no paging.
 - **Each site row** (`WebsiteRow`): enabled dot · name · domain · **server badge** (nginx/apache) · **php badge** ·
   a row of **circular action buttons**:
   - 🧭 **Open in browser**
@@ -144,6 +148,8 @@ change-password + drop. (The Windows CLI has `db list/create/drop` but the GUI n
 **Mac file:** `SettingsView.swift`. Grouped form:
 
 - **Domains & ports:** TLD, HTTP port, HTTPS port (note about <1024 needing admin).
+- **Site lists:** **Sites per page — Dashboard** (default **10**) and **Sites per page — Sites tab**
+  (default **15**), free-numeric input, persisted. These seed each list's "Show" menu default (§3).
 - **Updates:** current version · **"Automatically check for updates" toggle (default ON)** · check / "up to date" /
   **Update available → Download & Install** / failed+retry. (Windows updater asset = `.exe` instead of `.pkg`.)
 - **Startup:** **Launch at login** · **Start services when BHServe launches** · **password-less control** helper

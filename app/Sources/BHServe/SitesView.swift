@@ -13,36 +13,71 @@ func bhChooseFolder(start: String? = nil) -> String? {
     return panel.runModal() == .OK ? panel.url?.path : nil
 }
 
-/// Shared site-list paging (10 per page) for the Sites tab + the Dashboard panel.
+/// Shared site-list paging for the Sites tab + the Dashboard panel. `size <= 0` = "show all".
 enum SitePaging {
-    static let pageSize = 10
-    static func pageCount(_ count: Int) -> Int { max(1, (count + pageSize - 1) / pageSize) }
+    static func pageCount(_ count: Int, size: Int) -> Int {
+        size <= 0 ? 1 : max(1, (count + size - 1) / size)
+    }
     /// The slice of `items` for `page`, clamped so an out-of-range page never crashes.
-    static func page<T>(_ items: [T], _ page: Int) -> [T] {
+    static func page<T>(_ items: [T], _ page: Int, size: Int) -> [T] {
         guard !items.isEmpty else { return [] }
-        let p = min(max(0, page), pageCount(items.count) - 1)
-        let start = p * pageSize
-        return Array(items[start ..< min(start + pageSize, items.count)])
+        if size <= 0 { return items }                       // "All"
+        let p = min(max(0, page), pageCount(items.count, size: size) - 1)
+        let start = p * size
+        return Array(items[start ..< min(start + size, items.count)])
     }
 }
 
-/// Prev / "Page X of Y" / Next — only renders when there's more than one page.
+/// Top-of-list "Show: 10/15/20/50/100/All" menu. Defaults to the Settings value,
+/// which is always included as an option even if it's a custom number.
+struct PerPagePicker: View {
+    @Binding var size: Int            // 0 = All
+    let settingsDefault: Int
+    private var options: [Int] {
+        Array(Set([10, 15, 20, 50, 100, settingsDefault]).filter { $0 > 0 }).sorted()
+    }
+    var body: some View {
+        Picker("Show", selection: $size) {
+            ForEach(options, id: \.self) { Text("\($0)").tag($0) }
+            Text("All").tag(0)
+        }
+        .pickerStyle(.menu).fixedSize()
+        .help("How many sites to show per page")
+    }
+}
+
+/// Prev / "Page X of Y" / Next + a jump-to-page box — only renders when paginated.
 struct PageBar: View {
     @Binding var page: Int
     let pageCount: Int
+    @State private var jump = ""
+
     var body: some View {
         if pageCount > 1 {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Button { if page > 0 { page -= 1 } } label: { Image(systemName: "chevron.left") }
-                    .disabled(page <= 0)
+                    .buttonStyle(.borderless).disabled(page <= 0)
                 Text("Page \(min(page, pageCount - 1) + 1) of \(pageCount)")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Button { if page < pageCount - 1 { page += 1 } } label: { Image(systemName: "chevron.right") }
-                    .disabled(page >= pageCount - 1)
+                    .buttonStyle(.borderless).disabled(page >= pageCount - 1)
+
+                Divider().frame(height: 14)
+                Text("Go to").font(.caption).foregroundStyle(.secondary)
+                TextField("#", text: $jump)
+                    .frame(width: 42).textFieldStyle(.roundedBorder).multilineTextAlignment(.center)
+                    .onSubmit(go)
+                Button("Go", action: go).controlSize(.small).disabled(Int(jump) == nil)
             }
-            .buttonStyle(.borderless)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private func go() {
+        if let n = Int(jump.trimmingCharacters(in: .whitespaces)), n >= 1 {
+            page = min(n, pageCount) - 1     // clamp; convert 1-based input → 0-based
+        }
+        jump = ""
     }
 }
 
@@ -51,6 +86,7 @@ struct SitesView: View {
     @State private var showingAdd = false
     @State private var query = ""
     @State private var page = 0
+    @State private var perPage = 15            // overwritten from Settings on appear
     @FocusState private var searchFocused: Bool
 
     private var sites: [Site] {
@@ -76,6 +112,7 @@ struct SitesView: View {
                         Text("\(state.realSites.count) site\(state.realSites.count == 1 ? "" : "s")")
                             .font(.caption).foregroundStyle(.secondary)
                         Spacer()
+                        PerPagePicker(size: $perPage, settingsDefault: state.sidebarSitesPerPage)
                         TextField("Search", text: $query)
                             .textFieldStyle(.roundedBorder).frame(width: 200)
                             .focused($searchFocused)
@@ -90,19 +127,21 @@ struct SitesView: View {
                     } else {
                         ScrollView {
                             VStack(spacing: 0) {
-                                ForEach(SitePaging.page(sites, page)) { WebsiteRow(site: $0) }
+                                ForEach(SitePaging.page(sites, page, size: perPage)) { WebsiteRow(site: $0) }
                             }
                             .background(.quaternary.opacity(0.4))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .padding([.horizontal], 16)
                         }
-                        PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count))
+                        PageBar(page: $page, pageCount: SitePaging.pageCount(sites.count, size: perPage))
                             .padding(.horizontal, 16).padding(.vertical, 10)
                     }
                 }
+                .onAppear { perPage = state.sidebarSitesPerPage }
                 .onChange(of: query) { page = 0 }
+                .onChange(of: perPage) { page = 0 }
                 .onChange(of: sites.count) {
-                    let last = SitePaging.pageCount(sites.count) - 1
+                    let last = SitePaging.pageCount(sites.count, size: perPage) - 1
                     if page > last { page = max(0, last) }
                 }
             }
