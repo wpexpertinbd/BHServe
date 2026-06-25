@@ -15,11 +15,48 @@ public static class NginxConfig
     public static string Fwd(string p) => p.Replace('\\', '/');
 
     private static string Prefix => Tools.NginxPrefix() ?? Path.Combine(Paths.Bin, "nginx");
-    private static string MimeTypes     => Fwd(Path.Combine(Prefix, "conf", "mime.types"));
-    private static string FastcgiParams => Fwd(Path.Combine(Prefix, "conf", "fastcgi_params"));
+    // STABLE conf dir (Home\nginx\conf) — fastcgi_params + mime.types are copied here from the
+    // versioned nginx build so site configs that include them DON'T break when nginx is updated.
+    private static string StableConfDir => Path.Combine(Paths.Home, "nginx", "conf");
+    private static string MimeTypes     => Fwd(Path.Combine(StableConfDir, "mime.types"));
+    private static string FastcgiParams => Fwd(Path.Combine(StableConfDir, "fastcgi_params"));
+
+    /// <summary>Copy a conf file from the (versioned) nginx build to the stable dir, and make sure the
+    /// runtime dirs nginx needs exist (it opens its prefix-relative logs\error.log before the config).</summary>
+    private static void PrepareRuntime()
+    {
+        foreach (var d in new[] { Path.Combine(Paths.Home, "logs"), Path.Combine(Paths.Home, "run"),
+                                  Path.Combine(Paths.Home, "tmp"), Path.Combine(Paths.Home, "nginx", "logs"),
+                                  Paths.NginxSites, StableConfDir })
+            try { Directory.CreateDirectory(d); } catch { }
+
+        foreach (var name in new[] { "fastcgi_params", "mime.types" })
+            try
+            {
+                var src = Path.Combine(Prefix, "conf", name);
+                if (File.Exists(src)) File.Copy(src, Path.Combine(StableConfDir, name), overwrite: true);
+            }
+            catch { }
+
+        // Heal site configs written against a now-removed nginx version dir → repoint to the stable copy.
+        try
+        {
+            if (Directory.Exists(Paths.NginxSites))
+                foreach (var f in Directory.GetFiles(Paths.NginxSites, "*.conf"))
+                {
+                    var txt = File.ReadAllText(f);
+                    var fixedTxt = System.Text.RegularExpressions.Regex.Replace(
+                        txt, @"include\s+\S*?nginx-[\d.]+/conf/fastcgi_params\s*;",
+                        $"include {FastcgiParams};");
+                    if (fixedTxt != txt) File.WriteAllText(f, fixedTxt);
+                }
+        }
+        catch { }
+    }
 
     public static void RenderMain(Config cfg)
     {
+        PrepareRuntime();
         var home = Fwd(Paths.Home);
         var conf = Path.Combine(Paths.Home, "nginx", "nginx.conf");
         var sb = new StringBuilder();
