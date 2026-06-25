@@ -979,6 +979,36 @@ public sealed class Engine
         Info($"url    : http://{domain}   (or http://127.0.0.1:{BHServe.Core.MailpitServer.UiPort})");
         Info($"SMTP   : 127.0.0.1:{BHServe.Core.MailpitServer.SmtpPort}  — point php sendmail/SMTP here");
     }
+
+    /// <summary>The built-in web tools — served like sites but listed separately (not user sites).</summary>
+    public static readonly string[] ToolNames = { "phpmyadmin", "adminer", "mailpit" };
+    public static bool IsTool(string name) => ToolNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Enable (install + serve over HTTPS) or disable a built-in web tool.</summary>
+    public void ToolSet(string tool, bool on)
+    {
+        NeedInit();
+        tool = (tool ?? "").ToLowerInvariant();
+        if (!IsTool(tool)) throw new BhException($"unknown tool '{tool}'");
+        var cfg = Config.Load();
+        var domain = $"{tool}.{cfg.Tld}";
+        if (on)
+        {
+            switch (tool)
+            {
+                case "phpmyadmin": PhpMyAdmin(); break;
+                case "adminer":    Adminer();    break;
+                case "mailpit":    Mailpit();    break;
+            }
+            // Tools default to HTTPS (mkcert). If that can't be set up, the http vhost still works.
+            try { Secure(domain); } catch (Exception ex) { Warn($"https not enabled for {tool}: {ex.Message} (served over http)"); }
+        }
+        else
+        {
+            if (tool == "mailpit" && MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
+            SiteRemove(tool);   // unmap the vhost/hosts; keep the downloaded files for a fast re-enable
+        }
+    }
 }
 
 /// <summary>A clean, user-facing error (the CLI prints the message; no stack trace).</summary>

@@ -5,98 +5,182 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BHServe.App.Views">
 
-    <Grid Padding="24" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <Page.Resources>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="14"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+        </Style>
+    </Page.Resources>
 
-        <StackPanel Grid.Row="0" Spacing="12">
-            <StackPanel Spacing="2">
+    <ScrollViewer>
+    <StackPanel Padding="24" Spacing="16">
+
+        <!-- header + global actions -->
+        <Grid>
+            <StackPanel Spacing="2" VerticalAlignment="Center">
                 <TextBlock Text="Dashboard" FontSize="26" FontWeight="SemiBold"/>
-                <TextBlock x:Name="SubTitle" Opacity="0.7"
-                           Text="Local web stack — nginx + php-cgi over TCP"/>
+                <TextBlock x:Name="SubTitle" Opacity="0.7" Text="Local web stack"/>
             </StackPanel>
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" CornerRadius="8" Padding="12" BorderThickness="1"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="CPU" Opacity="0.6" FontSize="12"/>
-                        <TextBlock x:Name="CpuText" FontSize="20" FontWeight="SemiBold" Text="—"/>
-                        <ProgressBar x:Name="CpuBar" Minimum="0" Maximum="100"/>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="1" CornerRadius="8" Padding="12" BorderThickness="1"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Memory" Opacity="0.6" FontSize="12"/>
-                        <TextBlock x:Name="MemText" FontSize="20" FontWeight="SemiBold" Text="—"/>
-                        <ProgressBar x:Name="MemBar" Minimum="0" Maximum="100"/>
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="2" CornerRadius="8" Padding="12" BorderThickness="1"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="Disk (system)" Opacity="0.6" FontSize="12"/>
-                        <TextBlock x:Name="DiskText" FontSize="20" FontWeight="SemiBold" Text="—"/>
-                        <ProgressBar x:Name="DiskBar" Minimum="0" Maximum="100"/>
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="StartBtn" Click="StartAll_Click" Style="{StaticResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE768;" FontSize="13"/><TextBlock Text="Start all"/></StackPanel>
+                </Button>
+                <Button x:Name="StopBtn" Click="StopAll_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE71A;" FontSize="13"/><TextBlock Text="Stop all"/></StackPanel>
+                </Button>
+                <Button x:Name="RestartBtn" Click="RestartAll_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72C;" FontSize="13"/><TextBlock Text="Restart"/></StackPanel>
+                </Button>
+                <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
-            <Button x:Name="StartBtn"   Click="StartAll_Click"   Style="{StaticResource AccentButtonStyle}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE768;" FontSize="14"/><TextBlock Text="Start all"/>
-                </StackPanel>
-            </Button>
-            <Button x:Name="StopBtn"    Click="StopAll_Click">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE71A;" FontSize="14"/><TextBlock Text="Stop all"/>
-                </StackPanel>
-            </Button>
-            <Button x:Name="RestartBtn" Click="RestartAll_Click">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE72C;" FontSize="14"/><TextBlock Text="Restart"/>
-                </StackPanel>
-            </Button>
-            <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
-        </StackPanel>
+        <!-- status cards: Web Server / PHP / Database / Cache -->
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
-        <Border Grid.Row="2" BorderThickness="1"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                CornerRadius="8" Padding="4">
-            <ListView x:Name="ServicesList" SelectionMode="None">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="local:ServiceRow">
-                        <Grid Padding="8,6" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="16"/>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Ellipse Grid.Column="0" Width="10" Height="10" Fill="{x:Bind DotBrush}"/>
-                            <TextBlock Grid.Column="1" Text="{x:Bind Key}" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="{x:Bind StatusText}" Opacity="0.7" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="3" Text="{x:Bind AutoText}" Opacity="0.6" VerticalAlignment="Center"/>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <StackPanel Spacing="3">
+                    <Grid>
+                        <TextBlock Text="Web Server" Opacity="0.6" FontSize="12"/>
+                        <Ellipse x:Name="WebDot" Width="9" Height="9" HorizontalAlignment="Right" Fill="Gray"/>
+                    </Grid>
+                    <TextBlock x:Name="WebVal" FontSize="18" FontWeight="SemiBold" Text="—"/>
+                    <TextBlock x:Name="WebSub" Opacity="0.6" FontSize="12" Text=""/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource Card}">
+                <StackPanel Spacing="3">
+                    <Grid>
+                        <TextBlock Text="PHP" Opacity="0.6" FontSize="12"/>
+                        <Ellipse x:Name="PhpDot" Width="9" Height="9" HorizontalAlignment="Right" Fill="Gray"/>
+                    </Grid>
+                    <TextBlock x:Name="PhpVal" FontSize="18" FontWeight="SemiBold" Text="—" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="PhpSub" Opacity="0.6" FontSize="12" Text=""/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <StackPanel Spacing="3">
+                    <Grid>
+                        <TextBlock Text="Database" Opacity="0.6" FontSize="12"/>
+                        <Ellipse x:Name="DbDot" Width="9" Height="9" HorizontalAlignment="Right" Fill="Gray"/>
+                    </Grid>
+                    <TextBlock x:Name="DbVal" FontSize="18" FontWeight="SemiBold" Text="—"/>
+                    <TextBlock x:Name="DbSub" Opacity="0.6" FontSize="12" Text=""/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="3" Style="{StaticResource Card}">
+                <StackPanel Spacing="3">
+                    <Grid>
+                        <TextBlock Text="Cache" Opacity="0.6" FontSize="12"/>
+                        <Ellipse x:Name="CacheDot" Width="9" Height="9" HorizontalAlignment="Right" Fill="Gray"/>
+                    </Grid>
+                    <TextBlock x:Name="CacheVal" FontSize="18" FontWeight="SemiBold" Text="—"/>
+                    <TextBlock x:Name="CacheSub" Opacity="0.6" FontSize="12" Text=""/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- metrics: CPU / Memory / Storage / Network -->
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <StackPanel Spacing="4"><TextBlock Text="CPU" Opacity="0.6" FontSize="12"/><TextBlock x:Name="CpuText" FontSize="20" FontWeight="SemiBold" Text="—"/><ProgressBar x:Name="CpuBar" Minimum="0" Maximum="100"/></StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource Card}">
+                <StackPanel Spacing="4"><TextBlock Text="Memory" Opacity="0.6" FontSize="12"/><TextBlock x:Name="MemText" FontSize="20" FontWeight="SemiBold" Text="—"/><ProgressBar x:Name="MemBar" Minimum="0" Maximum="100"/></StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <StackPanel Spacing="4"><TextBlock Text="Storage" Opacity="0.6" FontSize="12"/><TextBlock x:Name="DiskText" FontSize="20" FontWeight="SemiBold" Text="—"/><ProgressBar x:Name="DiskBar" Minimum="0" Maximum="100"/></StackPanel>
+            </Border>
+            <Border Grid.Column="3" Style="{StaticResource Card}">
+                <StackPanel Spacing="4"><TextBlock Text="Network" Opacity="0.6" FontSize="12"/>
+                    <TextBlock x:Name="NetDown" FontSize="14" FontWeight="SemiBold" Text="&#xE74B;  —"/>
+                    <TextBlock x:Name="NetUp" FontSize="14" FontWeight="SemiBold" Text="&#xE74A;  —"/></StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- websites -->
+        <TextBlock x:Name="WebHeader" Text="Websites" FontSize="16" FontWeight="SemiBold"/>
+        <Border Style="{StaticResource Card}" Padding="4">
+            <StackPanel>
+                <TextBlock x:Name="NoSites" Text="No sites yet — add one from the Sites page." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
+                <ListView x:Name="WebsitesList" SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:WebsiteRow">
+                            <Grid Padding="8,6" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="9" Height="9" Fill="{x:Bind DotBrush}" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{x:Bind Domain}" Opacity="0.6" FontSize="12"/>
+                                </StackPanel>
+                                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="4" Padding="7,2" Margin="0,0,8,0"
+                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                    <TextBlock Text="{x:Bind Badge}" FontSize="11" Opacity="0.8"/>
+                                </Border>
+                                <Button Grid.Column="3" Content="Open" Tag="{x:Bind Url}" Click="OpenSite_Click" VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </StackPanel>
         </Border>
 
-        <Expander Grid.Row="3" Header="Activity log" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+        <!-- web tools -->
+        <TextBlock Text="Web tools" FontSize="16" FontWeight="SemiBold"/>
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <StackPanel Spacing="8" HorizontalAlignment="Stretch">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE968;" FontSize="16"/><TextBlock Text="phpMyAdmin" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="PmaStatus" Text="Off" Opacity="0.6" FontSize="12"/>
+                    <Grid>
+                        <ToggleSwitch x:Name="PmaToggle" OffContent="Off" OnContent="On" Toggled="Pma_Toggled"/>
+                        <Button x:Name="PmaOpen" Content="Open" Click="PmaOpen_Click" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="False"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource Card}">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8A1;" FontSize="16"/><TextBlock Text="Adminer" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="AdmStatus" Text="Off" Opacity="0.6" FontSize="12"/>
+                    <Grid>
+                        <ToggleSwitch x:Name="AdmToggle" OffContent="Off" OnContent="On" Toggled="Adm_Toggled"/>
+                        <Button x:Name="AdmOpen" Content="Open" Click="AdmOpen_Click" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="False"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE715;" FontSize="16"/><TextBlock Text="Mailpit" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="MailStatus" Text="Off" Opacity="0.6" FontSize="12"/>
+                    <Grid>
+                        <ToggleSwitch x:Name="MailToggle" OffContent="Off" OnContent="On" Toggled="Mail_Toggled"/>
+                        <Button x:Name="MailOpen" Content="Open" Click="MailOpen_Click" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="False"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Expander Header="Activity log" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
             <ScrollViewer x:Name="LogScroll" Height="120">
                 <TextBlock x:Name="LogBox" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
             </ScrollViewer>
         </Expander>
-    </Grid>
+    </StackPanel>
+    </ScrollViewer>
 </Page>

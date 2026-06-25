@@ -49,10 +49,12 @@ public sealed partial class SitesPage : Page
     {
         Snapshot snap;
         try { snap = await EngineHost.Instance.Snapshot(); } catch { return; }
-        _all = snap.Sites.Select(s => new SiteRow
-        {
-            Name = s.Name, Domain = s.Domain, Php = s.Php, Root = s.Root, Secure = s.Secure, Enabled = s.Enabled,
-        }).OrderBy(s => s.Name).ToList();
+        _all = snap.Sites
+            .Where(s => !Engine.IsTool(s.Name))   // phpMyAdmin/Adminer/Mailpit live under Web Tools, not here
+            .Select(s => new SiteRow
+            {
+                Name = s.Name, Domain = s.Domain, Php = s.Php, Root = s.Root, Secure = s.Secure, Enabled = s.Enabled,
+            }).OrderBy(s => s.Name).ToList();
         ApplyFilter();
     }
 
