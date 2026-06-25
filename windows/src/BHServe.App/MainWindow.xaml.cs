@@ -36,6 +36,20 @@ public sealed partial class MainWindow : Window
                     "Your sites stay up in the background. Click this icon to reopen — use the ^ to show hidden icons if you don't see it. Turn this off in Settings.");
             }
         };
+
+        if (Config.Load().AutoUpdate) _ = CheckUpdateBadge();
+    }
+
+    /// <summary>If an update is available, show an attention dot on the Settings nav item (mac sidebar badge).</summary>
+    private async System.Threading.Tasks.Task CheckUpdateBadge()
+    {
+        try
+        {
+            var r = await Updater.Check();
+            if (r.UpdateAvailable && Nav.SettingsItem is NavigationViewItem si)
+                si.InfoBadge = new InfoBadge();   // default style = attention dot
+        }
+        catch { }
     }
 
     private void ShowFromTray()
