@@ -23,14 +23,17 @@ public static class Downloader
     private static string TarExe  => Path.Combine(Environment.SystemDirectory, "tar.exe");
     private const string UA = "BHServe/0.1 (+https://github.com/wpexpertinbd/BHServe)";
 
-    private static void Shell(string exe, string args)
+    // ArgumentList (not a single string) so every arg is escaped by the runtime — a URL or path
+    // can never break out and inject extra curl/tar flags.
+    private static void Shell(string exe, params string[] args)
     {
         var psi = new System.Diagnostics.ProcessStartInfo
         {
-            FileName = exe, Arguments = args,
+            FileName = exe,
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
+        foreach (var a in args) psi.ArgumentList.Add(a);
         var p = System.Diagnostics.Process.Start(psi)!;
         var err = p.StandardError.ReadToEnd();
         p.StandardOutput.ReadToEnd();
@@ -44,8 +47,9 @@ public static class Downloader
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         // -s --show-error: no progress meter (it floods callers); --retry + --speed-limit/--speed-time:
         // abort a STALLED transfer (< 2 KB/s for 20s) and retry — wordpress.org's CDN tail-stalls.
-        Shell(CurlExe, $"-fL -s --show-error --retry 5 --retry-delay 2 --speed-limit 2048 --speed-time 20 " +
-                       $"--connect-timeout 30 -A \"{UA}\" -o \"{dest}\" \"{url}\"");
+        Shell(CurlExe, "-fL", "-s", "--show-error", "--retry", "5", "--retry-delay", "2",
+                       "--speed-limit", "2048", "--speed-time", "20", "--connect-timeout", "30",
+                       "-A", UA, "-o", dest, url);
         if (!File.Exists(dest) || new FileInfo(dest).Length == 0)
             throw new InvalidOperationException($"download produced no file: {url}");
         return Task.CompletedTask;
@@ -65,7 +69,7 @@ public static class Downloader
     {
         Directory.CreateDirectory(destDir);
         // bsdtar: --exclude must precede -f, and its * does NOT cross '/', so match the basename.
-        Shell(TarExe, $"--exclude \"sizes.exe\" -xf \"{zip}\" -C \"{destDir}\"");
+        Shell(TarExe, "--exclude", "sizes.exe", "-xf", zip, "-C", destDir);
     }
 
     /// <summary>Delete every *.exe under <paramref name="dir"/> except the named keepers (case-insensitive).</summary>

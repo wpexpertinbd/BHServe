@@ -48,20 +48,24 @@ internal static class CacheProc
     }
 }
 
-/// <summary>Redis (port 6379). Dev mode: no persistence (--save "").</summary>
+/// <summary>Redis (port 6379). Dev mode: no persistence (--save ""). Bound to loopback only
+/// (+ protected-mode) so an unauthenticated Redis is never reachable from the LAN.</summary>
 public static class Redis
 {
     public const int Port = 6379;
     public static bool Running() => CacheProc.PortOpen(Port);
-    public static bool Start() => CacheProc.Start("redis", Tools.RedisServerExe(), $"--port {Port} --save \"\"", Port);
+    public static bool Start() => CacheProc.Start("redis", Tools.RedisServerExe(),
+        $"--bind 127.0.0.1 --protected-mode yes --port {Port} --save \"\"", Port);
     public static void Stop() => CacheProc.Stop("redis");
 }
 
-/// <summary>Memcached (port 11211).</summary>
+/// <summary>Memcached (port 11211). Bound to loopback (-l) with UDP disabled (-U 0) so the
+/// unauthenticated cache isn't LAN-readable or usable as a UDP amplification reflector.</summary>
 public static class Memcached
 {
     public const int Port = 11211;
     public static bool Running() => CacheProc.PortOpen(Port);
-    public static bool Start() => CacheProc.Start("memcached", Tools.MemcachedExe(), $"-p {Port} -m 64", Port);
+    public static bool Start() => CacheProc.Start("memcached", Tools.MemcachedExe(),
+        $"-l 127.0.0.1 -U 0 -p {Port} -m 64", Port);
     public static void Stop() => CacheProc.Stop("memcached");
 }

@@ -15,11 +15,11 @@ try
     switch (verb)
     {
         case "hosts-add":
-            if (args.Length < 2) return 1;
+            if (args.Length < 2 || !Hosts.IsValidDomain(args[1])) return 1;
             return Hosts.Add(args[1]) ? 0 : 1;
 
         case "hosts-remove":
-            if (args.Length < 2) return 1;
+            if (args.Length < 2 || !Hosts.IsValidDomain(args[1])) return 1;
             return Hosts.Remove(args[1]) ? 0 : 1;
 
         case "mkcert-install":

@@ -76,7 +76,8 @@ public static class DbServer
         var psi = new ProcessStartInfo
         {
             FileName = mysqld,
-            Arguments = $"--datadir=\"{DataDir}\" --port={Port} --mysqlx=0",
+            // --bind-address=127.0.0.1: never expose the DB (esp. passwordless root) to the LAN.
+            Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --port={Port} --mysqlx=0",
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(mysqld)!,
