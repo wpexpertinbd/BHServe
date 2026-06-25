@@ -393,6 +393,219 @@ NGINX
   ok "site vhost (proxy → :$port): $conf"
 }
 
+# ── Node sites (managed frontend + optional backend, reverse-proxied) ─────────
+# Config stored as JSON at $BH_HOME/node-sites/<name>.json (one field per line).
+# Processes are supervised via pid files in run/, logs in logs/node-<name>-<part>.log.
+
+# Read a flat-JSON string field (our writer keeps one "key": "value" per line).
+njson(){ sed -n "s/^\"$2\": \"\(.*\)\".*/\1/p" "$1" | head -1; }
+
+# Kill a process and all its descendants (next dev / npm spawn child workers).
+kill_tree(){ local p="$1" c; for c in $(pgrep -P "$p" 2>/dev/null); do kill_tree "$c"; done; kill "$p" 2>/dev/null || true; }
+
+node_proc_running(){ local pidf="$BH_HOME/run/node-$1-$2.pid"; [ -f "$pidf" ] && pid_alive "$(cat "$pidf")"; }
+
+# PATH used to launch node-site processes: BHServe node (fnm) + the default PHP + brew.
+# default_php may be stored as "php@8.4" or "8.4" — normalize to the version label so
+# the php@<ver> keg path resolves (else php falls through to brew's 7.4 and Laravel dies).
+node_runpath(){ local d; d="$(jget default_php 8.4)"; d="${d#php@}"; echo "$BH_HOME/bin:$BREW_PREFIX/opt/php@$d/bin:$BREW_PREFIX/bin:/usr/bin:/bin:/usr/sbin:/sbin"; }
+
+node_start_proc(){ # name part dir cmd port
+  local name="$1" part="$2" dir="$3" cmd="$4" port="$5"
+  [ -n "$cmd" ] && [ -n "$dir" ] || return 0          # backend optional
+  [ -d "$dir" ] || { warn "$name $part: dir not found ($dir)"; return 1; }
+  node_proc_running "$name" "$part" && { ok "$name $part already running"; return 0; }
+  local pidf="$BH_HOME/run/node-$name-$part.pid" logf="$BH_HOME/logs/node-$name-$part.log"
+  local caroot; caroot="$("$BREW_PREFIX/bin/mkcert" -CAROOT 2>/dev/null)"
+  ( cd "$dir" && exec env PATH="$(node_runpath)" PORT="$port" \
+       NODE_EXTRA_CA_CERTS="${caroot:+$caroot/rootCA.pem}" \
+       bash -c "$cmd" ) >>"$logf" 2>&1 &
+  echo $! > "$pidf"
+  ok "$name $part started (pid $(cat "$pidf"), port $port)  → logs/node-$name-$part.log"
+}
+
+node_stop_proc(){ # name part
+  local pidf="$BH_HOME/run/node-$1-$2.pid"
+  [ -f "$pidf" ] || return 0
+  kill_tree "$(cat "$pidf")"; rm -f "$pidf"
+}
+
+render_nginx_node_vhost(){ # name domain feport beport apipaths
+  local name="$1" domain="$2" feport="$3" beport="$4" apipaths="$5" conf="$BH_HOME/nginx/sites/$name.conf"
+  local apiblock=""
+  if [ -n "$beport" ]; then
+    apiblock="$(cat <<NG
+
+    location ~ ^/($apipaths)(/|\$) {
+        proxy_pass http://127.0.0.1:$beport;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 600;
+    }
+NG
+)"
+  fi
+  cat > "$conf" <<NGINX
+# BHServe site: $name  ($domain)  php=- server=node
+server {
+$(nginx_listen_block "$domain")
+    server_name $domain;
+    access_log $BH_HOME/logs/$name-access.log;
+    error_log  $BH_HOME/logs/$name-error.log;
+    client_max_body_size 2048m;
+$apiblock
+    location / {
+        proxy_pass http://127.0.0.1:$feport;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600;
+    }
+}
+NGINX
+  ok "node vhost: $conf"
+}
+
+# mkcert a trusted cert for a node-site domain (best-effort; vhost picks it up).
+node_secure(){
+  local domain="$1" mkc="$BREW_PREFIX/bin/mkcert"
+  [ -x "$mkc" ] || return 0
+  mkdir -p "$BH_HOME/certs"
+  ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) >/dev/null 2>&1 || true
+}
+
+# JSON fragment appended to a node site's api row (running state + ports/dirs/cmds).
+node_api_fields(){
+  local name="$1"
+  local j="$BH_HOME/node-sites/$name.json"
+  [ -f "$j" ] || { printf ',"node":false'; return; }
+  local fr=false br=false bed; bed="$(njson "$j" be_dir)"
+  node_proc_running "$name" fe && fr=true
+  [ -n "$bed" ] && { node_proc_running "$name" be && br=true; }
+  printf ',"node":true,"feRunning":%s,"beRunning":%s,"fePort":"%s","bePort":"%s","feDir":"%s","beDir":"%s","feCmd":"%s","beCmd":"%s","apiPaths":"%s"' \
+    "$fr" "$br" "$(njson "$j" fe_port)" "$(njson "$j" be_port)" \
+    "$(json_esc "$(njson "$j" fe_dir)")" "$(json_esc "$bed")" \
+    "$(json_esc "$(njson "$j" fe_cmd)")" "$(json_esc "$(njson "$j" be_cmd)")" \
+    "$(json_esc "$(njson "$j" api_paths)")"
+}
+
+nodesite_add(){
+  local name="$1" fedir="" fecmd="npm run dev" feport="" bedir="" becmd="" beport="" node=""
+  local apipaths="api|storage|sanctum|admin|livewire|vendor|build|up"
+  shift || true
+  while [ $# -gt 0 ]; do case "$1" in
+    --fe-dir) fedir="$2"; shift 2;;  --fe-cmd) fecmd="$2"; shift 2;;  --fe-port) feport="$2"; shift 2;;
+    --be-dir) bedir="$2"; shift 2;;  --be-cmd) becmd="$2"; shift 2;;  --be-port) beport="$2"; shift 2;;
+    --node) node="$2"; shift 2;;     --api-paths) apipaths="$2"; shift 2;;
+    *) die "unknown flag: $1";;
+  esac; done
+  [ -n "$name" ] || die "usage: bhserve nodesite add <name> --fe-dir <path> --fe-port <n> [--fe-cmd <cmd>] [--be-dir <path> --be-port <n> --be-cmd <cmd>] [--api-paths <re>]"
+  printf '%s' "$name" | grep -qE '^[a-z0-9][a-z0-9-]*$' || die "invalid name (lowercase letters, digits, hyphens)"
+  [ -n "$fedir" ] && [ -n "$feport" ] || die "frontend needs --fe-dir and --fe-port"
+  [ -n "$bedir" ] && [ -z "$beport" ] && die "backend dir given but no --be-port"
+  local tld; tld="$(jget tld test)"; local domain="$name.$tld"
+  mkdir -p "$BH_HOME/node-sites"
+  cat > "$BH_HOME/node-sites/$name.json" <<JSON
+{
+"name": "$name",
+"domain": "$domain",
+"fe_dir": "$(json_esc "$fedir")",
+"fe_cmd": "$(json_esc "$fecmd")",
+"fe_port": "$feport",
+"be_dir": "$(json_esc "$bedir")",
+"be_cmd": "$(json_esc "$becmd")",
+"be_port": "$beport",
+"node": "$node",
+"api_paths": "$(json_esc "$apipaths")"
+}
+JSON
+  node_secure "$domain"
+  render_nginx_node_vhost "$name" "$domain" "$feport" "$beport" "$apipaths"
+  nginx_running && nginx_reload >/dev/null 2>&1 || true
+  hdr "Node site '$name' added"
+  info "url    : https://$domain"
+  info "fe     : :$feport  ($fedir)"
+  [ -n "$bedir" ] && info "be     : :$beport  ($bedir)"
+  info "start  : bhserve nodesite start $name"
+}
+
+nodesite_start(){
+  local name="$1" j="$BH_HOME/node-sites/$1.json"
+  [ -f "$j" ] || die "no node site: ${1:-<name>}"
+  hdr "Starting node site $name"
+  node_start_proc "$name" be "$(njson "$j" be_dir)" "$(njson "$j" be_cmd)" "$(njson "$j" be_port)"
+  node_start_proc "$name" fe "$(njson "$j" fe_dir)" "$(njson "$j" fe_cmd)" "$(njson "$j" fe_port)"
+  nginx_running && nginx_reload >/dev/null 2>&1 || nginx_start >/dev/null 2>&1 || true
+  ok "node site $name → https://$(njson "$j" domain)  (first request compiles; give it a few seconds)"
+}
+
+nodesite_stop(){
+  local name="$1"; [ -n "$name" ] || die "usage: bhserve nodesite stop <name>"
+  node_stop_proc "$name" fe; node_stop_proc "$name" be
+  ok "node site $name stopped"
+}
+
+nodesite_status(){
+  local name="$1" j="$BH_HOME/node-sites/$1.json"
+  [ -f "$j" ] || die "no node site: ${1:-<name>}"
+  local fr=stopped br=""
+  node_proc_running "$name" fe && fr=running
+  [ -n "$(njson "$j" be_dir)" ] && { node_proc_running "$name" be && br="  be: running" || br="  be: stopped"; }
+  ok "$name  fe: $fr$br   ($(njson "$j" domain))"
+}
+
+nodesite_list(){
+  shopt -s nullglob
+  local f found=0
+  for f in "$BH_HOME"/node-sites/*.json; do
+    found=1; local n; n="$(njson "$f" name)"
+    local fr=stopped br=""; node_proc_running "$n" fe && fr=running
+    [ -n "$(njson "$f" be_dir)" ] && { node_proc_running "$n" be && br=" be:running" || br=" be:stopped"; }
+    ok "$(printf '%-16s' "$n") https://$(njson "$f" domain)  fe:$fr$br"
+  done
+  [ "$found" = 0 ] && info "no node sites — bhserve nodesite add <name> --fe-dir <path> --fe-port <n>"
+}
+
+nodesite_rm(){
+  local name="$1"; [ -n "$name" ] || die "usage: bhserve nodesite rm <name>"
+  nodesite_stop "$name" >/dev/null 2>&1 || true
+  rm -f "$BH_HOME/node-sites/$name.json" "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled"
+  nginx_running && nginx_reload >/dev/null 2>&1 || true
+  ok "removed node site $name (project files on disk kept)"
+}
+
+nodesite_npm(){ # name [fe|be] [install]
+  local name="$1" part="${2:-fe}" j="$BH_HOME/node-sites/$1.json"
+  [ -f "$j" ] || die "no node site: ${1:-<name>}"
+  local dir; dir="$(njson "$j" ${part}_dir)"
+  [ -n "$dir" ] && [ -d "$dir" ] || die "$part dir not found: $dir"
+  hdr "npm install — $name/$part  ($dir)"
+  ( cd "$dir" && env PATH="$(node_runpath)" npm install ) || die "npm install failed"
+  ok "npm install complete for $name/$part"
+}
+
+cmd_nodesite(){
+  need_init
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    add)     nodesite_add "$@" ;;
+    list)    nodesite_list ;;
+    rm|remove) nodesite_rm "$@" ;;
+    start)   nodesite_start "$@" ;;
+    stop)    nodesite_stop "$@" ;;
+    restart) nodesite_stop "$1" >/dev/null 2>&1; nodesite_start "$@" ;;
+    status)  nodesite_status "$@" ;;
+    npm)     nodesite_npm "$@" ;;
+    *) die "usage: bhserve nodesite {add|list|rm|start|stop|restart|status|npm} ..." ;;
+  esac
+}
+
 render_apache_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" sock conf
   sock="$(php_sock "$phpkey")"; conf="$BH_HOME/apache/sites/$name.conf"
@@ -1710,8 +1923,9 @@ cmd_api() {
     grep -q "ssl_certificate " "$f" && sec=true
     local srv; srv="$(vhost_server "$f")"
     local tun=""; tunnel_running "$n" && tun="$(tunnel_url "$n")"
-    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s"}' \
-      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")")"
+    local nx=""; [ "$srv" = node ] && nx="$(node_api_fields "$n")"
+    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s"%s}' \
+      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$nx")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 
@@ -1783,6 +1997,8 @@ BHServe — usage:
   bhserve site php <name> <ver>  switch a site's PHP version
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
   bhserve node {list|remote|install|use|uninstall} [version]   (multi-version via fnm)
+  bhserve nodesite add <name> --fe-dir <path> --fe-port <n> [--fe-cmd <cmd>] [--be-dir <path> --be-port <n> --be-cmd <cmd>]
+  bhserve nodesite {list|start|stop|restart|status|rm|npm} <name>   (managed Node frontend + optional backend)
   bhserve php {ioncube [version|all]|status|ini {path|reload} <ver>}   (ionCube + status + edit php.ini)
   bhserve site server <name> <nginx|apache>                   (switch a site's web server)
   bhserve pma install                                          (phpMyAdmin at phpmyadmin.test, 2GB uploads)
@@ -1811,6 +2027,7 @@ case "${1:-doctor}" in
   site)    shift; cmd_site "$@" ;;
   db)      shift; cmd_db "$@" ;;
   node)    shift; cmd_node "$@" ;;
+  nodesite) shift; cmd_nodesite "$@" ;;
   php)     shift; cmd_php "$@" ;;
   pma)     shift; cmd_pma "$@" ;;
   adminer) shift; cmd_adminer "$@" ;;
