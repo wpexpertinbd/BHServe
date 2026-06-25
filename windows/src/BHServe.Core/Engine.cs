@@ -849,6 +849,45 @@ public sealed class Engine
     public void NodeSiteStop(string name)    { NeedInit(); NodeSite.Stop(name); Ok($"node-app {name} stopped"); }
     public void NodeSiteRestart(string name) { NodeSiteStop(name); System.Threading.Thread.Sleep(400); NodeSiteStart(name); }
 
+    /// <summary>`npm install` in a node-app's frontend ("frontend") or backend ("backend") dir.</summary>
+    public (bool ok, string output) NodeSiteNpm(string name, string which)
+    {
+        NeedInit();
+        var (ok, output) = NodeSite.Npm(name, which);
+        if (ok) Ok($"npm install ({which}) complete for {name}"); else No($"npm install ({which}) failed for {name}");
+        return (ok, output);
+    }
+
+    // Accessors the GUI uses for the logs viewer / .env editor / edit-config sheets.
+    public string  NodeSiteLog(string name, string which)     { NeedInit(); return NodeSite.LogTail(name, which); }
+    public string  NodeSiteEnvPath(string name, string which) { NeedInit(); return NodeSite.EnvPath(name, which); }
+    public string  NodeSiteDir(string name, string which)     { NeedInit(); return NodeSite.ProcDir(name, which); }
+    public NodeSiteConfig? NodeSiteConfig(string name)        { NeedInit(); return NodeSite.Load(name); }
+
+    /// <summary>Change a node-app's commands/ports/api-path, re-render the vhost, and restart it.</summary>
+    public void NodeSiteEdit(string name, string feCmd, int fePort, string? beCmd, int bePort, string apiPath)
+    {
+        NeedInit();
+        var nc = NodeSite.Load(name) ?? throw new BhException($"no node-app '{name}'");
+        var appCfg = Config.Load();
+        var domain = $"{name}.{appCfg.Tld}";
+        NodeSite.Stop(name);
+        if (!string.IsNullOrWhiteSpace(feCmd)) nc.Frontend.Cmd = feCmd;
+        if (fePort > 0) nc.Frontend.Port = fePort;
+        if (nc.Backend is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(beCmd)) nc.Backend.Cmd = beCmd!;
+            if (bePort > 0) nc.Backend.Port = bePort;
+        }
+        var api = Regex.Replace(apiPath ?? "", "[^a-zA-Z0-9/_-]", "").Trim('/');
+        if (api.Length > 0 && !(apiPath!.Contains(':') || apiPath.Contains(' '))) nc.ApiPath = "/" + api;
+        NodeSite.Save(nc);
+        NodeSite.RenderVhost(nc, domain, appCfg);
+        if (Nginx.Running()) Nginx.Reload(appCfg);
+        var (ok, msg) = NodeSite.Start(name); if (ok) Ok(msg); else Warn(msg);
+        Ok($"node-app {name} updated");
+    }
+
     public void NodeSiteRemove(string name)
     {
         NeedInit();

@@ -85,6 +85,13 @@ try
                 case "stop":           engine.NodeSiteStop(Arg(rest, 1)); break;
                 case "restart":        engine.NodeSiteRestart(Arg(rest, 1)); break;
                 case "rm" or "remove": engine.NodeSiteRemove(Arg(rest, 1)); break;
+                case "npm":
+                {
+                    var which = Arg(rest, 2); if (which.Length == 0) which = "frontend";
+                    var (_, o) = engine.NodeSiteNpm(Arg(rest, 1), which);
+                    if (o.Length > 0) Console.WriteLine(o);
+                    break;
+                }
                 case "list" or "":     engine.NodeSiteList(); break;
                 default: Usage(); return 1;
             }
