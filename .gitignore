@@ -6,3 +6,6 @@ app/.build/
 app/dist/
 app/icon/icon_1024.png
 app/icon/AppIcon.iconset/
+
+# Claude Code session/local files
+.claude/

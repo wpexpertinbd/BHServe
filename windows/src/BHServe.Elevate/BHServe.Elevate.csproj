@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tiny privileged helper. requireAdministrator manifest → one UAC prompt does the
+       few operations that actually need admin: hosts-file edits + mkcert CA install.
+       The main bhserve.exe stays unprivileged and shells out to this for those verbs. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>BHServe.Elevate</RootNamespace>
+    <AssemblyName>bhserve-elevate</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BHServe.Core\BHServe.Core.csproj" />
+  </ItemGroup>
+</Project>

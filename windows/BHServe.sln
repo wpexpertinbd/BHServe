@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.0.0
@@ -8,6 +8,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.Cli", "src\BHServe.Cli\BHServe.Cli.csproj", "{B2222222-2222-2222-2222-222222222222}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.App", "src\BHServe.App\BHServe.App.csproj", "{C3333333-3333-3333-3333-333333333333}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{7B708222-6088-493A-AB43-82E75801A588}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.Elevate", "src\BHServe.Elevate\BHServe.Elevate.csproj", "{36BB6C80-4433-4BEA-8974-09B44C4CB064}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -41,5 +45,16 @@ Global
 		{C3333333-3333-3333-3333-333333333333}.Release|x64.Build.0 = Release|x64
 		{C3333333-3333-3333-3333-333333333333}.Release|ARM64.ActiveCfg = Release|ARM64
 		{C3333333-3333-3333-3333-333333333333}.Release|ARM64.Build.0 = Release|ARM64
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Debug|x64.Build.0 = Debug|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Release|x64.ActiveCfg = Release|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Release|x64.Build.0 = Release|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064}.Release|ARM64.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{36BB6C80-4433-4BEA-8974-09B44C4CB064} = {7B708222-6088-493A-AB43-82E75801A588}
 	EndGlobalSection
 EndGlobal

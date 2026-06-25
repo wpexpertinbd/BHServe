@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="BHServe.App.Views.NodePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:BHServe.App.Views">
+
+    <ScrollViewer>
+    <StackPanel Padding="24" Spacing="16">
+        <StackPanel Spacing="2">
+            <TextBlock Text="Node.js" FontSize="26" FontWeight="SemiBold"/>
+            <TextBlock Opacity="0.7" Text="Multiple Node versions via fnm + supervised Node-app sites"/>
+        </StackPanel>
+
+        <TextBlock Text="Versions" FontSize="16" FontWeight="SemiBold"/>
+        <Border BorderThickness="1" CornerRadius="8" Padding="12"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBox x:Name="VerBox" PlaceholderText="version (e.g. 20, 22, lts)" Width="200"/>
+                    <Button Content="Install" Click="Install_Click" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button Content="Set default" Click="Default_Click"/>
+                    <Button Content="Uninstall" Click="Uninstall_Click"/>
+                    <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock x:Name="OutputBox" FontFamily="Consolas" TextWrapping="Wrap" Text="Installed versions appear here."/>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <TextBlock Text="Node apps" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Content="Add Node app" Click="AddApp_Click" HorizontalAlignment="Right" Style="{StaticResource AccentButtonStyle}"/>
+        </Grid>
+        <Border BorderThickness="1" CornerRadius="8" Padding="4"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <ListView x:Name="AppsList" SelectionMode="None">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:NodeAppRow">
+                        <Grid Padding="8,6" ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="14"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Grid.Column="0" Width="9" Height="9" Fill="{x:Bind DotBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="2" Text="{x:Bind Detail}" Opacity="0.7" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Open" Tag="{x:Bind Url}" Click="OpenApp_Click"/>
+                                <Button Content="Start" Tag="{x:Bind Name}" Click="StartApp_Click"/>
+                                <Button Content="Stop" Tag="{x:Bind Name}" Click="StopApp_Click"/>
+                                <Button Content="Remove" Tag="{x:Bind Name}" Click="RemoveApp_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+    </StackPanel>
+    </ScrollViewer>
+</Page>

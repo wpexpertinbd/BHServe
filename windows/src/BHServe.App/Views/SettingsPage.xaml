@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="BHServe.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer>
+        <StackPanel Padding="24" Spacing="16" MaxWidth="640" HorizontalAlignment="Left">
+            <TextBlock Text="Settings" FontSize="26" FontWeight="SemiBold"/>
+
+            <Border BorderThickness="1" CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="10">
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="TLD" Opacity="0.7"/><TextBlock x:Name="TldText" Grid.Column="1"/></Grid>
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="HTTP / HTTPS port" Opacity="0.7"/><TextBlock x:Name="PortsText" Grid.Column="1"/></Grid>
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="Default PHP" Opacity="0.7"/><TextBlock x:Name="PhpText" Grid.Column="1"/></Grid>
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="Sites root" Opacity="0.7"/><TextBlock x:Name="RootText" Grid.Column="1" TextWrapping="Wrap"/></Grid>
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="Data directory" Opacity="0.7"/><TextBlock x:Name="HomeText" Grid.Column="1" TextWrapping="Wrap"/></Grid>
+                </StackPanel>
+            </Border>
+
+            <Border BorderThickness="1" CornerRadius="8" Padding="16"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="10">
+                    <ToggleSwitch x:Name="AutostartToggle" Header="Start BHServe at login"
+                                  OffContent="Off" OnContent="On" Toggled="Autostart_Toggled"/>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button Content="Open data folder" Click="OpenFolder_Click"/>
+                        <Button x:Name="UpdateBtn" Content="Check for updates" Click="CheckUpdates_Click"/>
+                        <ProgressRing x:Name="UpdateBusy" IsActive="False" Width="18" Height="18" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="UpdateStatus" Opacity="0.7" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="Version" Opacity="0.5" FontSize="12"/>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
