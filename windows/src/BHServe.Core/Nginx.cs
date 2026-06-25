@@ -12,17 +12,18 @@ public static class Nginx
 
     public static bool Running()
     {
+        // pid file is authoritative when valid, but it goes stale across restarts — so
+        // fall back to "is any nginx.exe process alive?" (avoids a stale pid skipping reloads).
         try
         {
-            if (!File.Exists(PidFile)) return false;
-            if (int.TryParse(File.ReadAllText(PidFile).Trim(), out var pid))
+            if (File.Exists(PidFile) && int.TryParse(File.ReadAllText(PidFile).Trim(), out var pid))
             {
                 using var p = Process.GetProcessById(pid);
-                return !p.HasExited;
+                if (!p.HasExited) return true;
             }
         }
         catch { }
-        return false;
+        try { return Process.GetProcessesByName("nginx").Length > 0; } catch { return false; }
     }
 
     private static (int code, string output) Run(string exe, string args, bool wait = true)

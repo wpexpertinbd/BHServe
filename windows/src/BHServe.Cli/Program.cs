@@ -41,6 +41,9 @@ try
                 case "rm" or "remove":     engine.SiteRemove(Arg(rest, 1)); break;
                 case "php":                engine.SitePhp(Arg(rest, 1), Arg(rest, 2)); break;
                 case "server":             engine.SiteServer(Arg(rest, 1), Arg(rest, 2)); break;
+                case "enable":             engine.SiteEnable(Arg(rest, 1), true); break;
+                case "disable":            engine.SiteEnable(Arg(rest, 1), false); break;
+                case "root":               engine.SiteRoot(Arg(rest, 1), Arg(rest, 2)); break;
                 case "list" or "ls" or "": engine.Status(); break;
                 default: Usage(); return 1;
             }

@@ -279,6 +279,39 @@ public sealed class Engine
         Ok($"{name} now on {phpKey}");
     }
 
+    /// <summary>Enable (serve) or disable a site by toggling its vhost on/off (rename ↔ .disabled).</summary>
+    public void SiteEnable(string name, bool enable)
+    {
+        NeedInit();
+        var on  = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        var off = Path.Combine(Paths.NginxSites, $"{name}.conf.disabled");
+        if (enable)
+        {
+            if (File.Exists(off)) { File.Move(off, on, true); Ok($"enabled {name}"); }
+            else Warn($"{name} already enabled / missing");
+        }
+        else
+        {
+            if (File.Exists(on)) { File.Move(on, off, true); Ok($"disabled {name}"); }
+            else Warn($"{name} already disabled / missing");
+        }
+        if (Nginx.Running()) Nginx.Reload(Config.Load());
+    }
+
+    /// <summary>Change a site's document root and re-render its vhost.</summary>
+    public void SiteRoot(string name, string newRoot)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
+        var (domain, _, phpKey) = ParseVhost(conf);
+        Directory.CreateDirectory(newRoot);
+        RenderSite(name, domain, newRoot, phpKey, VhostServer(conf), cfg);
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Ok($"{name} root → {newRoot}");
+    }
+
     /// <summary>Switch a site between the nginx and apache backends.</summary>
     public void SiteServer(string name, string server)
     {
@@ -452,15 +485,19 @@ public sealed class Engine
     {
         var list = new List<Site>();
         if (!Directory.Exists(Paths.NginxSites)) return list;
-        foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf"))
+        // enabled (*.conf) and disabled (*.conf.disabled) vhosts
+        foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf*"))
         {
-            var name = Path.GetFileNameWithoutExtension(f);
+            var fname = Path.GetFileName(f);
+            if (!fname.EndsWith(".conf") && !fname.EndsWith(".conf.disabled")) continue;
+            var enabled = fname.EndsWith(".conf");
+            var name = enabled ? fname[..^".conf".Length] : fname[..^".conf.disabled".Length];
             var text = File.ReadAllText(f);
             var domain = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
             var php    = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
             var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
             var secure = text.Contains("ssl_certificate ");
-            list.Add(new Site(name, domain, php, root, secure, true,
+            list.Add(new Site(name, domain, php, root, secure, enabled,
                               text.Contains("server=apache") ? "apache" : "nginx"));
         }
         return list;

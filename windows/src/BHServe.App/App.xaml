@@ -8,8 +8,15 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
             </ResourceDictionary.MergedDictionaries>
-            <!-- BiswasHost brand blue -->
+            <!-- BiswasHost brand blue #0d6efd as the app accent (bootstrap-blue shades) -->
             <Color x:Key="BhBlue">#FF0D6EFD</Color>
+            <Color x:Key="SystemAccentColor">#FF0D6EFD</Color>
+            <Color x:Key="SystemAccentColorLight1">#FF3D8BFD</Color>
+            <Color x:Key="SystemAccentColorLight2">#FF6EA8FE</Color>
+            <Color x:Key="SystemAccentColorLight3">#FF9EC5FE</Color>
+            <Color x:Key="SystemAccentColorDark1">#FF0B5ED7</Color>
+            <Color x:Key="SystemAccentColorDark2">#FF0A53BE</Color>
+            <Color x:Key="SystemAccentColorDark3">#FF084298</Color>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
