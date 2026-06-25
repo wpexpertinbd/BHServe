@@ -109,13 +109,19 @@ static Dictionary<string, string> Flags(IEnumerable<string> a)
 
 static void Usage() => Console.WriteLine("""
     BHServe (Windows) — usage:
-      bhserve init
+      bhserve init | doctor | status | api
       bhserve install <nginx|php@8.4|mkcert>
-      bhserve start|stop|restart [svc|all]
+      bhserve start|stop|restart [svc|all]      (svc: nginx|mariadb|mailpit|php@X)
       bhserve enable|disable <svc>
-      bhserve site add <name> [--php 8.4] [--root path] [--type wordpress|php|others]
-      bhserve site rm|php|list <name> [args]
+      bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]
+      bhserve site rm|list <name>
+      bhserve site php <name> <ver> | site server <name> <nginx|apache>
       bhserve secure <domain>
-      bhserve php ini path|reload <ver>
-      bhserve status | api
+      bhserve db {list|create|drop} [name]
+      bhserve node {list|install|use|uninstall} [version]
+      bhserve php {ioncube <ver>|status|ini path|reload <ver>}
+      bhserve pma | adminer | mailpit            (DB UIs + mail catcher)
+      bhserve tunnel {install|start|stop|url|list} [site]
+      bhserve logs [--list | <file> [lines]]
+      bhserve config {show | set <key> <value>}
     """);
