@@ -166,6 +166,14 @@ public sealed partial class SiteListControl : UserControl
             await Op(() => EngineHost.Instance.Engine.SitePhp(name, ver));
     }
 
+    private async void ChangeRoot_Click(object s, RoutedEventArgs e)
+    {
+        var name = Tag(s);
+        var path = await Picker.FolderAsync();
+        if (string.IsNullOrEmpty(path)) return;
+        await Op(() => EngineHost.Instance.Engine.SiteRoot(name, path));
+    }
+
     private async void Nginx_Click(object s, RoutedEventArgs e)  { var n = Tag(s); await Op(() => EngineHost.Instance.Engine.SiteServer(n, "nginx")); }
     private async void Apache_Click(object s, RoutedEventArgs e) { var n = Tag(s); await Op(() => EngineHost.Instance.Engine.SiteServer(n, "apache")); }
 

@@ -18,6 +18,7 @@ namespace BHServe.App.Views;
 public sealed partial class SitesPage : Page
 {
     private bool _pageSizeSet;
+    private string? _customRoot;   // optional custom site root chosen via the folder button
 
     public SitesPage()
     {
@@ -68,13 +69,31 @@ public sealed partial class SitesPage : Page
         string php = SelectedPhp, server = SelectedServer, type = SelectedType;
         if (type == "node") { await AddNodeApp(name); return; }
 
+        string? root = _customRoot;
         Busy.IsActive = true; AddBtn.IsEnabled = false;
         var (ok, output) = await EngineHost.Instance.RunCaptured(
-            () => EngineHost.Instance.Engine.SiteAdd(name, php: php, server: server, type: type));
+            () => EngineHost.Instance.Engine.SiteAdd(name, php: php, root: root, server: server, type: type));
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
         await ShowResult(name, ok, output);
-        if (ok) NameBox.Text = "";
+        if (ok) { NameBox.Text = ""; ClearCustomRoot(); }
+    }
+
+    /// <summary>Pick an optional custom root folder for the next Add (defaults to the Sites root).</summary>
+    private async void PickRoot_Click(object s, RoutedEventArgs e)
+    {
+        var path = await Picker.FolderAsync();
+        if (string.IsNullOrEmpty(path)) return;
+        _customRoot = path;
+        ToolTipService.SetToolTip(RootBtn, $"Site root: {path}  (click to change)");
+        RootBtn.Style = (Style)Application.Current.Resources["AccentButtonStyle"];   // highlight = a custom root is set
+    }
+
+    private void ClearCustomRoot()
+    {
+        _customRoot = null;
+        RootBtn.ClearValue(StyleProperty);
+        ToolTipService.SetToolTip(RootBtn, "Site root folder (optional — defaults to the Sites root)");
     }
 
     /// <summary>Node-app setup sheet (revealed when Type = Node app), then create + show the result.</summary>

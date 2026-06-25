@@ -30,6 +30,9 @@
                     <ComboBoxItem Content="nginx"/>
                     <ComboBoxItem Content="apache"/>
                 </ComboBox>
+                <Button x:Name="RootBtn" Click="PickRoot_Click" ToolTipService.ToolTip="Site root folder (optional — defaults to the Sites root)">
+                    <FontIcon Glyph="&#xE8B7;" FontSize="14"/>
+                </Button>
                 <Button x:Name="AddBtn" Content="Add site" Click="Add_Click" Style="{StaticResource AccentButtonStyle}"/>
                 <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20"/>
             </StackPanel>
