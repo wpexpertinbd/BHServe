@@ -14,7 +14,12 @@ namespace BHServe.Core;
 public static class DbServer
 {
     public const int Port = 3306;
-    private static string DataDir => Path.Combine(Paths.Home, "data");
+
+    /// <summary>True when the active mysqld is the MariaDB build (in bin\mariadb). MariaDB and MySQL
+    /// keep SEPARATE data dirs so their incompatible system tables never clash on :3306.</summary>
+    public static bool ActiveIsMariadb => (Tools.MysqldExe() ?? "").Replace('\\', '/').Contains("/mariadb/");
+
+    private static string DataDir => Path.Combine(Paths.Home, ActiveIsMariadb ? "data-mariadb" : "data");
     private static string SystemSchemaDir => Path.Combine(DataDir, "mysql");
     private static string RunFile => Path.Combine(Paths.Run, "mysqld.json");
 
@@ -58,12 +63,20 @@ public static class DbServer
         if (Directory.EnumerateFileSystemEntries(DataDir).Any())
             return (false, $"data dir not empty and not initialized: {DataDir}");
 
-        // MySQL 8.x path. (MariaDB builds would use mysql_install_db instead — detectable later.)
-        var (code, outp) = RunWait(mysqld,
-            $"--initialize-insecure --datadir=\"{DataDir}\" --console");
-        if (!Initialized)
-            return (false, "DB initialize failed:\n" + outp);
-        return (true, "initialized fresh data dir (root has no password)");
+        if (ActiveIsMariadb)
+        {
+            // MariaDB uses mariadb-install-db (passwordless root with normal auth).
+            var installer = Tools.MariadbInstallDbExe();
+            if (installer is null) return (false, "mariadb-install-db not found");
+            RunWait(installer, $"--datadir=\"{DataDir}\" --auth-root-authentication-method=normal");
+        }
+        else
+        {
+            // MySQL 8.x: --initialize-insecure → passwordless root.
+            RunWait(mysqld, $"--initialize-insecure --datadir=\"{DataDir}\" --console");
+        }
+        if (!Initialized) return (false, "DB initialize failed");
+        return (true, $"initialized fresh {(ActiveIsMariadb ? "MariaDB" : "MySQL")} data dir (root has no password)");
     }
 
     public static (bool ok, string msg) Start()
@@ -81,8 +94,10 @@ public static class DbServer
             // Performance (dev-tuned): a 256M InnoDB buffer pool keeps WordPress's working set in
             //   RAM, and flush-log-at-trx-commit=2 avoids an fsync per commit (safe enough for local
             //   dev) — together a big speedup for query-heavy pages.
+            // --mysqlx=0 is MySQL-only (MariaDB has no X protocol, the option would error).
             Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --max-allowed-packet=1024M " +
-                        $"--innodb-buffer-pool-size=256M --innodb-flush-log-at-trx-commit=2 --port={Port} --mysqlx=0",
+                        $"--innodb-buffer-pool-size=256M --innodb-flush-log-at-trx-commit=2 --port={Port}" +
+                        (ActiveIsMariadb ? "" : " --mysqlx=0"),
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(mysqld)!,

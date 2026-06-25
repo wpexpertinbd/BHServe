@@ -45,8 +45,13 @@ public static class Tools
 
     public static string? MkcertExe() => Find("mkcert", "mkcert.exe");
 
+    // MySQL → bin\mysql, MariaDB → bin\mariadb. MysqldExe prefers MariaDB if both are present
+    // (only one DB runs on :3306 at a time; each engine keeps its own data dir).
     public static string? MysqldExe()      => Find("mariadb", "mysqld.exe") ?? Find("mysql", "mysqld.exe");
     public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
+    public static bool MysqlInstalled   => Find("mysql", "mysqld.exe") is not null;
+    public static bool MariadbInstalled => Find("mariadb", "mysqld.exe") is not null;
+    public static string? MariadbInstallDbExe() => Find("mariadb", "mariadb-install-db.exe") ?? Find("mariadb", "mysql_install_db.exe");
 
     public static string? PostgresExe() => Find("postgresql", "postgres.exe");
     public static string? PgCtlExe()    => Find("postgresql", "pg_ctl.exe");

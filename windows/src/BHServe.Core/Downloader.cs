@@ -189,6 +189,19 @@ public static class Downloader
         return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
     }
 
+    private const string MariadbPinned = "11.4.4";
+
+    /// <summary>Download MariaDB (portable winx64 zip) into bin\mariadb.</summary>
+    public static async Task<string> InstallMariadb()
+    {
+        var url = $"https://archive.mariadb.org/mariadb-{MariadbPinned}/winx64-packages/mariadb-{MariadbPinned}-winx64.zip";
+        var zip = await DownloadToTmp(url, "mariadb.zip");
+        var dir = Path.Combine(Paths.Bin, "mariadb");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);   // → bin\mariadb\mariadb-11.4.4-winx64\bin\mysqld.exe
+        return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
+    }
+
     /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql.</summary>
     public static async Task<string> InstallDb()
     {

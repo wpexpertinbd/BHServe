@@ -61,8 +61,11 @@ public sealed partial class DashboardPage : Page
         PhpSub.Text = $"{phpVers.Count} installed";
         PhpDot.Fill = snap.Services.Any(s => s.Role == ServiceRole.Php && s.Running) ? On : Off;
 
-        var db = Running("mariadb");
-        DbVal.Text = "MariaDB"; DbSub.Text = db ? "running" : "stopped"; DbDot.Fill = db ? On : Off;
+        bool myRun = Running("mysql"), mariaRun = Running("mariadb"), pgRun = Running("postgresql");
+        var dbRun = myRun || mariaRun || pgRun;
+        DbVal.Text = mariaRun ? "MariaDB" : myRun ? "MySQL" : pgRun ? "PostgreSQL" : "MySQL / MariaDB";
+        DbSub.Text = dbRun ? "running" : "stopped";
+        DbDot.Fill = dbRun ? On : Off;
 
         var redis = Running("redis"); var memc = Running("memcached");
         CacheVal.Text = "Redis · Memcached";

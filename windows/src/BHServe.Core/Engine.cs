@@ -63,7 +63,8 @@ public sealed class Engine
             {
                 "nginx"      => Get("nginx",   cfg, () => Downloader.InstallNginx()),
                 "apache" or "httpd" => GetApache(cfg),
-                "mariadb" or "mysql" => Get("mariadb", cfg, () => Downloader.InstallDb()),
+                "mysql"      => Get("mysql",   cfg, () => Downloader.InstallDb()),
+                "mariadb"    => Get("mariadb", cfg, () => Downloader.InstallMariadb()),
                 "postgresql" or "postgres" => Get("postgresql", cfg, () => Downloader.InstallPostgres()),
                 "redis"      => Get("redis",     cfg, () => Downloader.InstallRedis()),
                 "memcached"  => Get("memcached", cfg, () => Downloader.InstallMemcached()),
@@ -126,7 +127,8 @@ public sealed class Engine
         {
             "nginx"      => Path.Combine(Paths.Bin, "nginx"),
             "apache" or "httpd"  => Path.Combine(Paths.Bin, "apache"),
-            "mariadb" or "mysql" => Path.Combine(Paths.Bin, "mysql"),
+            "mysql"      => Path.Combine(Paths.Bin, "mysql"),
+            "mariadb"    => Path.Combine(Paths.Bin, "mariadb"),
             "postgresql" or "postgres" => Path.Combine(Paths.Bin, "postgresql"),
             "redis"      => Path.Combine(Paths.Bin, "redis"),
             "memcached"  => Path.Combine(Paths.Bin, "memcached"),
@@ -165,7 +167,7 @@ public sealed class Engine
             return;
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
-        if (svc == "mariadb") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc is "mariadb" or "mysql") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc is "postgresql" or "postgres") { var (ok, msg) = PgServer.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else No("redis not installed — bhserve install redis"); return; }
@@ -197,7 +199,7 @@ public sealed class Engine
             return;
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
-        if (svc == "mariadb") { DbServer.Stop(); Ok("database stopped"); return; }
+        if (svc is "mariadb" or "mysql") { DbServer.Stop(); Ok("database stopped"); return; }
         if (svc is "postgresql" or "postgres") { PgServer.Stop(); Ok("PostgreSQL stopped"); return; }
         if (svc == "apache")  { Apache.Stop(); Ok("apache stopped"); return; }
         if (svc == "redis")     { Redis.Stop(); Ok("redis stopped"); return; }
@@ -477,7 +479,13 @@ public sealed class Engine
             {
                 ServiceRole.Web => (s.Key == "nginx" && Nginx.Running()) || (s.Key == "apache" && Apache.Running()),
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
-                ServiceRole.Db    => (s.Key == "mariadb" && DbServer.Running()) || (s.Key == "postgresql" && PgServer.Running()),
+                ServiceRole.Db    => s.Key switch
+                {
+                    "mysql"      => Tools.MysqlInstalled && !DbServer.ActiveIsMariadb && DbServer.Running(),
+                    "mariadb"    => Tools.MariadbInstalled && DbServer.ActiveIsMariadb && DbServer.Running(),
+                    "postgresql" => PgServer.Running(),
+                    _ => false,
+                },
                 ServiceRole.Mail  => s.Key == "mailpit" && MailpitServer.Running(),
                 ServiceRole.Cache => (s.Key == "redis" && Redis.Running()) || (s.Key == "memcached" && Memcached.Running()),
                 _ => false,

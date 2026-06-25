@@ -20,6 +20,7 @@ public static class Services
         foreach (var v in PhpVersions) list.Add(new($"php@{v}", ServiceRole.Php));
         list.Add(new("nginx",     ServiceRole.Web));
         list.Add(new("apache",    ServiceRole.Web));
+        list.Add(new("mysql",     ServiceRole.Db));
         list.Add(new("mariadb",   ServiceRole.Db));
         list.Add(new("postgresql",ServiceRole.Db));
         list.Add(new("redis",     ServiceRole.Cache));
@@ -38,7 +39,8 @@ public static class Services
     {
         "nginx"     => "nginx 1.27",
         "apache"    => "httpd 2.4",
-        "mariadb"   => "MySQL 8.4",
+        "mysql"     => "MySQL 8.4",
+        "mariadb"   => "MariaDB 11.4",
         "postgresql"=> "PostgreSQL 16",
         "redis"     => "Redis",
         "memcached" => "Memcached",
@@ -69,7 +71,8 @@ public static class Services
     {
         "nginx"     => Tools.NginxExe() is not null,
         "apache"    => Tools.HttpdExe() is not null,
-        "mariadb"   => Tools.MysqldExe() is not null,
+        "mysql"     => Tools.MysqlInstalled,
+        "mariadb"   => Tools.MariadbInstalled,
         "postgresql"=> Tools.PostgresExe() is not null,
         "redis"     => Tools.RedisServerExe() is not null,
         "memcached" => Tools.MemcachedExe() is not null,
@@ -85,7 +88,7 @@ public static class Services
 
     private static bool DefaultEnabled(string key, Config cfg) => key switch
     {
-        "nginx" or "mariadb" => true,
+        "nginx" or "mysql" or "mariadb" => true,
         _ => key == PhpKey("default", cfg),
     };
 
