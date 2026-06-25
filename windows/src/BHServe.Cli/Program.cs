@@ -62,6 +62,28 @@ try
 
         case "db":      engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "node":    engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "nodesite":
+            switch (Arg(rest, 0))
+            {
+                case "add":
+                {
+                    var f = Flags(rest.Skip(2));
+                    engine.NodeSiteAdd(Arg(rest, 1),
+                        f.GetValueOrDefault("fe-dir", ""), f.GetValueOrDefault("fe-cmd", ""),
+                        int.TryParse(f.GetValueOrDefault("fe-port"), out var fp) ? fp : 0,
+                        f.GetValueOrDefault("be-dir"), f.GetValueOrDefault("be-cmd"),
+                        int.TryParse(f.GetValueOrDefault("be-port"), out var bp) ? bp : 0,
+                        f.GetValueOrDefault("api", "/api"));
+                    break;
+                }
+                case "start":          engine.NodeSiteStart(Arg(rest, 1)); break;
+                case "stop":           engine.NodeSiteStop(Arg(rest, 1)); break;
+                case "restart":        engine.NodeSiteRestart(Arg(rest, 1)); break;
+                case "rm" or "remove": engine.NodeSiteRemove(Arg(rest, 1)); break;
+                case "list" or "":     engine.NodeSiteList(); break;
+                default: Usage(); return 1;
+            }
+            break;
         case "doctor":  engine.Doctor(); break;
         case "logs":    engine.Logs(Arg(rest, 0), int.TryParse(Arg(rest, 1), out var ln) ? ln : 200); break;
         case "config":

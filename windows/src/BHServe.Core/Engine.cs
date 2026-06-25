@@ -728,6 +728,67 @@ public sealed class Engine
         if (sub is "install" or "i") Ok($"node {v} installed — run with: fnm use {v} (FNM_DIR={nodeDir})");
     }
 
+    // ── Node-app sites (supervised frontend/backend behind an nginx reverse proxy) ──
+    public void NodeSiteAdd(string name, string feDir, string feCmd, int fePort,
+                            string? beDir, string? beCmd, int bePort, string apiPath)
+    {
+        NeedInit();
+        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$")) throw new BhException($"invalid name '{name}'");
+        if (string.IsNullOrWhiteSpace(feDir) || string.IsNullOrWhiteSpace(feCmd) || fePort <= 0)
+            throw new BhException("frontend dir, cmd and port are required");
+        var cfg = Config.Load();
+        var domain = $"{name}.{cfg.Tld}";
+        // sanitize the api path (guard against a shell mangling "/api" into a drive path)
+        var api = Regex.Replace(apiPath ?? "", "[^a-zA-Z0-9/_-]", "").Trim('/');
+        if (api.Length == 0 || apiPath!.Contains(':') || apiPath.Contains(' ')) api = "api";
+        var nc = new NodeSiteConfig
+        {
+            Name = name, ApiPath = "/" + api,
+            Frontend = new NodeProc { Dir = feDir, Cmd = feCmd, Port = fePort },
+            Backend = (!string.IsNullOrWhiteSpace(beDir) && !string.IsNullOrWhiteSpace(beCmd) && bePort > 0)
+                ? new NodeProc { Dir = beDir!, Cmd = beCmd!, Port = bePort } : null,
+        };
+        NodeSite.Save(nc);
+        NodeSite.RenderVhost(nc, domain, cfg);
+        Ok($"node-app vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}");
+        var (ok, msg) = NodeSite.Start(name); if (ok) Ok(msg); else Warn(msg);
+        if (Nginx.Running()) Nginx.Reload(cfg); else { var (nok, nmsg) = Nginx.Start(cfg); if (!nok) Warn(nmsg); }
+        EnsureHosts(domain);
+        Hdr($"Node-app '{name}' added");
+        Info($"url    : http://{domain}");
+        Info($"frontend: {feCmd}  (dir {feDir}, :{fePort})");
+        if (nc.Backend is not null) Info($"backend : {beCmd}  (dir {beDir}, :{bePort})  · {nc.ApiPath} → backend");
+    }
+
+    public void NodeSiteStart(string name)   { NeedInit(); var (ok, msg) = NodeSite.Start(name); if (ok) Ok(msg); else No(msg); }
+    public void NodeSiteStop(string name)    { NeedInit(); NodeSite.Stop(name); Ok($"node-app {name} stopped"); }
+    public void NodeSiteRestart(string name) { NodeSiteStop(name); System.Threading.Thread.Sleep(400); NodeSiteStart(name); }
+
+    public void NodeSiteRemove(string name)
+    {
+        NeedInit();
+        NodeSite.Stop(name);
+        NodeSite.Delete(name);
+        try { File.Delete(Path.Combine(Paths.NginxSites, $"{name}.conf")); } catch { }
+        var cfg = Config.Load();
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Ok($"removed node-app {name}");
+    }
+
+    public void NodeSiteList()
+    {
+        NeedInit();
+        Hdr("Node-app sites");
+        var any = false;
+        foreach (var n in NodeSite.List())
+        {
+            var c = NodeSite.Load(n);
+            Ok($"{n,-16} {(NodeSite.Running(n) ? "running" : "stopped"),-8} fe:{c?.Frontend.Port}{(c?.Backend is not null ? $" be:{c.Backend.Port}" : "")}");
+            any = true;
+        }
+        if (!any) Info("none — bhserve nodesite add <name> --fe-dir … --fe-cmd … --fe-port …");
+    }
+
     /// <summary>Cloudflare quick tunnel — share a local site on a public https URL (no account).</summary>
     public void Tunnel(string sub, params string[] args)
     {

@@ -78,4 +78,21 @@ public static class Tools
     public static string? CloudflaredExe() => Find("cloudflared", "cloudflared.exe");
 
     public static string? FnmExe() => Find("fnm", "fnm.exe");
+
+    /// <summary>Directory holding the fnm-managed default node.exe + npm (for Node-app sites).</summary>
+    public static string? NodeBinDir()
+    {
+        var root = Path.Combine(Paths.Home, "node");   // FNM_DIR
+        if (!Directory.Exists(root)) return null;
+        try
+        {
+            // prefer the 'default' alias, else the newest installed version
+            var node = Directory.EnumerateFiles(root, "node.exe", SearchOption.AllDirectories)
+                                 .OrderByDescending(p => p.Contains("default"))
+                                 .ThenByDescending(p => p)
+                                 .FirstOrDefault();
+            return node is null ? null : Path.GetDirectoryName(node);
+        }
+        catch { return null; }
+    }
 }
