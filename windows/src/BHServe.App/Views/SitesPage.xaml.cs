@@ -75,9 +75,12 @@ public sealed partial class SitesPage : Page
         var name = NameBox.Text.Trim();
         if (name.Length == 0) { await Info("Add site", "Enter a site name first (lowercase letters, digits, hyphens)."); return; }
 
+        // Read the UI controls HERE on the UI thread — the engine runs on a background
+        // thread and touching XAML controls from there throws (RPC_E_WRONG_THREAD).
+        string php = SelectedPhp, server = SelectedServer, type = SelectedType;
         Busy.IsActive = true; AddBtn.IsEnabled = false;
         var (ok, output) = await EngineHost.Instance.RunCaptured(
-            () => EngineHost.Instance.Engine.SiteAdd(name, php: SelectedPhp, server: SelectedServer, type: SelectedType));
+            () => EngineHost.Instance.Engine.SiteAdd(name, php: php, server: server, type: type));
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
 
@@ -133,8 +136,8 @@ public sealed partial class SitesPage : Page
             await Op(() => EngineHost.Instance.Engine.SitePhp(name, ver));
     }
 
-    private async void Nginx_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.SiteServer(Tag(s), "nginx"));
-    private async void Apache_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.SiteServer(Tag(s), "apache"));
+    private async void Nginx_Click(object s, RoutedEventArgs e)  { var n = Tag(s); await Op(() => EngineHost.Instance.Engine.SiteServer(n, "nginx")); }
+    private async void Apache_Click(object s, RoutedEventArgs e) { var n = Tag(s); await Op(() => EngineHost.Instance.Engine.SiteServer(n, "apache")); }
 
     private async void Remove_Click(object s, RoutedEventArgs e)
     {
