@@ -172,9 +172,11 @@ final class AppState {
         lastAction = "\(action) \(target)…"
         defer { busy = false; lastAction = nil }
         let eng = engine
-        // nginx/all need root for :80/:443. With the privileged helper installed,
-        // the engine's internal `sudo nginx` is password-less → no osascript prompt.
-        let needsPrompt = (target == "nginx" || target == "all" || target == "dns") && !helperInstalled
+        // dnsmasq needs root (binds :53 + writes /etc/resolver) and the helper only
+        // covers nginx — so DNS ALWAYS prompts (osascript admin). nginx/all need root
+        // for :80/:443 but go password-less once the helper is installed.
+        let dnsLike = (target == "dnsmasq" || target == "dns")
+        let needsPrompt = dnsLike || ((target == "nginx" || target == "all") && !helperInstalled)
         do {
             try await Task.detached {
                 if needsPrompt { try eng.runPrivileged([action, target]) }

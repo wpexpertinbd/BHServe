@@ -53,9 +53,12 @@ final class DashboardWindow: NSObject, NSWindowDelegate {
                 rootView: ContentView().environment(AppState.shared).environment(Metrics.shared))
             let w = NSWindow(contentViewController: host)
             w.title = "BHServe"
-            w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            // A solid, standard title bar (NOT fullSizeContentView/transparent) so each
+            // tab's title + refresh button always sit on an opaque top bar — content
+            // scrolls cleanly under it at any window size instead of bleeding to the top.
+            w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             w.setContentSize(NSSize(width: 860, height: 620))
-            w.titlebarAppearsTransparent = true
+            w.titlebarAppearsTransparent = false
             w.isReleasedWhenClosed = false
             w.center()
             w.delegate = self

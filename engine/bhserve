@@ -82,10 +82,16 @@ cmd_disable(){ need_init; [ $# -ge 1 ] || die "usage: bhserve disable <svc>"; di
 
 # Version probe — robust under `set -e`/pipefail. nginx/httpd reject --version
 # and print to stderr, so fall back to -v; never propagate a non-zero exit.
+# A version line is "bad" if it's empty, an error, or a daemon log line (mailpit's `-v`
+# means *verbose* and prints `time=… level=…` — not a version).
+_ver_bad(){ case "$1" in ""|*invalid*|*unknown*|*"Error:"*|*"level="*|time=*) return 0;; *) return 1;; esac; }
 probe_version(){
   local bin="$1" out=""
   out="$("$bin" --version 2>&1 | head -1)" || true
-  case "$out" in *"invalid option"*|*"unknown option"*|"") out="$("$bin" -v 2>&1 | head -1)" || true ;; esac
+  # try, in order: -v, a `version` subcommand (mailpit/fnm/cloudflared), then -version
+  _ver_bad "$out" && { out="$("$bin" -v 2>&1 | head -1)" || true; }
+  _ver_bad "$out" && { out="$("$bin" version 2>&1 | head -1)" || true; }
+  _ver_bad "$out" && { out="$("$bin" -version 2>&1 | head -1)" || true; }
   printf '%s' "$out" | tr -d '\n' | cut -c1-46
 }
 
@@ -1040,29 +1046,50 @@ site_list() {
 }
 
 # ── DNS (*.test via dnsmasq) ────────────────────────────────────────────────
+# Running = an actual dnsmasq process (NOT `brew services list`, which reports a stale
+# "error" state even while the root LaunchDaemon is happily serving :53).
+dnsmasq_running(){ pgrep -x dnsmasq >/dev/null 2>&1; }
+
+# Configure + (re)start dnsmasq so *.tld → 127.0.0.1. Needs root (binds :53, writes
+# /etc/resolver). Invoked privileged (osascript admin) by the app, or via `sudo bhserve dns`.
+# Idempotent: if dnsmasq is already running it just reloads; else it starts it directly.
 cmd_dns() {
   need_init
   local tld; tld="$(jget tld test)"
-  local conf="$BH_HOME/dnsmasq.conf"
   svc_installed dnsmasq || die "dnsmasq not installed — run: bhserve install dnsmasq"
-  cat > "$conf" <<DNS
-# BHServe dnsmasq — resolve *.$tld to localhost
-address=/.$tld/127.0.0.1
-port=53
-listen-address=127.0.0.1
-DNS
-  ok "wrote $conf"
-  hdr "Privileged steps (need sudo — dnsmasq binds :53 and /etc/resolver is root-owned)"
-  cat <<STEPS
-  Run these to activate *.${tld} resolution:
+  if [ "$(id -u)" != 0 ]; then
+    die "DNS setup needs admin — use the app's dnsmasq Start (it prompts), or: sudo bhserve dns"
+  fi
+  hdr "Configuring *.$tld DNS (dnsmasq)"
+  # 1) tell dnsmasq to answer *.tld with 127.0.0.1 (brew dnsmasq reads etc/dnsmasq.d/*.conf)
+  mkdir -p "$BREW_PREFIX/etc/dnsmasq.d"
+  printf '# BHServe — resolve *.%s → 127.0.0.1\naddress=/.%s/127.0.0.1\n' "$tld" "$tld" \
+    > "$BREW_PREFIX/etc/dnsmasq.d/bhserve.conf"
+  grep -q 'dnsmasq.d' "$BREW_PREFIX/etc/dnsmasq.conf" 2>/dev/null \
+    || printf 'conf-dir=%s/etc/dnsmasq.d,*.conf\n' "$BREW_PREFIX" >> "$BREW_PREFIX/etc/dnsmasq.conf"
+  ok "dnsmasq config: $BREW_PREFIX/etc/dnsmasq.d/bhserve.conf"
+  # 2) route *.tld lookups on macOS to our local resolver
+  mkdir -p /etc/resolver
+  printf 'nameserver 127.0.0.1\n' > "/etc/resolver/$tld"
+  ok "resolver: /etc/resolver/$tld → 127.0.0.1"
+  # 3) start (or reload) dnsmasq. Already running → SIGHUP to reload; else start the daemon.
+  local bin; bin="$BREW_PREFIX/sbin/dnsmasq"; [ -x "$bin" ] || bin="$BREW_PREFIX/bin/dnsmasq"
+  if dnsmasq_running; then
+    pkill -HUP -x dnsmasq 2>/dev/null || true; ok "dnsmasq reloaded — *.$tld now resolves to 127.0.0.1"
+  else
+    "$bin" -C "$BREW_PREFIX/etc/dnsmasq.conf" >/dev/null 2>&1 \
+      && ok "dnsmasq started — *.$tld now resolves to 127.0.0.1" \
+      || no "dnsmasq failed to start (is something else on :53? try: sudo lsof -i :53)"
+  fi
+  # flush the macOS DNS cache so the new resolver takes effect immediately
+  dscacheutil -flushcache 2>/dev/null || true
+  killall -HUP mDNSResponder 2>/dev/null || true
+}
 
-    sudo cp "$conf" $BREW_PREFIX/etc/dnsmasq.d/bhserve.conf
-    sudo brew services restart dnsmasq
-    sudo mkdir -p /etc/resolver
-    echo 'nameserver 127.0.0.1' | sudo tee /etc/resolver/${tld} >/dev/null
-
-  Verify:  ping -c1 anything.${tld}   (should resolve to 127.0.0.1)
-STEPS
+# Stop the dnsmasq daemon (root). *.tld resolution stops until it's started again.
+dnsmasq_stop(){
+  [ "$(id -u)" = 0 ] || { warn "stopping dnsmasq needs admin"; return 0; }
+  pkill -x dnsmasq 2>/dev/null || true; ok "dnsmasq stopped"
 }
 
 # ── HTTPS (mkcert) ──────────────────────────────────────────────────────────
@@ -1199,6 +1226,11 @@ start_all(){
       web) [ "$key" = nginx ] && { ( nginx_start ) || warn "nginx failed to start — check vhost configs (continuing)"; }
            [ "$key" = httpd ] && { ( apache_start ) || warn "apache failed to start (continuing)"; } ;;
       db|cache|mail) ( brew_svc start "$key" ) || warn "$key failed to start (continuing)" ;;
+      dns) # dnsmasq needs root for :53 — only doable here when start_all itself runs elevated
+           if ! dnsmasq_running; then
+             if [ "$(id -u)" = 0 ]; then ( cmd_dns ) || warn "dnsmasq failed to start (continuing)"
+             else warn "dnsmasq not running — click Start on dnsmasq (it needs an admin prompt) so *.$(jget tld test) resolves"; fi
+           fi ;;
     esac
   done < <(services)
   # bring Apache up if any site uses it, even when httpd isn't in the enabled set
@@ -1227,7 +1259,8 @@ cmd_start() {
     apache|httpd) apache_start ;;
     php|php@*) fpm_start "$(php_key "$what")" ;;
     php*) fpm_start "$(php_key "${what#php}")" ;;
-    mariadb|mysql|postgresql@17|redis|memcached|mailpit|dnsmasq) brew_svc start "$what" ;;
+    dnsmasq) cmd_dns ;;
+    mariadb|mysql|postgresql@17|redis|memcached|mailpit) brew_svc start "$what" ;;
     *) die "start: unknown target $what" ;;
   esac
 }
@@ -1240,7 +1273,8 @@ cmd_stop() {
     apache|httpd) apache_stop ;;
     php|php@*) fpm_stop "$(php_key "$what")" ;;
     php*) fpm_stop "$(php_key "${what#php}")" ;;
-    mariadb|mysql|postgresql@17|redis|memcached|mailpit|dnsmasq) brew_svc stop "$what" ;;
+    dnsmasq) dnsmasq_stop ;;
+    mariadb|mysql|postgresql@17|redis|memcached|mailpit) brew_svc stop "$what" ;;
     *) die "stop: unknown target $what" ;;
   esac
 }
@@ -1943,6 +1977,9 @@ cmd_api() {
     case "$role" in
       web) [ "$key" = nginx ] && nginx_running && running=true ;;
       php) fpm_running "$key" && running=true ;;
+      dns) dnsmasq_running && running=true ;;
+      # mkcert isn't a daemon — once installed, the local CA is ready, so "active".
+      tls) [ "$installed" = true ] && running=true ;;
       *)   printf '%s\n' "$brewlist" | awk -v f="$formula" '$1==f && $2=="started"{x=1} END{exit !x}' && running=true ;;
     esac
     local en=false; svc_enabled "$key" && en=true
