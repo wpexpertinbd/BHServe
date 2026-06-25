@@ -56,9 +56,10 @@ public static class PhpCgi
         var exe = Tools.PhpCgiExe(version);
         if (exe is null) return false;
 
-        // Raise the stock 2M upload cap to 2 GB on the build's php.ini before launching, so both
-        // nginx-served and Apache-served PHP honor it. Idempotent + survives PHP reinstalls (this
-        // runs on every start, but only writes when a value actually differs).
+        // Tune the build's php.ini before launching (uploads + OPcache/JIT + realpath cache) so
+        // both nginx- and Apache-served PHP are fast. Idempotent + survives reinstalls (runs on
+        // every start, only writes when something differs). OPcache is the big WordPress win —
+        // Windows PHP ships it off, so every request recompiles all PHP without this.
         EnsureLimits(Path.GetDirectoryName(exe)!);
 
         var port = PortFor(version);
@@ -91,19 +92,33 @@ public static class PhpCgi
         return true;
     }
 
-    /// <summary>BHServe's default PHP limits — generous for local dev (2 GB uploads).</summary>
+    /// <summary>BHServe's php.ini defaults — generous uploads + performance (OPcache/JIT/realpath).</summary>
     private static readonly (string key, string val)[] Limits =
     {
+        // generous local-dev limits
         ("upload_max_filesize", "2048M"),
         ("post_max_size",       "2048M"),
         ("memory_limit",        "1024M"),
         ("max_execution_time",  "600"),
         ("max_input_time",      "600"),
         ("max_file_uploads",    "50"),
+        // realpath cache — WordPress includes hundreds of files; Windows file stat is slow
+        ("realpath_cache_size", "4096k"),
+        ("realpath_cache_ttl",  "600"),
+        // OPcache — caches compiled PHP so each request doesn't recompile all of WP (huge on Windows)
+        ("opcache.enable",                 "1"),
+        ("opcache.enable_cli",             "0"),
+        ("opcache.memory_consumption",     "256"),
+        ("opcache.interned_strings_buffer","16"),
+        ("opcache.max_accelerated_files",  "20000"),
+        ("opcache.validate_timestamps",    "1"),   // still picks up file edits...
+        ("opcache.revalidate_freq",        "2"),   // ...but only re-stats every 2s
+        ("opcache.jit",                    "tracing"),
+        ("opcache.jit_buffer_size",        "128M"),
     };
 
-    /// <summary>Set the upload/size/time directives in a build's php.ini (active or commented),
-    /// only writing if something changed. Never throws (best-effort).</summary>
+    /// <summary>Apply BHServe's limits + performance directives to a build's php.ini (active or
+    /// commented), enabling the OPcache extension. Only writes if something changed; never throws.</summary>
     private static void EnsureLimits(string phpDir)
     {
         try
@@ -112,6 +127,13 @@ public static class PhpCgi
             if (!File.Exists(ini)) return;
             var text = File.ReadAllText(ini);
             var orig = text;
+
+            // OPcache is a Zend extension — php.ini-development ships it commented. Turn it on.
+            if (Regex.IsMatch(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
+                text = Regex.Replace(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache.*$", "zend_extension=opcache", RegexOptions.None);
+            else if (!Regex.IsMatch(text, @"(?m)^[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
+                text = text.TrimEnd() + "\nzend_extension=opcache\n";
+
             foreach (var (key, val) in Limits)
             {
                 var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
