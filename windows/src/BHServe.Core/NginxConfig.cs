@@ -137,4 +137,28 @@ public static class NginxConfig
         Directory.CreateDirectory(Paths.NginxSites);
         File.WriteAllText(conf, body);
     }
+
+    /// <summary>Front a local HTTP service (e.g. Mailpit :8025) at a *.tld host (render_nginx_proxy_site analog).</summary>
+    public static void RenderProxyVhost(string name, string domain, int port, Config cfg)
+    {
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        var body = $$"""
+        # BHServe site: {{name}}  ({{domain}})  php=- server=proxy -> 127.0.0.1:{{port}}
+        server {
+        {{ListenBlock(domain, cfg)}}
+            server_name {{domain}};
+            location / {
+                proxy_pass http://127.0.0.1:{{port}};
+                proxy_set_header Host $host;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_read_timeout 600;
+            }
+        }
+
+        """;
+        Directory.CreateDirectory(Paths.NginxSites);
+        File.WriteAllText(conf, body);
+    }
 }

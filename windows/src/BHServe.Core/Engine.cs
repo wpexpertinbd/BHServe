@@ -101,6 +101,7 @@ public sealed class Engine
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "mariadb") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc == "mailpit") { if (MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort} / SMTP :{MailpitServer.SmtpPort}"); else No("mailpit not installed — bhserve mailpit"); return; }
         if (svc.StartsWith("php"))
         {
             var v = PhpVersionOf(svc, cfg);
@@ -119,10 +120,12 @@ public sealed class Engine
             Nginx.Stop(); Ok("nginx stopped");
             foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
             if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
+            if (MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
             return;
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
         if (svc == "mariadb") { DbServer.Stop(); Ok("database stopped"); return; }
+        if (svc == "mailpit") { MailpitServer.Stop(); Ok("mailpit stopped"); return; }
         if (svc.StartsWith("php")) { var v = PhpVersionOf(svc, cfg); PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); return; }
         throw new BhException($"don't know how to stop '{svc}'");
     }
@@ -239,7 +242,8 @@ public sealed class Engine
             {
                 ServiceRole.Web => s.Key == "nginx" && Nginx.Running(),
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
-                ServiceRole.Db  => s.Key == "mariadb" && DbServer.Running(),
+                ServiceRole.Db   => s.Key == "mariadb" && DbServer.Running(),
+                ServiceRole.Mail => s.Key == "mailpit" && MailpitServer.Running(),
                 _ => false,
             };
             return new Service(s.Key, s.Role, installed, running, "", Services.Enabled(s.Key, cfg));
@@ -378,7 +382,47 @@ public sealed class Engine
         }
     }
 
-    public void Node(string sub, params string[] args) => throw new BhException("node: phase 4 (fnm) — not yet on Windows");
+    /// <summary>Node version management via fnm (the mac engine's `node` verb).</summary>
+    public void Node(string sub, params string[] args)
+    {
+        NeedInit();
+        var fnm = Tools.FnmExe();
+        if (fnm is null)
+        {
+            Hdr("Installing fnm (Node version manager)");
+            fnm = Downloader.InstallFnm().GetAwaiter().GetResult();
+            Ok($"fnm: {fnm}");
+        }
+        var nodeDir = Path.Combine(Paths.Home, "node");
+        Directory.CreateDirectory(nodeDir);
+        var v = args.Length > 0 ? args[0] : "";
+        var fnmArgs = sub switch
+        {
+            "" or "list" or "ls"      => "list",
+            "install" or "i"          => $"install {v}",
+            "use" or "default"        => $"default {v}",
+            "uninstall" or "rm" or "uni" => $"uninstall {v}",
+            _ => throw new BhException("usage: bhserve node {list|install|use|uninstall} [version]"),
+        };
+        if (sub is "install" or "i" or "use" or "default" or "uninstall" or "rm" or "uni" && v == "")
+            throw new BhException($"usage: bhserve node {sub} <version>");
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = fnm, Arguments = fnmArgs,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = nodeDir,
+        };
+        psi.Environment["FNM_DIR"] = nodeDir;
+        var p = System.Diagnostics.Process.Start(psi)!;
+        var outp = (p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd()).TrimEnd();
+        p.WaitForExit();
+        if (outp.Length > 0) Out(outp);
+        if (p.ExitCode != 0) throw new BhException($"fnm {fnmArgs} failed");
+        if (sub is "install" or "i") Ok($"node {v} installed — run with: fnm use {v} (FNM_DIR={nodeDir})");
+    }
+
     public void PhpMyAdmin() => throw new BhException("pma: phase 4 — use Adminer for now (bhserve adminer)");
 
     /// <summary>Download Adminer (single-file DB UI) and serve it at adminer.&lt;tld&gt;.</summary>
@@ -398,7 +442,32 @@ public sealed class Engine
         SiteAdd("adminer", root: root, type: "others");
     }
 
-    public void Mailpit() => throw new BhException("mailpit: phase 4 — not yet on Windows");
+    /// <summary>Install + run Mailpit and front its web UI at mailpit.&lt;tld&gt;.</summary>
+    public void Mailpit()
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        if (Tools.MailpitExe() is null)
+        {
+            Hdr("Installing Mailpit");
+            Downloader.InstallMailpit().GetAwaiter().GetResult();
+            Ok("mailpit installed");
+        }
+        if (BHServe.Core.MailpitServer.Start())
+            Ok($"mailpit running — SMTP :{BHServe.Core.MailpitServer.SmtpPort}, UI :{BHServe.Core.MailpitServer.UiPort}");
+        else { No("mailpit failed to start"); return; }
+
+        var domain = $"mailpit.{cfg.Tld}";
+        NginxConfig.RenderProxyVhost("mailpit", domain, BHServe.Core.MailpitServer.UiPort, cfg);
+        Ok($"site vhost: mailpit.conf (proxy → :{BHServe.Core.MailpitServer.UiPort})");
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        else { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
+        EnsureHosts(domain);
+
+        Hdr("Mailpit ready");
+        Info($"url    : http://{domain}   (or http://127.0.0.1:{BHServe.Core.MailpitServer.UiPort})");
+        Info($"SMTP   : 127.0.0.1:{BHServe.Core.MailpitServer.SmtpPort}  — point php sendmail/SMTP here");
+    }
 }
 
 /// <summary>A clean, user-facing error (the CLI prints the message; no stack trace).</summary>

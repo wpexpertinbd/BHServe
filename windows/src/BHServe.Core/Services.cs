@@ -51,6 +51,8 @@ public static class Services
         ServiceRole.Web  => key == "nginx" && Tools.NginxExe() is not null,
         ServiceRole.Db   => Tools.MysqldExe() is not null,
         ServiceRole.Tool => key == "mkcert" && Tools.MkcertExe() is not null,
+        ServiceRole.Mail => key == "mailpit" && Tools.MailpitExe() is not null,
+        ServiceRole.Node => key == "fnm" && Tools.FnmExe() is not null,
         _ => false,
     };
 

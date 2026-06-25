@@ -95,4 +95,18 @@ public static class Tools
         if (managed is not null) return managed;
         return FindUnder(Path.Combine(LaragonBin, "mysql"), "mysql.exe");
     }
+
+    public static string? MailpitExe() => FindUnder(Path.Combine(Paths.Bin, "mailpit"), "mailpit.exe");
+
+    public static string? FnmExe()
+    {
+        var managed = FindUnder(Path.Combine(Paths.Bin, "fnm"), "fnm.exe");
+        if (managed is not null) return managed;
+        // fall back to a system fnm if the user already has one on PATH
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
+        {
+            try { var p = Path.Combine(dir.Trim(), "fnm.exe"); if (File.Exists(p)) return p; } catch { }
+        }
+        return null;
+    }
 }

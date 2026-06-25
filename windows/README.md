@@ -50,6 +50,8 @@ dotnet run --project src\BHServe.App
 - **Databases**: BHServe runs its own MySQL/MariaDB on `127.0.0.1:3306` (fresh data
   dir under `data\`, passwordless root) + `db create/list/drop`. **Adminer** is a
   one-command DB UI served at `adminer.<tld>`.
+- **Mailpit** (`mailpit`): catches outgoing mail (SMTP `:1025`), web UI fronted at
+  `mailpit.<tld>`. **Node** (`node list|install|use|uninstall`) via fnm.
 - Admin-only steps (hosts file, mkcert CA install) go through
   **`bhserve-elevate.exe`** (requireAdministrator) for a single UAC prompt.
   (CI/automation can set `BHSERVE_SKIP_HOSTS=1` to skip the hosts step.)
@@ -57,8 +59,8 @@ dotnet run --project src\BHServe.App
   Sites, Services, Settings (autostart). Run it from a **self-contained** build (or
   install the Windows App Runtime 1.6) — see Release below.
 
-Still TODO: system tray (close-to-tray), Node/fnm, Mailpit, php.ini editor + ionCube,
-auto-updater, Inno Setup installer + signing. See `WINDOWS-PORT.md` §6.
+Still TODO: system tray (close-to-tray), php.ini editor + ionCube, auto-updater,
+Inno Setup installer + signing. See `WINDOWS-PORT.md` §6.
 
 ## Release
 

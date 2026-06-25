@@ -102,6 +102,41 @@ public static class Downloader
         return Path.Combine(dir, "mkcert.exe");
     }
 
+    private static async Task<string> GithubAsset(string repo, Func<string, bool> match)
+    {
+        var rel = await Http.GetStringAsync($"https://api.github.com/repos/{repo}/releases/latest");
+        using var doc = JsonDocument.Parse(rel);
+        foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
+        {
+            var name = a.GetProperty("name").GetString() ?? "";
+            if (match(name)) return a.GetProperty("browser_download_url").GetString()!;
+        }
+        throw new InvalidOperationException($"no matching asset in {repo} latest release");
+    }
+
+    public static async Task<string> InstallMailpit()
+    {
+        var url = await GithubAsset("axllent/mailpit",
+            n => n.Contains("windows", StringComparison.OrdinalIgnoreCase) && n.Contains("amd64") && n.EndsWith(".zip"));
+        var zip = await DownloadToTmp(url, "mailpit.zip");
+        var dir = Path.Combine(Paths.Bin, "mailpit");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);
+        return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
+    }
+
+    public static async Task<string> InstallFnm()
+    {
+        // fnm ships fnm-windows.zip (contains fnm.exe)
+        var url = await GithubAsset("Schniz/fnm",
+            n => n.Contains("windows", StringComparison.OrdinalIgnoreCase) && n.EndsWith(".zip"));
+        var zip = await DownloadToTmp(url, "fnm.zip");
+        var dir = Path.Combine(Paths.Bin, "fnm");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);
+        return Tools.FnmExe() ?? throw new InvalidOperationException("fnm.exe not found after extract");
+    }
+
     /// <summary>Download the latest single-file Adminer to <paramref name="dest"/>.</summary>
     public static async Task InstallAdminer(string dest)
     {
