@@ -144,6 +144,54 @@ struct EditNodeSheet: View {
     }
 }
 
+/// Dedicated "Add Node app" sheet (Node tab). Same fields as the Sites-tab Node
+/// type, without the site-type picker.
+struct AddNodeAppSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var feDir = ""; @State private var feCmd = "npm run dev"; @State private var fePort = "3000"
+    @State private var beDir = ""; @State private var beCmd = ""; @State private var bePort = ""
+    @State private var apiPaths = "api|storage|sanctum|admin|livewire|vendor|build|up"
+
+    private var cleanName: String {
+        name.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+    private var ready: Bool { !cleanName.isEmpty && !feDir.isEmpty && !fePort.isEmpty
+        && (beDir.trimmingCharacters(in: .whitespaces).isEmpty || !bePort.isEmpty) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Add Node app").font(.title2.bold())
+            HStack {
+                TextField("myapp", text: $name).textFieldStyle(.roundedBorder)
+                Text(".\(state.snapshot?.config.tld ?? "test")").foregroundStyle(.secondary)
+            }
+            NodeAppFields(title: "Frontend", dir: $feDir, cmd: $feCmd, port: $fePort)
+            NodeAppFields(title: "Backend / API (optional)", dir: $beDir, cmd: $beCmd, port: $bePort)
+            if !beDir.trimmingCharacters(in: .whitespaces).isEmpty {
+                LabeledContent("API paths → backend") {
+                    TextField("api|storage|…", text: $apiPaths).font(.caption.monospaced())
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Create") {
+                    let n = cleanName
+                    Task {
+                        await state.addNodeSite(name: n, feDir: feDir, feCmd: feCmd, fePort: fePort,
+                                                beDir: beDir, beCmd: beCmd, bePort: bePort, apiPaths: apiPaths)
+                    }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction).disabled(!ready || state.busy)
+            }
+        }
+        .padding(20).frame(width: 480)
+    }
+}
+
 /// Reusable folder + command + port block (used by Add and Edit).
 struct NodeAppFields: View {
     let title: String

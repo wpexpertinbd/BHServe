@@ -4,72 +4,76 @@ struct NodeView: View {
     @Environment(AppState.self) private var state
     @State private var version = ""
     @State private var confirmRemove: NodeVersion?
+    @State private var addingApp = false
 
     private let quick = ["18", "20", "22", "24", "lts", "latest"]
+    private var nodeApps: [Site] { state.realSites.filter { $0.node } }
 
     var body: some View {
-        Group {
-            if !state.fnmInstalled {
-                ContentUnavailableView {
-                    Label("Node manager not installed", systemImage: "hexagon")
-                } description: {
-                    Text("BHServe manages Node versions with fnm (versions live in ~/.bhserve/fnm).")
-                } actions: {
-                    Button("Install fnm") { Task { await state.installService("fnm") } }
-                        .disabled(state.busy)
-                }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        // Install
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                // ── Node versions (fnm) ──────────────────────────────────────
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Versions").font(.headline).foregroundStyle(.secondary)
+                    if !state.fnmInstalled {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Install a Node version").font(.headline).foregroundStyle(.secondary)
-                            HStack {
-                                TextField("18 · 20 · 22 · lts · 20.11.0", text: $version)
-                                    .textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-                                Button("Install") {
-                                    Task { await state.installNode(version); version = "" }
-                                }
-                                .disabled(state.busy || version.trimmingCharacters(in: .whitespaces).isEmpty)
-                                if state.busy { ProgressView().controlSize(.small) }
-                            }
-                            HStack(spacing: 6) {
-                                ForEach(quick, id: \.self) { q in
-                                    Button(q) { Task { await state.installNode(q) } }
-                                        .controlSize(.small).buttonStyle(.bordered)
-                                        .disabled(state.busy)
-                                }
-                            }
-                            Text("Installs the latest release of that line (e.g. “18” → newest 18.x).")
-                                .font(.caption2).foregroundStyle(.secondary)
+                            Text("BHServe manages Node versions with fnm. Install it to add Node versions (Node apps below run with the default version).")
+                                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Button("Install fnm") { Task { await state.installService("fnm") } }.disabled(state.busy)
                         }
-
-                        // Installed
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Installed versions").font(.headline).foregroundStyle(.secondary)
-                            if state.nodeVersions.isEmpty {
-                                Text("No versions yet — install one above.")
-                                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
-                            } else {
-                                VStack(spacing: 0) {
-                                    ForEach(state.nodeVersions) { NodeRow(node: $0, confirmRemove: $confirmRemove) }
-                                }
-                                .background(.quaternary.opacity(0.4))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        HStack {
+                            TextField("version (e.g. 20, 22, lts)", text: $version)
+                                .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                            Button("Install") { Task { await state.installNode(version); version = "" } }
+                                .disabled(state.busy || version.trimmingCharacters(in: .whitespaces).isEmpty)
+                            if state.busy { ProgressView().controlSize(.small) }
+                        }
+                        HStack(spacing: 6) {
+                            Text("Quick install:").font(.caption).foregroundStyle(.secondary)
+                            ForEach(quick, id: \.self) { q in
+                                Button(q) { Task { await state.installNode(q) } }
+                                    .controlSize(.small).buttonStyle(.bordered).disabled(state.busy)
                             }
-                            Text("The default version is linked into ~/.bhserve/bin. Add it to PATH: export PATH=\"$HOME/.bhserve/bin:$PATH\"")
-                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if state.nodeVersions.isEmpty {
+                            Text("No Node versions installed yet.").font(.callout).foregroundStyle(.secondary).padding(.vertical, 6)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(state.nodeVersions) { NodeRow(node: $0, confirmRemove: $confirmRemove) }
+                            }
+                            .background(.quaternary.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                    .padding(20)
+                }
+
+                // ── Node apps (managed sites) ─────────────────────────────────
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Node apps").font(.headline).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { addingApp = true } label: { Label("Add Node app", systemImage: "plus") }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                    }
+                    if nodeApps.isEmpty {
+                        Text("No Node apps yet. Add one — a frontend (e.g. Next.js) plus an optional backend/API (e.g. Laravel). BHServe runs both and serves them at name.\(state.snapshot?.config.tld ?? "test").")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.vertical, 8)
+                    } else {
+                        VStack(spacing: 0) { ForEach(nodeApps) { WebsiteRow(site: $0) } }
+                            .background(.quaternary.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
                 }
             }
+            .padding(20)
         }
         .navigationTitle("Node")
         .toolbar {
-            Button { Task { await state.reloadNode() } } label: { Image(systemName: "arrow.clockwise") }
+            Button { Task { await state.reload(); await state.reloadNode() } } label: { Image(systemName: "arrow.clockwise") }
         }
         .task { await state.reloadNode() }
+        .sheet(isPresented: $addingApp) { AddNodeAppSheet() }
         .confirmationDialog("Uninstall Node \(confirmRemove?.version ?? "")?",
                             isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }),
                             titleVisibility: .visible) {
