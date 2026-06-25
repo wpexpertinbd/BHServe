@@ -73,9 +73,20 @@ public sealed partial class SitesPage : Page
     private async void Add_Click(object s, RoutedEventArgs e)
     {
         var name = NameBox.Text.Trim();
-        if (name.Length == 0) return;
-        await Op(() => EngineHost.Instance.Engine.SiteAdd(name, php: SelectedPhp, server: SelectedServer, type: SelectedType));
-        NameBox.Text = "";
+        if (name.Length == 0) { await Info("Add site", "Enter a site name first (lowercase letters, digits, hyphens)."); return; }
+
+        Busy.IsActive = true; AddBtn.IsEnabled = false;
+        var (ok, output) = await EngineHost.Instance.RunCaptured(
+            () => EngineHost.Instance.Engine.SiteAdd(name, php: SelectedPhp, server: SelectedServer, type: SelectedType));
+        Busy.IsActive = false; AddBtn.IsEnabled = true;
+        Refresh();
+
+        // Always show what happened — success, warnings (e.g. "no database server"), or the error.
+        var title = !ok ? "Couldn't add site"
+                  : output.Contains("✗") || output.Contains("failed") || output.Contains("not installed") ? "Added with warnings"
+                  : $"Site '{name}' added";
+        await Info(title, output.Length > 0 ? output : "Done.");
+        if (ok) NameBox.Text = "";
     }
 
     private void Open_Click(object s, RoutedEventArgs e)   { if (Row(Tag(s)) is { } r) Launch(r.Url); }
@@ -149,8 +160,9 @@ public sealed partial class SitesPage : Page
     private async System.Threading.Tasks.Task Op(Action action)
     {
         Busy.IsActive = true; AddBtn.IsEnabled = false;
-        await EngineHost.Instance.Run(action);
+        var err = await EngineHost.Instance.Run(action);
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
+        if (err is not null) await Info("Couldn't complete that", err);
     }
 }
