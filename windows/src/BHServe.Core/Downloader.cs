@@ -213,30 +213,99 @@ public static class Downloader
         return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
     }
 
-    private const string MariadbPinned = "12.3.2";   // latest MariaDB stable line (12.3)
+    // Pins are the OFFLINE FALLBACK only. Install/Update resolve the real latest from the
+    // vendors' own release APIs, so when MariaDB 13 / MySQL 9.8 ship, "Reinstall (update)"
+    // picks them up automatically — no code change needed. The pin is used only if the API
+    // is unreachable.
+    private const string MariadbPinned = "12.3.2";
 
-    /// <summary>Download MariaDB (portable winx64 zip) into bin\mariadb.</summary>
+    /// <summary>A short-timeout client for the tiny version-resolution API calls (the download
+    /// client has a 15-min timeout that's wrong for a quick JSON GET).</summary>
+    private static readonly HttpClient ApiHttp = new() { Timeout = TimeSpan.FromSeconds(12) };
+
+    private static async Task<string> ApiGet(string url)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", UA);
+        using var resp = await ApiHttp.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync();
+    }
+
+    private static Version Vparse(string s) => Version.TryParse(s, out var v) ? v : new Version(0, 0);
+
+    /// <summary>Latest MariaDB STABLE point release from the official release API; pin on failure.</summary>
+    private static async Task<string> LatestMariadb()
+    {
+        try
+        {
+            using var idx = JsonDocument.Parse(await ApiGet("https://downloads.mariadb.org/rest-api/mariadb/"));
+            string? major = null;
+            foreach (var mr in idx.RootElement.GetProperty("major_releases").EnumerateArray())
+                if (mr.GetProperty("release_status").GetString() == "Stable") { major = mr.GetProperty("release_id").GetString(); break; }
+            if (major is null) return MariadbPinned;
+            using var rel = JsonDocument.Parse(await ApiGet($"https://downloads.mariadb.org/rest-api/mariadb/{major}/"));
+            var latest = rel.RootElement.GetProperty("releases").EnumerateObject()
+                            .Select(p => p.Name).OrderByDescending(Vparse).FirstOrDefault();
+            return latest ?? MariadbPinned;
+        }
+        catch { return MariadbPinned; }
+    }
+
+    /// <summary>Latest MySQL GA point release (endoflife.date catalog); pin on failure.</summary>
+    private static async Task<string> LatestMysql()
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await ApiGet("https://endoflife.date/api/mysql.json"));
+            var latest = doc.RootElement.EnumerateArray()
+                .Select(c => c.TryGetProperty("latest", out var l) ? l.GetString() : null)
+                .Where(s => !string.IsNullOrEmpty(s))
+                .OrderByDescending(s => Vparse(s!)).FirstOrDefault();
+            return latest ?? MysqlPinned;
+        }
+        catch { return MysqlPinned; }
+    }
+
+    /// <summary>Download MariaDB (portable winx64 zip) into bin\mariadb — latest stable, pin fallback.
+    /// Only the bin\mariadb binaries are replaced; the data dir (data-mariadb) is left untouched, so
+    /// existing databases survive an update.</summary>
     public static async Task<string> InstallMariadb()
     {
-        var url = $"https://archive.mariadb.org/mariadb-{MariadbPinned}/winx64-packages/mariadb-{MariadbPinned}-winx64.zip";
-        var zip = await DownloadToTmp(url, "mariadb.zip");
+        var ver = await LatestMariadb();
+        try { return DoInstallMariadb(ver); }
+        catch when (ver != MariadbPinned) { return DoInstallMariadb(MariadbPinned); }   // bad/missing winx64 zip → known-good pin
+    }
+
+    private static string DoInstallMariadb(string ver)
+    {
+        var url = $"https://archive.mariadb.org/mariadb-{ver}/winx64-packages/mariadb-{ver}-winx64.zip";
+        var zip = DownloadToTmp(url, "mariadb.zip").GetAwaiter().GetResult();
         var dir = Path.Combine(Paths.Bin, "mariadb");
-        if (Directory.Exists(dir)) Directory.Delete(dir, true);
-        ExtractZip(zip, dir);   // → bin\mariadb\mariadb-12.3.2-winx64\bin\mysqld.exe
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);   // binaries only — data-mariadb is a separate dir
+        ExtractZip(zip, dir);
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 
-    /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql.</summary>
+    /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql — latest GA, pin fallback.
+    /// Replaces only the bin\mysql binaries; the data dir is untouched so databases survive.</summary>
     public static async Task<string> InstallDb()
     {
-        // dev.mysql.com/get/ 302-redirects to the CDN; HttpClient follows it. The series subdir
-        // (MySQL-9.7) is derived from the pinned version so a bump only needs MysqlPinned changed.
-        var series = string.Join('.', MysqlPinned.Split('.').Take(2));
-        var url = $"https://dev.mysql.com/get/Downloads/MySQL-{series}/mysql-{MysqlPinned}-winx64.zip";
-        var zip = await DownloadToTmp(url, "mysql.zip");
+        var ver = await LatestMysql();
+        try { return DoInstallDb(ver); }
+        catch when (ver != MysqlPinned) { return DoInstallDb(MysqlPinned); }
+    }
+
+    private static string DoInstallDb(string ver)
+    {
+        // dev.mysql.com/get/ 302-redirects to the CDN; curl follows it. Series subdir (MySQL-9.7)
+        // is derived from the version.
+        var series = string.Join('.', ver.Split('.').Take(2));
+        var url = $"https://dev.mysql.com/get/Downloads/MySQL-{series}/mysql-{ver}-winx64.zip";
+        var zip = DownloadToTmp(url, "mysql.zip").GetAwaiter().GetResult();
         var dir = Path.Combine(Paths.Bin, "mysql");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
-        ExtractZip(zip, dir);   // → bin\mysql\mysql-9.7.1-winx64\bin\mysqld.exe
+        ExtractZip(zip, dir);
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 

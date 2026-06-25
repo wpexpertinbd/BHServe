@@ -71,7 +71,7 @@ public sealed class Engine
                 "mkcert"     => Get("mkcert",    cfg, () => Downloader.InstallMkcert()),
                 "mailpit"    => Get("mailpit",   cfg, () => Downloader.InstallMailpit()),
                 "fnm" or "node" => Get("fnm",    cfg, () => Downloader.InstallFnm()),
-                "cloudflared" => Tools.CloudflaredExe() is not null ? Done("cloudflared") : Run("cloudflared", () => Downloader.InstallCloudflared()),
+                "cloudflared" => !_force && Tools.CloudflaredExe() is not null ? Done("cloudflared") : Run("cloudflared", () => Downloader.InstallCloudflared()),
                 _ when tool.StartsWith("php") => InstallPhp(tool, cfg),
                 _ => throw new BhException($"unknown tool: {tool}"),
             };
@@ -81,10 +81,13 @@ public sealed class Engine
         catch (Exception ex) { No($"install {tool} failed: {ex.Message}"); }
     }
 
+    // Set during Update so the "already installed" guards are bypassed and the latest is re-fetched.
+    private bool _force;
+
     private string? Get(string key, Config cfg, Func<Task<string>> install)
     {
-        if (Services.Installed(key, cfg)) { Ok($"{key} already installed"); return null; }
-        Hdr($"Installing {key}");
+        if (!_force && Services.Installed(key, cfg)) { Ok($"{key} already installed"); return null; }
+        Hdr($"{(_force ? "Updating" : "Installing")} {key}");
         return install().GetAwaiter().GetResult();
     }
 
@@ -93,7 +96,7 @@ public sealed class Engine
 
     private string? GetApache(Config cfg)
     {
-        if (Services.Installed("apache", cfg)) { Ok("apache already installed"); return null; }
+        if (!_force && Services.Installed("apache", cfg)) { Ok("apache already installed"); return null; }
         Hdr("Installing Apache (Apache Lounge build)");
         try { return Downloader.InstallApache().GetAwaiter().GetResult(); }
         catch (Exception ex)
@@ -108,12 +111,24 @@ public sealed class Engine
     {
         var verArg = tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..];
         var ver = Services.PhpVersion(Services.PhpKey(verArg, cfg), cfg);
-        if (Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return null; }
+        if (!_force && Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return null; }
         Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
         return Downloader.InstallPhp(ver).GetAwaiter().GetResult();
     }
 
-    public void Update(string tool) { Uninstall(tool); Install(tool); }
+    /// <summary>Re-fetch the LATEST build of a tool, replacing the binaries in place. Stops the
+    /// service first (to release file locks) but never touches the data dir or config — so a DB
+    /// engine update keeps every existing database. _force makes Install skip its "already
+    /// installed" guards and pull the current latest (e.g. MariaDB 12 → 13 when it ships).</summary>
+    public void Update(string tool)
+    {
+        NeedInit();
+        if (string.IsNullOrEmpty(tool)) throw new BhException("usage: bhserve update <tool>");
+        try { Stop(tool); } catch { }
+        System.Threading.Thread.Sleep(500);   // let the process release its file locks
+        _force = true;
+        try { Install(tool); } finally { _force = false; }
+    }
 
     public void Uninstall(string tool)
     {
