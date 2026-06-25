@@ -41,15 +41,39 @@ public static class Downloader
         if (p.ExitCode != 0) throw new InvalidOperationException($"{Path.GetFileName(exe)} failed ({p.ExitCode}): {err.Trim()}");
     }
 
-    /// <summary>Download a file to <paramref name="dest"/> via the signed system curl.exe.</summary>
+    /// <summary>Live download progress (0–100), set by the host during a tracked install.</summary>
+    public static Action<double>? OnProgress;
+
+    /// <summary>Download a file to <paramref name="dest"/> via the signed system curl.exe, reporting
+    /// live progress (curl's --progress-bar on stderr is parsed for the percentage).</summary>
     private static Task CurlTo(string url, string dest)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        // -s --show-error: no progress meter (it floods callers); --retry + --speed-limit/--speed-time:
-        // abort a STALLED transfer (< 2 KB/s for 20s) and retry — wordpress.org's CDN tail-stalls.
-        Shell(CurlExe, "-fL", "-s", "--show-error", "--retry", "5", "--retry-delay", "2",
-                       "--speed-limit", "2048", "--speed-time", "20", "--connect-timeout", "30",
-                       "-A", UA, "-o", dest, url);
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = CurlExe, UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
+        };
+        // --progress-bar (instead of -s) gives a parseable "####  45.2%" on stderr.
+        foreach (var a in new[] { "-fL", "--progress-bar", "--show-error", "--retry", "5", "--retry-delay", "2",
+                                  "--speed-limit", "2048", "--speed-time", "20", "--connect-timeout", "30",
+                                  "-A", UA, "-o", dest, url })
+            psi.ArgumentList.Add(a);
+
+        var p = System.Diagnostics.Process.Start(psi)!;
+        var tail = new System.Text.StringBuilder();
+        var buf = new char[256];
+        int n;
+        while ((n = p.StandardError.Read(buf, 0, buf.Length)) > 0)
+        {
+            tail.Append(buf, 0, n);
+            if (tail.Length > 4000) tail.Remove(0, tail.Length - 1000);   // keep the tail only
+            var m = System.Text.RegularExpressions.Regex.Matches(tail.ToString(), @"(\d+(?:\.\d+)?)%");
+            if (m.Count > 0 && double.TryParse(m[^1].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out var pct))
+                OnProgress?.Invoke(pct);
+        }
+        p.WaitForExit();
+        if (p.ExitCode != 0)
+            throw new InvalidOperationException($"curl failed ({p.ExitCode}): {tail.ToString().Trim()}");
         if (!File.Exists(dest) || new FileInfo(dest).Length == 0)
             throw new InvalidOperationException($"download produced no file: {url}");
         return Task.CompletedTask;

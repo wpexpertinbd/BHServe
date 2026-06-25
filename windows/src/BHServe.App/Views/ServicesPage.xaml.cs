@@ -58,7 +58,31 @@ public sealed partial class ServicesPage : Page
 
     public ServicesPage() => InitializeComponent();
 
-    protected override void OnNavigatedTo(NavigationEventArgs e) => Refresh();
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        EngineHost.Instance.OpChanged += OnOpChanged;
+        RenderOp();   // re-attach to an install that's still running from before we navigated away
+        Refresh();
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e) => EngineHost.Instance.OpChanged -= OnOpChanged;
+
+    private void OnOpChanged() => DispatcherQueue.TryEnqueue(() => { RenderOp(); if (EngineHost.Instance.CurrentOp is { Running: false }) Refresh(); });
+
+    private void RenderOp()
+    {
+        var op = EngineHost.Instance.CurrentOp;
+        if (op is null) { OpBanner.Visibility = Visibility.Collapsed; return; }
+        OpBanner.Visibility = Visibility.Visible;
+        OpName.Text = op.Name;
+        OpMsg.Text = op.Message;
+        OpBar.IsIndeterminate = op.Running && op.Progress < 0;
+        OpBar.Value = op.Progress < 0 ? 0 : op.Progress;
+        OpPct.Text = op.Running && op.Progress >= 0 ? $"{op.Progress:0}%" : op.Running ? "working…" : op.Success ? "done" : "failed";
+        OpDismiss.Visibility = op.Running ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OpDismiss_Click(object sender, RoutedEventArgs e) { EngineHost.Instance.DismissOp(); RenderOp(); }
 
     private async void Refresh()
     {
@@ -95,16 +119,16 @@ public sealed partial class ServicesPage : Page
     }
 
     private async void Install_Click(object sender, RoutedEventArgs e)
-    { if ((sender as Button)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Install(InstallToken(key))); }
+    { if ((sender as Button)?.Tag is string key) await Track($"Installing {key}", () => EngineHost.Instance.Engine.Install(InstallToken(key))); }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
-    { if ((sender as Button)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Start(key)); }
+    { if ((sender as Button)?.Tag is string key) await Track($"Starting {key}", () => EngineHost.Instance.Engine.Start(key)); }
 
     private async void Stop_Click(object sender, RoutedEventArgs e)
-    { if ((sender as FrameworkElement)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Stop(key)); }
+    { if ((sender as FrameworkElement)?.Tag is string key) await Track($"Stopping {key}", () => EngineHost.Instance.Engine.Stop(key)); }
 
     private async void Update_Click(object sender, RoutedEventArgs e)
-    { if ((sender as FrameworkElement)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Update(InstallToken(key))); }
+    { if ((sender as FrameworkElement)?.Tag is string key) await Track($"Updating {key}", () => EngineHost.Instance.Engine.Update(InstallToken(key))); }
 
     private async void Uninstall_Click(object sender, RoutedEventArgs e)
     {
@@ -116,7 +140,13 @@ public sealed partial class ServicesPage : Page
             DefaultButton = ContentDialogButton.Close, XamlRoot = this.XamlRoot,
         };
         if (await dlg.ShowAsync() == ContentDialogResult.Primary)
-            await Op(() => EngineHost.Instance.Engine.Uninstall(key));
+            await Track($"Uninstalling {key}", () => EngineHost.Instance.Engine.Uninstall(key));
+    }
+
+    private async System.Threading.Tasks.Task Track(string name, Action action)
+    {
+        await EngineHost.Instance.RunTracked(name, action);
+        Refresh();
     }
 
     private void EditIni_Click(object sender, RoutedEventArgs e)
