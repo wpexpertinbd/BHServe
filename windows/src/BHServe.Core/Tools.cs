@@ -48,6 +48,7 @@ public static class Tools
     // MySQL → bin\mysql, MariaDB → bin\mariadb. MysqldExe prefers MariaDB if both are present
     // (only one DB runs on :3306 at a time; each engine keeps its own data dir).
     public static string? MysqldExe()      => Find("mariadb", "mysqld.exe") ?? Find("mysql", "mysqld.exe");
+    public static string? MysqldExe(string engine) => engine == "mariadb" ? Find("mariadb", "mysqld.exe") : Find("mysql", "mysqld.exe");
     public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
     public static bool MysqlInstalled   => Find("mysql", "mysqld.exe") is not null;
     public static bool MariadbInstalled => Find("mariadb", "mysqld.exe") is not null;
