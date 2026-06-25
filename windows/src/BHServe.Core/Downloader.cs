@@ -10,8 +10,9 @@ namespace BHServe.Core;
 /// </summary>
 public static class Downloader
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(10) };
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(15) };
     private const string NginxPinned = "1.27.4";
+    private const string MysqlPinned = "8.4.3";        // Oracle MySQL portable zip (keeps --initialize-insecure)
 
     private static async Task<string> DownloadToTmp(string url, string fileName)
     {
@@ -104,14 +105,25 @@ public static class Downloader
 
     private static async Task<string> GithubAsset(string repo, Func<string, bool> match)
     {
-        var rel = await Http.GetStringAsync($"https://api.github.com/repos/{repo}/releases/latest");
-        using var doc = JsonDocument.Parse(rel);
-        foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
-        {
-            var name = a.GetProperty("name").GetString() ?? "";
-            if (match(name)) return a.GetProperty("browser_download_url").GetString()!;
-        }
-        throw new InvalidOperationException($"no matching asset in {repo} latest release");
+        // /releases/latest 404s when every release is marked pre-release (e.g. nono303/memcached),
+        // so fall back to the full releases list and scan newest-first.
+        string json;
+        try { json = await Http.GetStringAsync($"https://api.github.com/repos/{repo}/releases/latest"); }
+        catch (HttpRequestException) { json = "[]"; }
+
+        using (var doc = JsonDocument.Parse(json))
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("assets", out var a1))
+                foreach (var a in a1.EnumerateArray())
+                    if (match(a.GetProperty("name").GetString() ?? "")) return a.GetProperty("browser_download_url").GetString()!;
+
+        var list = await Http.GetStringAsync($"https://api.github.com/repos/{repo}/releases?per_page=20");
+        using var doc2 = JsonDocument.Parse(list);
+        foreach (var rel in doc2.RootElement.EnumerateArray())
+            if (rel.TryGetProperty("assets", out var a2))
+                foreach (var a in a2.EnumerateArray())
+                    if (match(a.GetProperty("name").GetString() ?? "")) return a.GetProperty("browser_download_url").GetString()!;
+
+        throw new InvalidOperationException($"no matching asset in {repo} releases");
     }
 
     public static async Task<string> InstallMailpit()
@@ -123,6 +135,57 @@ public static class Downloader
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);
         return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
+    }
+
+    /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql.</summary>
+    public static async Task<string> InstallDb()
+    {
+        // dev.mysql.com/get/ 302-redirects to the CDN; HttpClient follows it.
+        var url = $"https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-{MysqlPinned}-winx64.zip";
+        var zip = await DownloadToTmp(url, "mysql.zip");
+        var dir = Path.Combine(Paths.Bin, "mysql");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);   // → bin\mysql\mysql-8.4.3-winx64\bin\mysqld.exe
+        return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
+    }
+
+    /// <summary>Download Apache (Apache Lounge build) into bin\apache.</summary>
+    public static async Task<string> InstallApache()
+    {
+        // Apache Lounge is the de-facto Windows httpd source. URLs carry a build date, so we
+        // pin a known-good one; if it 404s, the caller surfaces a manual-install hint.
+        const string url = "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.62-240904-win64-VS17.zip";
+        var zip = await DownloadToTmp(url, "httpd.zip");
+        var dir = Path.Combine(Paths.Bin, "apache");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);   // → bin\apache\Apache24\bin\httpd.exe
+        return Tools.HttpdExe() ?? throw new InvalidOperationException("httpd.exe not found after extract");
+    }
+
+    public static async Task<string> InstallRedis()
+    {
+        // tporadowski/redis ships Redis-x64-<ver>.zip (redis-server.exe inside)
+        var url = await GithubAsset("tporadowski/redis",
+            n => n.StartsWith("Redis-x64", StringComparison.OrdinalIgnoreCase) && n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        var zip = await DownloadToTmp(url, "redis.zip");
+        var dir = Path.Combine(Paths.Bin, "redis");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);
+        return Tools.RedisServerExe() ?? throw new InvalidOperationException("redis-server.exe not found after extract");
+    }
+
+    public static async Task<string> InstallMemcached()
+    {
+        // jefyt/memcached-windows ships memcached-<ver>-win64-mingw.zip (memcached.exe + mingw deps,
+        // no cygwin). Skip the sibling libevent/libressl zips in the same release.
+        var url = await GithubAsset("jefyt/memcached-windows",
+            n => n.StartsWith("memcached", StringComparison.OrdinalIgnoreCase)
+              && n.Contains("win64") && n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        var zip = await DownloadToTmp(url, "memcached.zip");
+        var dir = Path.Combine(Paths.Bin, "memcached");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);
+        return Tools.MemcachedExe() ?? throw new InvalidOperationException("memcached.exe not found after extract");
     }
 
     public static async Task<string> InstallCloudflared()

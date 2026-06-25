@@ -46,35 +46,69 @@ public sealed class Engine
     public void Install(string tool)
     {
         NeedInit();
-        if (string.IsNullOrEmpty(tool)) throw new BhException("usage: bhserve install <nginx|php@8.4|mkcert>");
+        if (string.IsNullOrEmpty(tool))
+            throw new BhException("usage: bhserve install <all|nginx|apache|php@8.4|mariadb|redis|memcached|mkcert|mailpit|fnm|cloudflared>");
         var cfg = Config.Load();
+
+        if (tool == "all")
+        {
+            // The core stack — everything BHServe needs to serve a PHP site, self-contained.
+            foreach (var t in new[] { "nginx", $"php@{cfg.DefaultPhp}", "mariadb", "mkcert" }) Install(t);
+            return;
+        }
+
         try
         {
-            if (tool == "nginx")
+            string? exe = tool switch
             {
-                if (Services.Installed("nginx", cfg)) { Ok("nginx already installed"); return; }
-                Hdr("Installing nginx (portable zip from nginx.org)");
-                var exe = Downloader.InstallNginx().GetAwaiter().GetResult();
-                Ok($"nginx installed: {exe}");
-            }
-            else if (tool == "mkcert")
-            {
-                if (Services.Installed("mkcert", cfg)) { Ok("mkcert already installed"); return; }
-                Hdr("Installing mkcert (GitHub release)");
-                Ok($"mkcert installed: {Downloader.InstallMkcert().GetAwaiter().GetResult()}");
-            }
-            else if (tool.StartsWith("php"))
-            {
-                var verArg = tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..];
-                var ver = Services.PhpVersion(Services.PhpKey(verArg, cfg), cfg);
-                if (Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return; }
-                Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
-                Ok($"php {ver} installed: {Downloader.InstallPhp(ver).GetAwaiter().GetResult()}");
-            }
-            else throw new BhException($"unknown tool: {tool}");
+                "nginx"      => Get("nginx",   cfg, () => Downloader.InstallNginx()),
+                "apache" or "httpd" => GetApache(cfg),
+                "mariadb" or "mysql" => Get("mariadb", cfg, () => Downloader.InstallDb()),
+                "redis"      => Get("redis",     cfg, () => Downloader.InstallRedis()),
+                "memcached"  => Get("memcached", cfg, () => Downloader.InstallMemcached()),
+                "mkcert"     => Get("mkcert",    cfg, () => Downloader.InstallMkcert()),
+                "mailpit"    => Get("mailpit",   cfg, () => Downloader.InstallMailpit()),
+                "fnm" or "node" => Get("fnm",    cfg, () => Downloader.InstallFnm()),
+                "cloudflared" => Tools.CloudflaredExe() is not null ? Done("cloudflared") : Run("cloudflared", () => Downloader.InstallCloudflared()),
+                _ when tool.StartsWith("php") => InstallPhp(tool, cfg),
+                _ => throw new BhException($"unknown tool: {tool}"),
+            };
+            if (exe is not null) Ok($"{tool} installed: {exe}");
         }
         catch (BhException) { throw; }
         catch (Exception ex) { No($"install {tool} failed: {ex.Message}"); }
+    }
+
+    private string? Get(string key, Config cfg, Func<Task<string>> install)
+    {
+        if (Services.Installed(key, cfg)) { Ok($"{key} already installed"); return null; }
+        Hdr($"Installing {key}");
+        return install().GetAwaiter().GetResult();
+    }
+
+    private string? Done(string key) { Ok($"{key} already installed"); return null; }
+    private string? Run(string key, Func<Task<string>> install) { Hdr($"Installing {key}"); return install().GetAwaiter().GetResult(); }
+
+    private string? GetApache(Config cfg)
+    {
+        if (Services.Installed("apache", cfg)) { Ok("apache already installed"); return null; }
+        Hdr("Installing Apache (Apache Lounge build)");
+        try { return Downloader.InstallApache().GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            throw new BhException(
+                $"Apache download failed ({ex.Message}). Apache Lounge URLs change per build — " +
+                $"grab httpd-2.4.x-win64-VS17.zip from apachelounge.com and extract into {Path.Combine(Paths.Bin, "apache")}.");
+        }
+    }
+
+    private string? InstallPhp(string tool, Config cfg)
+    {
+        var verArg = tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..];
+        var ver = Services.PhpVersion(Services.PhpKey(verArg, cfg), cfg);
+        if (Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return null; }
+        Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
+        return Downloader.InstallPhp(ver).GetAwaiter().GetResult();
     }
 
     public void Update(string tool)    => throw new BhException("update: not yet on Windows (reinstall the tool for now)");
@@ -95,6 +129,8 @@ public sealed class Engine
             {
                 var (dok, dmsg) = DbServer.Start(); if (dok) Ok(dmsg); else Warn(dmsg);
             }
+            if (Services.Enabled("redis", cfg) && Tools.RedisServerExe() is not null && Redis.Start()) Ok($"redis on :{Redis.Port}");
+            if (Services.Enabled("memcached", cfg) && Tools.MemcachedExe() is not null && Memcached.Start()) Ok($"memcached on :{Memcached.Port}");
             if (AnyApacheSite()) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
             var (ok, msg) = Nginx.Start(cfg);
             if (ok) Ok(msg); else No(msg);
@@ -102,6 +138,9 @@ public sealed class Engine
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "mariadb") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else No("redis not installed — bhserve install redis"); return; }
+        if (svc == "memcached") { if (Memcached.Start()) Ok($"memcached on :{Memcached.Port}"); else No("memcached not installed — bhserve install memcached"); return; }
         if (svc == "mailpit") { if (MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort} / SMTP :{MailpitServer.SmtpPort}"); else No("mailpit not installed — bhserve mailpit"); return; }
         if (svc.StartsWith("php"))
         {
@@ -121,12 +160,17 @@ public sealed class Engine
             Nginx.Stop(); Ok("nginx stopped");
             foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
             if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
+            if (Redis.Running()) { Redis.Stop(); Ok("redis stopped"); }
+            if (Memcached.Running()) { Memcached.Stop(); Ok("memcached stopped"); }
             if (MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
             if (Apache.Running()) { Apache.Stop(); Ok("apache stopped"); }
             return;
         }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
         if (svc == "mariadb") { DbServer.Stop(); Ok("database stopped"); return; }
+        if (svc == "apache")  { Apache.Stop(); Ok("apache stopped"); return; }
+        if (svc == "redis")     { Redis.Stop(); Ok("redis stopped"); return; }
+        if (svc == "memcached") { Memcached.Stop(); Ok("memcached stopped"); return; }
         if (svc == "mailpit") { MailpitServer.Stop(); Ok("mailpit stopped"); return; }
         if (svc.StartsWith("php")) { var v = PhpVersionOf(svc, cfg); PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); return; }
         throw new BhException($"don't know how to stop '{svc}'");
@@ -308,10 +352,11 @@ public sealed class Engine
             var installed = Services.Installed(s.Key, cfg);
             var running = s.Role switch
             {
-                ServiceRole.Web => s.Key == "nginx" && Nginx.Running(),
+                ServiceRole.Web => (s.Key == "nginx" && Nginx.Running()) || (s.Key == "apache" && Apache.Running()),
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
-                ServiceRole.Db   => s.Key == "mariadb" && DbServer.Running(),
-                ServiceRole.Mail => s.Key == "mailpit" && MailpitServer.Running(),
+                ServiceRole.Db    => s.Key == "mariadb" && DbServer.Running(),
+                ServiceRole.Mail  => s.Key == "mailpit" && MailpitServer.Running(),
+                ServiceRole.Cache => (s.Key == "redis" && Redis.Running()) || (s.Key == "memcached" && Memcached.Running()),
                 _ => false,
             };
             return new Service(s.Key, s.Role, installed, running, "", Services.Enabled(s.Key, cfg));

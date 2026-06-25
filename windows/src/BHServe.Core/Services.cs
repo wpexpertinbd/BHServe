@@ -18,11 +18,14 @@ public static class Services
     {
         var list = new List<ServiceDef> { new("php", ServiceRole.Php) };
         foreach (var v in PhpVersions) list.Add(new($"php@{v}", ServiceRole.Php));
-        list.Add(new("nginx",    ServiceRole.Web));
-        list.Add(new("mariadb",  ServiceRole.Db));
-        list.Add(new("mkcert",   ServiceRole.Tool));
-        list.Add(new("mailpit",  ServiceRole.Mail));
-        list.Add(new("fnm",      ServiceRole.Node));
+        list.Add(new("nginx",     ServiceRole.Web));
+        list.Add(new("apache",    ServiceRole.Web));
+        list.Add(new("mariadb",   ServiceRole.Db));
+        list.Add(new("redis",     ServiceRole.Cache));
+        list.Add(new("memcached", ServiceRole.Cache));
+        list.Add(new("mkcert",    ServiceRole.Tool));
+        list.Add(new("mailpit",   ServiceRole.Mail));
+        list.Add(new("fnm",       ServiceRole.Node));
         return list;
     }
 
@@ -45,14 +48,17 @@ public static class Services
     public static string PhpVersion(string key, Config cfg) =>
         key == "php" ? cfg.DefaultPhp : key["php@".Length..];
 
-    public static bool Installed(string key, Config cfg) => RoleOf(key) switch
+    public static bool Installed(string key, Config cfg) => key switch
     {
-        ServiceRole.Php  => Tools.PhpCgiExe(PhpVersion(key, cfg)) is not null,
-        ServiceRole.Web  => key == "nginx" && Tools.NginxExe() is not null,
-        ServiceRole.Db   => Tools.MysqldExe() is not null,
-        ServiceRole.Tool => key == "mkcert" && Tools.MkcertExe() is not null,
-        ServiceRole.Mail => key == "mailpit" && Tools.MailpitExe() is not null,
-        ServiceRole.Node => key == "fnm" && Tools.FnmExe() is not null,
+        "nginx"     => Tools.NginxExe() is not null,
+        "apache"    => Tools.HttpdExe() is not null,
+        "mariadb"   => Tools.MysqldExe() is not null,
+        "redis"     => Tools.RedisServerExe() is not null,
+        "memcached" => Tools.MemcachedExe() is not null,
+        "mkcert"    => Tools.MkcertExe() is not null,
+        "mailpit"   => Tools.MailpitExe() is not null,
+        "fnm"       => Tools.FnmExe() is not null,
+        _ when RoleOf(key) == ServiceRole.Php => Tools.PhpCgiExe(PhpVersion(key, cfg)) is not null,
         _ => false,
     };
 
