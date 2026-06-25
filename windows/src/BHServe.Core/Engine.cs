@@ -259,10 +259,18 @@ public sealed class Engine
     private void Provision(string name, string type, string root)
     {
         if (type is not ("php" or "wordpress")) return;
+        // This site type needs a database. Make sure the server is installed + running,
+        // installing it on demand (a fresh BHServe has no services yet).
+        if (Tools.MysqldExe() is null)
+        {
+            Hdr("Installing MySQL (required for this site type)");
+            try { Downloader.InstallDb().GetAwaiter().GetResult(); }
+            catch (Exception ex) { Warn("MySQL install failed: " + ex.Message); }
+        }
         if (!DbServer.Running())
         {
-            var (ok, _) = DbServer.Start();
-            if (!ok) { Warn("no database server — install/start MySQL, then create the DB yourself"); return; }
+            var (ok, msg) = DbServer.Start();
+            if (!ok) { Warn($"database server unavailable ({msg}) — install/start MySQL from the Services page, then create the DB"); return; }
         }
         var db = Regex.Replace(name, "[^A-Za-z0-9_]", "_");
         try { Database.Create(db); Ok($"database '{db}' ready  (root · no password · localhost)"); }

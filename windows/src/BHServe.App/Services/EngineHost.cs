@@ -31,11 +31,26 @@ public sealed class EngineHost
 
     public string LogText { get { lock (_log) return _log.ToString(); } }
 
-    /// <summary>Run a blocking engine action on a background thread; errors are logged, not thrown.</summary>
-    public Task Run(Action action) => Task.Run(() =>
+    /// <summary>Run a blocking engine action on a background thread. Returns the error message
+    /// if it threw (also logged), else null — so callers can surface it in the UI.</summary>
+    public Task<string?> Run(Action action) => Task.Run(() =>
     {
+        try { action(); return (string?)null; }
+        catch (Exception ex) { Append($"  ✗ {ex.Message}"); return ex.Message; }
+    });
+
+    /// <summary>Run an action and capture everything the engine printed during it (the same
+    /// Ok/Warn/Err lines the CLI shows), so the GUI can display the full result.</summary>
+    public Task<(bool ok, string output)> RunCaptured(Action action) => Task.Run(() =>
+    {
+        var sb = new System.Text.StringBuilder();
+        void Cap(string l) => sb.AppendLine(l);
+        LogAppended += Cap;
+        var ok = true;
         try { action(); }
-        catch (Exception ex) { Append($"  ✗ {ex.Message}"); }
+        catch (Exception ex) { Append($"  ✗ {ex.Message}"); ok = false; }
+        finally { LogAppended -= Cap; }
+        return (ok, sb.ToString().Trim());
     });
 
     public Task<Snapshot> Snapshot() => Task.Run(() => Engine.Api());
