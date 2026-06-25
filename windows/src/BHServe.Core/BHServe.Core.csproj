@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure .NET (no -windows TFM) so it stays portable and the CLI is lean.
+       Windows-only bits (registry, cert store) go behind small interfaces later. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>BHServe.Core</RootNamespace>
+    <AssemblyName>BHServe.Core</AssemblyName>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="BHServe.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    Title="BHServe">
+
+    <Grid>
+        <muxc:NavigationView x:Name="Nav"
+                             PaneDisplayMode="Left"
+                             IsBackButtonVisible="Collapsed"
+                             IsSettingsVisible="True"
+                             SelectionChanged="Nav_SelectionChanged">
+            <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home"/>
+                <muxc:NavigationViewItem Content="Services"  Tag="services"  Icon="AllApps"/>
+                <muxc:NavigationViewItem Content="Sites"     Tag="sites"     Icon="World"/>
+                <muxc:NavigationViewItem Content="Databases" Tag="databases" Icon="Library"/>
+                <muxc:NavigationViewItem Content="Node"      Tag="node"      Icon="Repair"/>
+                <muxc:NavigationViewItem Content="Logs"      Tag="logs"      Icon="Document"/>
+            </muxc:NavigationView.MenuItems>
+
+            <!-- Each tag maps to a Page (TODO). For now a single placeholder frame. -->
+            <Grid Padding="24">
+                <StackPanel x:Name="Placeholder" Spacing="8">
+                    <TextBlock Text="BHServe for Windows" FontSize="24" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="SectionLabel" Text="Dashboard"
+                               Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <TextBlock Text="Scaffold ready. Wire each section to BHServe.Core (see docs/WINDOWS-PORT.md)."
+                               TextWrapping="Wrap" Margin="0,12,0,0"/>
+                </StackPanel>
+            </Grid>
+        </muxc:NavigationView>
+    </Grid>
+</Window>

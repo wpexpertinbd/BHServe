@@ -1,0 +1,10 @@
+# .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+publish/
+installer/dist/
+[Dd]ebug/
+[Rr]elease/
+*.binlog
