@@ -284,11 +284,45 @@ public sealed class Engine
         }
     }
 
-    public void SiteRemove(string name)
+    /// <summary>Resolve where a site's files live and its database name (for the GUI's delete prompt).
+    /// Root comes from the vhost if present, else the default sites-root/name.</summary>
+    public (string root, string db) SiteTargets(string name)
+    {
+        var cfg = Config.Load();
+        string? root = null;
+        foreach (var c in new[] { Path.Combine(Paths.NginxSites, $"{name}.conf"), Path.Combine(Paths.NginxSites, $"{name}.conf.disabled") })
+            if (File.Exists(c)) { try { root = ParseVhost(c).root; } catch { } if (!string.IsNullOrEmpty(root)) break; }
+        if (string.IsNullOrEmpty(root)) root = Path.Combine(cfg.SitesRoot, name);
+        return (Path.GetFullPath(root), Regex.Replace(name, "[^A-Za-z0-9_]", "_"));
+    }
+
+    /// <summary>Guard against deleting anything but a real per-site folder (never a drive root, the
+    /// data dir, the sites-root itself, the user profile, Windows, or Program Files).</summary>
+    private static bool SafeToDelete(string dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return false;
+        var full = Path.GetFullPath(dir).TrimEnd('\\', '/');
+        if (full.Length < 8) return false;
+        if (string.Equals(full, Path.GetPathRoot(full)?.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)) return false;
+        var cfg = Config.Load();
+        foreach (var bad in new[] { Paths.Home, cfg.SitesRoot,
+                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                     Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) })
+            if (!string.IsNullOrEmpty(bad) &&
+                string.Equals(full, Path.GetFullPath(bad).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                return false;
+        return true;
+    }
+
+    public void SiteRemove(string name, bool purgeFiles = false, bool dropDb = false)
     {
         NeedInit();
         if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$")) throw new BhException($"invalid site name '{name}'");
         var cfg = Config.Load();
+        var (root, db) = SiteTargets(name);   // resolve BEFORE we delete the vhost
+
         foreach (var f in new[] { $"{name}.conf", $"{name}.conf.disabled" })
             try { File.Delete(Path.Combine(Paths.NginxSites, f)); } catch { }
         Apache.RemoveVhost(name);
@@ -297,7 +331,24 @@ public sealed class Engine
         if (!Hosts.Remove(rmDomain) && Hosts.Has(rmDomain)) Elevation.Run("hosts-remove", rmDomain);
         if (Nginx.Running()) Nginx.Reload(cfg);
         Apache.Reload();
-        Info("(site files left on disk; remove manually if desired)");
+
+        if (dropDb)
+        {
+            try
+            {
+                if (DbServer.Running() && Database.List().Contains(db)) { Database.Drop(db); Ok($"dropped database '{db}'"); }
+                else Info($"database '{db}' not present — nothing to drop");
+            }
+            catch (Exception ex) { Warn($"could not drop database '{db}': {ex.Message}"); }
+        }
+
+        if (purgeFiles)
+        {
+            if (!SafeToDelete(root)) Warn($"refused to delete an unsafe path: {root} (remove it manually)");
+            else if (!Directory.Exists(root)) Info($"no files to delete at {root}");
+            else { try { Directory.Delete(root, true); Ok($"deleted site files: {root}"); } catch (Exception ex) { Warn($"could not delete files: {ex.Message}"); } }
+        }
+        else Info("(site files left on disk; remove manually if desired)");
     }
 
     public void SitePhp(string name, string version)
