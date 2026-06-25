@@ -181,17 +181,19 @@ public sealed class Engine
             if (ok) Ok(msg); else No(msg);
             return;
         }
-        if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
-        if (svc is "mariadb" or "mysql") { var (ok, msg) = DbServer.Start(svc); if (ok) Ok(msg); else No(msg); return; }
-        if (svc is "postgresql" or "postgres") { var (ok, msg) = PgServer.Start(); if (ok) Ok(msg); else No(msg); return; }
-        if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else No(msg); return; }
-        if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else No("redis not installed — bhserve install redis"); return; }
-        if (svc == "memcached") { if (Memcached.Start()) Ok($"memcached on :{Memcached.Port}"); else No("memcached not installed — bhserve install memcached"); return; }
-        if (svc == "mailpit") { if (MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort} / SMTP :{MailpitServer.SmtpPort}"); else No("mailpit not installed — bhserve mailpit"); return; }
+        // Single-service start: THROW on failure (don't just print) so the GUI/notice bar reflects
+        // the real result instead of a false "started", and the CLI exits non-zero.
+        if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else throw new BhException(msg); return; }
+        if (svc is "mariadb" or "mysql") { var (ok, msg) = DbServer.Start(svc); if (ok) Ok(msg); else throw new BhException(msg); return; }
+        if (svc is "postgresql" or "postgres") { var (ok, msg) = PgServer.Start(); if (ok) Ok(msg); else throw new BhException(msg); return; }
+        if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else throw new BhException(msg); return; }
+        if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else throw new BhException("redis not installed — bhserve install redis"); return; }
+        if (svc == "memcached") { if (Memcached.Start()) Ok($"memcached on :{Memcached.Port}"); else throw new BhException("memcached not installed — bhserve install memcached"); return; }
+        if (svc == "mailpit") { if (MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort} / SMTP :{MailpitServer.SmtpPort}"); else throw new BhException("mailpit not installed — bhserve mailpit"); return; }
         if (svc.StartsWith("php"))
         {
             var v = PhpVersionOf(svc, cfg);
-            if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}"); else No($"php {v} not installed");
+            if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}"); else throw new BhException($"php {v} not installed");
             return;
         }
         throw new BhException($"don't know how to start '{svc}'");
