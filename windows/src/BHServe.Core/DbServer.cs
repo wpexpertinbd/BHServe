@@ -65,19 +65,27 @@ public static class DbServer
         if (Directory.EnumerateFileSystemEntries(data).Any())
             return (false, $"data dir not empty and not initialized: {data}");
 
+        (int code, string output) res;
         if (engine == "mariadb")
         {
             var installer = Tools.MariadbInstallDbExe();
             if (installer is null) return (false, "mariadb-install-db not found");
-            RunWait(installer, $"--datadir=\"{data}\" --auth-root-authentication-method=normal");
+            // Windows mariadb-install-db.exe uses --datadir; no password arg = passwordless root.
+            // (The --auth-root-authentication-method flag is Linux-only and errors out here.)
+            res = RunWait(installer, $"--datadir=\"{data}\"");
         }
         else
         {
             var mysqld = Tools.MysqldExe("mysql");
             if (mysqld is null) return (false, "mysqld not found — install MySQL");
-            RunWait(mysqld, $"--initialize-insecure --datadir=\"{data}\" --console");
+            res = RunWait(mysqld, $"--initialize-insecure --datadir=\"{data}\" --console");
         }
-        if (!InitializedFor(engine)) return (false, $"{engine} initialize failed");
+        if (!InitializedFor(engine))
+        {
+            try { Directory.Delete(data, true); } catch { }   // leave no half-init dir to block a retry
+            var why = res.output.Trim();
+            return (false, $"{engine} initialize failed" + (why.Length > 0 ? $": {why[^Math.Min(why.Length, 300)..]}" : ""));
+        }
         return (true, $"initialized fresh {engine} data dir (root has no password)");
     }
 
