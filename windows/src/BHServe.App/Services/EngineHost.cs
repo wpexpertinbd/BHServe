@@ -31,12 +31,26 @@ public sealed class EngineHost
 
     public string LogText { get { lock (_log) return _log.ToString(); } }
 
+    /// <summary>Human-readable description of an exception, never blank (some exceptions have an
+    /// empty Message — fall back to the type name and include any inner exception).</summary>
+    private static string Describe(Exception ex)
+    {
+        // Persist the full stack trace so a terse dialog message is still diagnosable.
+        try { System.IO.File.WriteAllText(System.IO.Path.Combine(Paths.Logs, "last-error.log"), ex.ToString()); } catch { }
+        var msg = ex.Message;
+        if (string.IsNullOrWhiteSpace(msg)) msg = ex.GetType().Name;
+        else msg = $"{msg} ({ex.GetType().Name})";
+        if (ex.InnerException is { } inner)
+            msg += "\n↳ " + (string.IsNullOrWhiteSpace(inner.Message) ? inner.GetType().Name : inner.Message);
+        return msg;
+    }
+
     /// <summary>Run a blocking engine action on a background thread. Returns the error message
     /// if it threw (also logged), else null — so callers can surface it in the UI.</summary>
     public Task<string?> Run(Action action) => Task.Run(() =>
     {
         try { action(); return (string?)null; }
-        catch (Exception ex) { Append($"  ✗ {ex.Message}"); return ex.Message; }
+        catch (Exception ex) { var m = Describe(ex); Append($"  ✗ {m}"); return m; }
     });
 
     /// <summary>Run an action and capture everything the engine printed during it (the same
@@ -48,7 +62,7 @@ public sealed class EngineHost
         LogAppended += Cap;
         var ok = true;
         try { action(); }
-        catch (Exception ex) { Append($"  ✗ {ex.Message}"); ok = false; }
+        catch (Exception ex) { Append($"  ✗ {Describe(ex)}"); ok = false; }
         finally { LogAppended -= Cap; }
         return (ok, sb.ToString().Trim());
     });
