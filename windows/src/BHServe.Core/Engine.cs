@@ -167,7 +167,7 @@ public sealed class Engine
             return;
         }
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else No(msg); return; }
-        if (svc is "mariadb" or "mysql") { var (ok, msg) = DbServer.Start(); if (ok) Ok(msg); else No(msg); return; }
+        if (svc is "mariadb" or "mysql") { var (ok, msg) = DbServer.Start(svc); if (ok) Ok(msg); else No(msg); return; }
         if (svc is "postgresql" or "postgres") { var (ok, msg) = PgServer.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "apache")  { var (ok, msg) = Apache.Start(); if (ok) Ok(msg); else No(msg); return; }
         if (svc == "redis")     { if (Redis.Start()) Ok($"redis on :{Redis.Port}"); else No("redis not installed — bhserve install redis"); return; }
@@ -481,8 +481,8 @@ public sealed class Engine
                 ServiceRole.Php => PhpCgi.Running(Services.PhpVersion(s.Key, cfg)),
                 ServiceRole.Db    => s.Key switch
                 {
-                    "mysql"      => Tools.MysqlInstalled && !DbServer.ActiveIsMariadb && DbServer.Running(),
-                    "mariadb"    => Tools.MariadbInstalled && DbServer.ActiveIsMariadb && DbServer.Running(),
+                    "mysql"      => DbServer.ActiveEngine() == "mysql",
+                    "mariadb"    => DbServer.ActiveEngine() == "mariadb",
                     "postgresql" => PgServer.Running(),
                     _ => false,
                 },
