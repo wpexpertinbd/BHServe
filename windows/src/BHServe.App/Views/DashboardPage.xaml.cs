@@ -68,6 +68,17 @@ public sealed partial class DashboardPage : Page
 
         var up = rows.Count(r => r.Running);
         SubTitle.Text = $"{up} service(s) running · {snap.Sites.Count} site(s)";
+        UpdateMetrics();
+    }
+
+    private void UpdateMetrics()
+    {
+        var cpu = SystemMetrics.CpuPercent();
+        CpuText.Text = $"{cpu:0}%"; CpuBar.Value = cpu;
+        var (mu, mt, mp) = SystemMetrics.Memory();
+        MemText.Text = $"{mu:0.0} / {mt:0.0} GB"; MemBar.Value = mp;
+        var (du, dt, dp) = SystemMetrics.Disk();
+        DiskText.Text = $"{du:0} / {dt:0} GB"; DiskBar.Value = dp;
     }
 
     private async void StartAll_Click(object sender, RoutedEventArgs e)   => await Op(() => EngineHost.Instance.Engine.Start("all"));

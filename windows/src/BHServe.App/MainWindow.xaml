@@ -19,6 +19,7 @@
                 <muxc:NavigationViewItem Content="Databases" Tag="databases" Icon="Library"/>
                 <muxc:NavigationViewItem Content="Node"      Tag="node"      Icon="Repair"/>
                 <muxc:NavigationViewItem Content="Services"  Tag="services"  Icon="AllApps"/>
+                <muxc:NavigationViewItem Content="Logs"      Tag="logs"      Icon="Document"/>
             </muxc:NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame"/>

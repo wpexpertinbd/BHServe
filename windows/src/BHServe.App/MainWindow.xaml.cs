@@ -60,6 +60,7 @@ public sealed partial class MainWindow : Window
                 "databases" => typeof(DatabasesPage),
                 "node"      => typeof(NodePage),
                 "services"  => typeof(ServicesPage),
+                "logs"      => typeof(LogsPage),
                 _           => typeof(DashboardPage),
             });
     }
