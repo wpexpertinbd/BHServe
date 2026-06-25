@@ -1,13 +1,13 @@
-# BHServe (Windows) — build distributables.
+# BHServe (Windows) - build distributables.
 #
 #   .\build.ps1              # DEFAULT: small installer (just the dashboard + CLI). Services
-#                            # are downloaded on demand — and that's antivirus-safe because
+#                            # are downloaded on demand - and that's antivirus-safe because
 #                            # BHServe fetches/extracts via Windows' SIGNED curl.exe + tar.exe
 #                            # (so bhserve.exe is never the process that drops executables).
 #   .\build.ps1 -Bundle      # OPTIONAL offline variant: also ship the server binaries inside
 #                            # the installer (bigger download, no on-demand fetch).
 #
-# Signing is OPTIONAL — it only affects the SmartScreen "unknown publisher" prompt (users
+# Signing is OPTIONAL - it only affects the SmartScreen "unknown publisher" prompt (users
 # click "Run anyway"). No certificate purchase is needed. Pass -CertPath / -CertSubject only
 # if you happen to have one (e.g. a free SignPath.io OSS cert).
 param(
@@ -31,7 +31,7 @@ dotnet publish src/BHServe.App/BHServe.App.csproj -c $Configuration -r $Rid --se
 dotnet publish src/BHServe.Cli/BHServe.Cli.csproj -c $Configuration -r $Rid --self-contained true -o $publish
 dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj -c $Configuration -r $Rid --self-contained true -o $publish
 
-# ── optional: bundle the server binaries (no runtime downloads → no "dropper" AV flag) ──
+# ── optional: bundle the server binaries (no runtime downloads -> no "dropper" AV flag) ──
 $payloadBin = Join-Path $PSScriptRoot "payload\bin"
 if ($Bundle) {
     Write-Host "build  bundling server binaries (this downloads nginx/php/mysql/redis/...)..." -ForegroundColor Cyan
@@ -44,13 +44,13 @@ if ($Bundle) {
     & $cli init | Out-Null
     # Bundle every exe-producing tool so a user NEVER triggers a runtime download
     # (that download behavior is what antivirus flags as a "dropper"). Site tools
-    # (adminer/phpMyAdmin/WordPress) are plain PHP files, not exes — safe on demand.
+    # (adminer/phpMyAdmin/WordPress) are plain PHP files, not exes - safe on demand.
     foreach ($t in @("nginx", "php@8.4", "mariadb", "mkcert", "redis", "memcached", "mailpit", "fnm", "cloudflared")) {
         Write-Host "         install $t" -ForegroundColor DarkGray
         & $cli install $t
     }
     Remove-Item Env:\BHSERVE_HOME
-    if (-not (Test-Path (Join-Path $payloadBin "nginx"))) { Write-Warning "bundle payload looks incomplete — check the install output above." }
+    if (-not (Test-Path (Join-Path $payloadBin "nginx"))) { Write-Warning "bundle payload looks incomplete - check the install output above." }
 }
 
 # ── code signing (the part that actually silences antivirus/SmartScreen) ─────────
@@ -113,4 +113,4 @@ $setup = Get-ChildItem (Join-Path $PSScriptRoot "installer\dist") -Filter *.exe 
 if ($signing -and $setup) { Write-Host "build  signing installer..." -ForegroundColor Cyan; Invoke-Sign $setup.FullName }
 
 Write-Host "done   installer is in windows\installer\dist" -ForegroundColor Green
-if (-not $signing) { Write-Host "NOTE: unsigned — Windows SmartScreen shows 'unknown publisher' (More info -> Run anyway). That's expected; no cert needed." -ForegroundColor DarkGray }
+if (-not $signing) { Write-Host "NOTE: unsigned - Windows SmartScreen shows 'unknown publisher' (More info -> Run anyway). That's expected; no cert needed." -ForegroundColor DarkGray }
