@@ -19,6 +19,8 @@ public sealed class Config
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "BHServe", "www");
     [JsonPropertyName("autostart")]    public bool Autostart { get; set; } = false;
     [JsonPropertyName("minimize_to_tray")] public bool MinimizeToTray { get; set; } = true;
+    [JsonPropertyName("dashboard_page_size")] public int DashboardPageSize { get; set; } = 10;
+    [JsonPropertyName("sites_page_size")]     public int SitesPageSize { get; set; } = 15;
 
     private static readonly JsonSerializerOptions Opts = new()
     {

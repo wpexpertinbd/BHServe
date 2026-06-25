@@ -12,22 +12,10 @@ using Microsoft.UI.Xaml.Navigation;
 
 namespace BHServe.App.Views;
 
-/// <summary>Row shown in the dashboard website list.</summary>
-public sealed class WebsiteRow
-{
-    public required string Name { get; init; }
-    public required string Domain { get; init; }
-    public required string Url { get; init; }
-    public required string Badge { get; init; }
-    public required bool Enabled { get; init; }
-    public Brush DotBrush => new SolidColorBrush(Enabled ? Colors.SeaGreen : Colors.Gray);
-}
-
 public sealed partial class DashboardPage : Page
 {
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
-    private bool _loading;
-    private string _sitesSig = "";   // only rebuild the website list when it changes (kills the flicker)
+    private bool _loading, _pageSizeSet;
     private string _pmaUrl = "", _admUrl = "", _mailUrl = "";
 
     private static readonly SolidColorBrush On  = new(Colors.SeaGreen);
@@ -39,6 +27,7 @@ public sealed partial class DashboardPage : Page
         EngineHost.Instance.LogAppended += OnLog;
         _timer.Tick += (_, _) => Refresh();
         LogBox.Text = EngineHost.Instance.LogText;
+        SiteList.Changed += (_, _) => Refresh();   // re-pull after a per-site action
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); }
@@ -88,16 +77,13 @@ public sealed partial class DashboardPage : Page
 
         SubTitle.Text = $"{snap.Services.Count(s => s.Running)} services running · {sites.Count} sites";
 
-        // ── websites (only rebuild the ListView when the data changed, else it flickers every tick) ──
-        var rows = sites.Select(s => new WebsiteRow
+        // ── websites (delegated to the shared list control: Show + search + actions + paging) ──
+        if (!_pageSizeSet) { SiteList.SetDefaultPageSize(Config.Load().DashboardPageSize); _pageSizeSet = true; }
+        SiteList.SetData(sites.Select(s => new SiteRow
         {
-            Name = s.Name, Domain = s.Domain, Enabled = s.Enabled,
-            Url = (s.Secure ? "https://" : "http://") + s.Domain,
-            Badge = !string.IsNullOrEmpty(s.Php) && s.Php != "-" ? $"{s.Server} · php {s.Php}" : s.Server,
-        }).ToList();
-        var sig = string.Join(";", rows.Select(r => $"{r.Name}|{r.Domain}|{r.Enabled}|{r.Badge}|{r.Url}"));
-        if (sig != _sitesSig) { WebsitesList.ItemsSource = rows; _sitesSig = sig; }
-        NoSites.Visibility = sites.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            Name = s.Name, Domain = s.Domain, Php = s.Php, Root = s.Root,
+            Secure = s.Secure, Enabled = s.Enabled, Server = s.Server,
+        }));
         WebHeader.Text = $"Websites ({sites.Count})";
 
         // ── web tools ──
@@ -119,9 +105,6 @@ public sealed partial class DashboardPage : Page
     }
 
     private static string Rate(double kbps) => kbps >= 1024 ? $"{kbps / 1024:0.0} MB/s" : $"{kbps:0} KB/s";
-
-    // ── websites ──
-    private void OpenSite_Click(object s, RoutedEventArgs e) { if ((s as FrameworkElement)?.Tag is string u && u.Length > 0) Launch(u); }
 
     // ── web tools ──
     private async void Pma_Toggled(object s, RoutedEventArgs e)  { if (!_loading) await ToolOp("phpmyadmin", PmaToggle.IsOn); }

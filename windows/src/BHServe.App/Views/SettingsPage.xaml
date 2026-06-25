@@ -34,6 +34,12 @@
                     <ToggleSwitch x:Name="TrayToggle" Header="Keep running in the system tray when the window is closed"
                                   OffContent="Off — closing the window quits BHServe" OnContent="On — sites stay up in the background"
                                   Toggled="Tray_Toggled"/>
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <NumberBox x:Name="DashSizeBox" Header="Dashboard list — sites per page" Width="220"
+                                   Minimum="1" Maximum="500" SpinButtonPlacementMode="Inline" ValueChanged="ListSize_Changed"/>
+                        <NumberBox x:Name="SitesSizeBox" Header="Sites page — sites per page" Width="220"
+                                   Minimum="1" Maximum="500" SpinButtonPlacementMode="Inline" ValueChanged="ListSize_Changed"/>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button Content="Open data folder" Click="OpenFolder_Click"/>
                         <Button x:Name="UpdateBtn" Content="Check for updates" Click="CheckUpdates_Click"/>
