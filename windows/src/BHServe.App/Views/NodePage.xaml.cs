@@ -18,8 +18,10 @@ public sealed class NodeAppRow
     public required string Name { get; init; }
     public required string Detail { get; init; }
     public required bool Running { get; init; }
+    public required bool HasBackend { get; init; }
     public required string Url { get; init; }
     public Brush DotBrush => new SolidColorBrush(Running ? Colors.SeaGreen : Colors.Gray);
+    public Visibility HasBackendVis => HasBackend ? Visibility.Visible : Visibility.Collapsed;
 }
 
 public sealed partial class NodePage : Page
@@ -64,7 +66,7 @@ public sealed partial class NodePage : Page
             var c = NodeSite.Load(n);
             var detail = c is null ? "" :
                 $"frontend :{c.Frontend.Port}" + (c.Backend is not null ? $"  ·  backend :{c.Backend.Port} ({c.ApiPath})" : "");
-            return new NodeAppRow { Name = n, Detail = detail, Running = NodeSite.Running(n), Url = $"http://{n}.{tld}" };
+            return new NodeAppRow { Name = n, Detail = detail, Running = NodeSite.Running(n), HasBackend = c?.Backend is not null, Url = $"http://{n}.{tld}" };
         }).ToList();
     }
 
@@ -108,6 +110,97 @@ public sealed partial class NodePage : Page
         if (n.Length == 0 || feD.Length == 0) return;
         await AppOp(() => EngineHost.Instance.Engine.NodeSiteAdd(n, feD, feC, feP, beD, beC, bp, apiP));
     }
+
+    // ── per-app extras (⋯ menu) ──────────────────────────────────────────────────
+    private async void RestartApp_Click(object s, RoutedEventArgs e) { var n = Tag(s); await AppOp(() => EngineHost.Instance.Engine.NodeSiteRestart(n)); }
+
+    private void FolderApp_Click(object s, RoutedEventArgs e)
+    {
+        var dir = EngineHost.Instance.Engine.NodeSiteDir(Tag(s), "frontend");
+        if (dir.Length > 0 && System.IO.Directory.Exists(dir))
+            try { Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true }); } catch { }
+    }
+
+    private async void LogsApp_Click(object s, RoutedEventArgs e)
+    {
+        var n = Tag(s);
+        var fe = EngineHost.Instance.Engine.NodeSiteLog(n, "frontend");
+        var be = EngineHost.Instance.Engine.NodeSiteLog(n, "backend");
+        var sb = new StringBuilder();
+        sb.AppendLine("---- frontend ----").AppendLine(fe.Length > 0 ? fe : "(no output yet)");
+        if (be.Length > 0) sb.AppendLine().AppendLine("---- backend ----").AppendLine(be);
+        await ShowText($"Logs · {n}", sb.ToString().Trim());
+    }
+
+    private async void NpmFe_Click(object s, RoutedEventArgs e) => await NpmOp(Tag(s), "frontend");
+    private async void NpmBe_Click(object s, RoutedEventArgs e) => await NpmOp(Tag(s), "backend");
+
+    private async Task NpmOp(string name, string which)
+    {
+        Busy.IsActive = true;
+        var (ok, output) = await Task.Run(() => EngineHost.Instance.Engine.NodeSiteNpm(name, which));
+        Busy.IsActive = false;
+        RefreshApps();
+        await ShowText($"npm install ({which}) · {name}", output.Length > 0 ? output : (ok ? "done" : "failed"));
+    }
+
+    private async void EnvFe_Click(object s, RoutedEventArgs e) => await EnvOp(Tag(s), "frontend");
+    private async void EnvBe_Click(object s, RoutedEventArgs e) => await EnvOp(Tag(s), "backend");
+
+    private async Task EnvOp(string name, string which)
+    {
+        var path = EngineHost.Instance.Engine.NodeSiteEnvPath(name, which);
+        if (path.Length == 0) { await ShowText("Edit .env", $"No {which} directory."); return; }
+        string text = "";
+        try { if (System.IO.File.Exists(path)) text = await System.IO.File.ReadAllTextAsync(path); } catch { }
+        var box = new TextBox
+        {
+            Text = text, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Consolas"), Height = 320, PlaceholderText = "KEY=value",
+        };
+        var dlg = new ContentDialog
+        {
+            Title = $".env ({which}) · {name}", Content = new ScrollViewer { Content = box, MinWidth = 460 },
+            PrimaryButtonText = "Save & restart", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        var content = box.Text;
+        try { await System.IO.File.WriteAllTextAsync(path, content); }
+        catch (Exception ex) { await ShowText("Edit .env", "Could not save: " + ex.Message); return; }
+        await AppOp(() => EngineHost.Instance.Engine.NodeSiteRestart(name));
+    }
+
+    private async void EditApp_Click(object s, RoutedEventArgs e)
+    {
+        var name = Tag(s);
+        var nc = EngineHost.Instance.Engine.NodeSiteConfig(name);
+        if (nc is null) return;
+        var feCmd  = new TextBox  { Header = "Frontend command", Text = nc.Frontend.Cmd };
+        var fePort = new NumberBox { Header = "Frontend port", Value = nc.Frontend.Port, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var beCmd  = new TextBox  { Header = "Backend command", Text = nc.Backend?.Cmd ?? "", IsEnabled = nc.Backend is not null };
+        var bePort = new NumberBox { Header = "Backend port", Value = nc.Backend?.Port ?? double.NaN, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline, IsEnabled = nc.Backend is not null };
+        var api    = new TextBox  { Header = "API path → backend", Text = nc.ApiPath, IsEnabled = nc.Backend is not null };
+        var panel = new StackPanel { Spacing = 8 };
+        foreach (var c in new FrameworkElement[] { feCmd, fePort, beCmd, bePort, api }) panel.Children.Add(c);
+        var dlg = new ContentDialog
+        {
+            Title = $"Edit · {name}", Content = new ScrollViewer { Content = panel, MaxHeight = 460 },
+            PrimaryButtonText = "Save & restart", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        string fc = feCmd.Text.Trim(), bc = beCmd.Text.Trim(), ap = api.Text.Trim();
+        int fp = (int)fePort.Value, bp = double.IsNaN(bePort.Value) ? 0 : (int)bePort.Value;
+        await AppOp(() => EngineHost.Instance.Engine.NodeSiteEdit(name, fc, fp, bc, bp, ap));
+    }
+
+    private Task ShowText(string title, string body) =>
+        new ContentDialog
+        {
+            Title = title, CloseButtonText = "Close", XamlRoot = this.XamlRoot,
+            Content = new ScrollViewer { MaxHeight = 400, MinWidth = 460, Content = new TextBlock { Text = body, FontFamily = new FontFamily("Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap } },
+        }.ShowAsync().AsTask();
 
     private async Task AppOp(Action action)
     {

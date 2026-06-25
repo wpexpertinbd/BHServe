@@ -132,6 +132,58 @@ public static class NodeSite
         StopProc(name, "backend");
     }
 
+    /// <summary>The frontend/backend working directory for a site (empty if none).</summary>
+    public static string ProcDir(string name, string which)
+    {
+        var cfg = Load(name);
+        if (cfg is null) return "";
+        return which == "backend" ? cfg.Backend?.Dir ?? "" : cfg.Frontend.Dir;
+    }
+
+    /// <summary>Path to a process's .env file (frontend or backend dir).</summary>
+    public static string EnvPath(string name, string which)
+    {
+        var d = ProcDir(name, which);
+        return d.Length == 0 ? "" : Path.Combine(d, ".env");
+    }
+
+    /// <summary>The tail of a process's log (best-effort; empty if none yet).</summary>
+    public static string LogTail(string name, string which, int maxBytes = 40000)
+    {
+        try
+        {
+            var f = LogFile(name, which);
+            if (!File.Exists(f)) return "";
+            var bytes = File.ReadAllBytes(f);
+            var start = Math.Max(0, bytes.Length - maxBytes);
+            return System.Text.Encoding.UTF8.GetString(bytes, start, bytes.Length - start);
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>Run `npm install` in a process's dir (with the fnm node on PATH). Blocks; returns output.</summary>
+    public static (bool ok, string output) Npm(string name, string which)
+    {
+        var dir = ProcDir(name, which);
+        if (dir.Length == 0 || !Directory.Exists(dir)) return (false, $"no {which} directory");
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe", Arguments = "/c npm install",
+            WorkingDirectory = dir, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        var nodeBin = Tools.NodeBinDir();
+        if (nodeBin is not null) psi.Environment["PATH"] = nodeBin + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
+        try
+        {
+            var p = Process.Start(psi)!;
+            var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+            return (p.ExitCode == 0, (o + e).Trim());
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
     /// <summary>Render the nginx reverse-proxy vhost for a Node-app site.</summary>
     public static void RenderVhost(NodeSiteConfig cfg, string domain, Config appCfg)
     {

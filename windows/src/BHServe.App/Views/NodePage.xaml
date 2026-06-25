@@ -52,7 +52,24 @@
                                 <Button Content="Open" Tag="{x:Bind Url}" Click="OpenApp_Click"/>
                                 <Button Content="Start" Tag="{x:Bind Name}" Click="StartApp_Click"/>
                                 <Button Content="Stop" Tag="{x:Bind Name}" Click="StopApp_Click"/>
-                                <Button Content="Remove" Tag="{x:Bind Name}" Click="RemoveApp_Click"/>
+                                <Button ToolTipService.ToolTip="More">
+                                    <FontIcon Glyph="&#xE712;" FontSize="14"/>
+                                    <Button.Flyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Restart" Tag="{x:Bind Name}" Click="RestartApp_Click"/>
+                                            <MenuFlyoutItem Text="Open folder" Tag="{x:Bind Name}" Click="FolderApp_Click"/>
+                                            <MenuFlyoutItem Text="View logs" Tag="{x:Bind Name}" Click="LogsApp_Click"/>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="npm install (frontend)" Tag="{x:Bind Name}" Click="NpmFe_Click"/>
+                                            <MenuFlyoutItem Text="npm install (backend)" Tag="{x:Bind Name}" Click="NpmBe_Click" Visibility="{x:Bind HasBackendVis}"/>
+                                            <MenuFlyoutItem Text="Edit .env (frontend)" Tag="{x:Bind Name}" Click="EnvFe_Click"/>
+                                            <MenuFlyoutItem Text="Edit .env (backend)" Tag="{x:Bind Name}" Click="EnvBe_Click" Visibility="{x:Bind HasBackendVis}"/>
+                                            <MenuFlyoutItem Text="Edit config" Tag="{x:Bind Name}" Click="EditApp_Click"/>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="Remove" Tag="{x:Bind Name}" Click="RemoveApp_Click"/>
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
