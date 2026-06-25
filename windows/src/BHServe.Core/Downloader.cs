@@ -108,12 +108,52 @@ public static class Downloader
         catch { }
     }
 
+    /// <summary>Install nginx — resolves the latest version from nginx.org, pin as fallback. Only the
+    /// binaries in bin\nginx are replaced; the running config lives in Home\nginx and is regenerated
+    /// on every Start, so an update never loses site config.</summary>
     public static async Task<string> InstallNginx()
     {
-        var url = $"https://nginx.org/download/nginx-{NginxPinned}.zip";
-        var zip = await DownloadToTmp(url, $"nginx-{NginxPinned}.zip");
-        ExtractZip(zip, Path.Combine(Paths.Bin, "nginx"));   // → bin\nginx\nginx-1.27.4\nginx.exe
+        var ver = await LatestNginx();
+        try { return DoInstallNginx(ver); }
+        catch when (ver != NginxPinned) { return DoInstallNginx(NginxPinned); }
+    }
+
+    private static async Task<string> LatestNginx()
+    {
+        try
+        {
+            var html = await ApiGet("https://nginx.org/en/download.html");
+            var best = System.Text.RegularExpressions.Regex.Matches(html, @"nginx-(\d+\.\d+\.\d+)")
+                .Select(m => m.Groups[1].Value).OrderByDescending(Vparse).FirstOrDefault();
+            return best ?? NginxPinned;
+        }
+        catch { return NginxPinned; }
+    }
+
+    private static string DoInstallNginx(string ver)
+    {
+        var url = $"https://nginx.org/download/nginx-{ver}.zip";
+        var zip = DownloadToTmp(url, $"nginx-{ver}.zip").GetAwaiter().GetResult();
+        var dir = Path.Combine(Paths.Bin, "nginx");
+        // The zip contains nginx-<ver>\, so extract ALONGSIDE rather than deleting bin\nginx first —
+        // a still-running old nginx.exe would lock its dir and block the delete. The newest version
+        // wins in Tools.NginxExe; old version dirs are best-effort pruned (a locked one is skipped).
+        ExtractZip(zip, dir);
+        PruneOldVersionDirs(dir, $"nginx-{ver}");
         return Tools.NginxExe() ?? throw new InvalidOperationException("nginx.exe not found after extract");
+    }
+
+    /// <summary>Best-effort removal of sibling version dirs under <paramref name="parent"/>, keeping
+    /// <paramref name="keep"/>. A dir locked by a running process is silently skipped.</summary>
+    private static void PruneOldVersionDirs(string parent, string keep)
+    {
+        try
+        {
+            foreach (var d in Directory.GetDirectories(parent))
+                if (!string.Equals(Path.GetFileName(d), keep, StringComparison.OrdinalIgnoreCase))
+                    try { Directory.Delete(d, true); } catch { }
+        }
+        catch { }
     }
 
     public static async Task<string> InstallPhp(string version)
@@ -311,28 +351,76 @@ public static class Downloader
 
     private const string PgPinned = "16.4-1";
 
-    /// <summary>Download PostgreSQL (EDB portable Windows binaries) into bin\postgresql.</summary>
+    /// <summary>Install PostgreSQL (EDB portable binaries) — latest version via endoflife.date, pin
+    /// fallback. NOTE: a major-version bump (e.g. 16 → 18) can't read an existing pgdata in place
+    /// (PostgreSQL needs pg_upgrade), so an update is best on a fresh data dir.</summary>
     public static async Task<string> InstallPostgres()
     {
-        var url = $"https://get.enterprisedb.com/postgresql/postgresql-{PgPinned}-windows-x64-binaries.zip";
-        var zip = await DownloadToTmp(url, "postgresql.zip");
+        var ver = await LatestPostgres();
+        try { return DoInstallPostgres(ver); }
+        catch when (ver != PgPinned) { return DoInstallPostgres(PgPinned); }
+    }
+
+    private static async Task<string> LatestPostgres()
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await ApiGet("https://endoflife.date/api/postgresql.json"));
+            var latest = doc.RootElement.EnumerateArray()
+                .Select(c => c.TryGetProperty("latest", out var l) ? l.GetString() : null)
+                .Where(s => !string.IsNullOrEmpty(s)).OrderByDescending(s => Vparse(s!)).FirstOrDefault();
+            return latest is null ? PgPinned : $"{latest}-1";   // EDB appends a build number; -1 is the first/standard build
+        }
+        catch { return PgPinned; }
+    }
+
+    private static string DoInstallPostgres(string ver)
+    {
+        var url = $"https://get.enterprisedb.com/postgresql/postgresql-{ver}-windows-x64-binaries.zip";
+        var zip = DownloadToTmp(url, "postgresql.zip").GetAwaiter().GetResult();
         var dir = Path.Combine(Paths.Bin, "postgresql");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);   // → bin\postgresql\pgsql\bin\postgres.exe
         return Tools.PostgresExe() ?? throw new InvalidOperationException("postgres.exe not found after extract");
     }
 
-    /// <summary>Download Apache (Apache Lounge build) into bin\apache.</summary>
+    // Fallback only — Apache Lounge URLs carry a build date + VS toolset that change over time
+    // (it has moved VS17 → VS18), so we scrape the current latest and keep this as last resort.
+    private const string ApachePinned = "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip";
+
+    /// <summary>Install Apache (Apache Lounge build) — scrapes the current latest Win64 zip from the
+    /// download page (its URLs carry a build date + VS toolset), pin as last resort.</summary>
     public static async Task<string> InstallApache()
     {
-        // Apache Lounge is the de-facto Windows httpd source. URLs carry a build date, so we
-        // pin a known-good one; if it 404s, the caller surfaces a manual-install hint.
-        const string url = "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.62-240904-win64-VS17.zip";
+        var url = await LatestApacheUrl() ?? ApachePinned;
         var zip = await DownloadToTmp(url, "httpd.zip");
         var dir = Path.Combine(Paths.Bin, "apache");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);   // → bin\apache\Apache24\bin\httpd.exe
         return Tools.HttpdExe() ?? throw new InvalidOperationException("httpd.exe not found after extract");
+    }
+
+    private static async Task<string?> LatestApacheUrl()
+    {
+        try
+        {
+            var html = await ApiGet("https://www.apachelounge.com/download/");
+            // hrefs look like: VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip
+            var best = System.Text.RegularExpressions.Regex.Matches(
+                    html, @"VS\d+/binaries/httpd-2\.4\.\d+-\d+-Win64-VS\d+\.zip",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => m.Value).Distinct()
+                .OrderByDescending(s =>
+                {
+                    var n = System.Text.RegularExpressions.Regex.Match(s, @"httpd-2\.4\.(\d+)-(\d+)-Win64-VS(\d+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    // newest by (httpd patch, build date, VS toolset)
+                    return (int.Parse(n.Groups[1].Value), long.Parse(n.Groups[2].Value), int.Parse(n.Groups[3].Value));
+                })
+                .FirstOrDefault();
+            return best is null ? null : "https://www.apachelounge.com/download/" + best;
+        }
+        catch { return null; }
     }
 
     public static async Task<string> InstallRedis()

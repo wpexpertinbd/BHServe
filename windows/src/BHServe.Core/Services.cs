@@ -37,7 +37,7 @@ public static class Services
     /// <summary>A short version/label for a service row (best-effort, no process spawn).</summary>
     public static string ShortVersion(string key, Config cfg) => key switch
     {
-        "nginx"     => "nginx 1.27",
+        "nginx"     => Tools.NginxVersion() is { } nv ? $"nginx {nv}" : "nginx",
         "apache"    => "httpd 2.4",
         // Show the REAL installed version (parsed from the binary dir); generic name when absent.
         "mysql"     => Tools.DbVersionFor("mysql")   is { } mv ? $"MySQL {mv}"   : "MySQL",
