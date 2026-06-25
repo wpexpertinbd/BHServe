@@ -28,11 +28,20 @@ dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj `
     -o $publish
 
 Write-Host "build  installer (Inno Setup)..." -ForegroundColor Cyan
-$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $iscc)) {
-    Write-Warning "Inno Setup not found at $iscc — install it (https://jrsoftware.org/isdl.php) to build the installer."
+# ISCC may live under Program Files, Program Files (x86), or a per-user winget install.
+$pf86 = [Environment]::GetFolderPath('ProgramFilesX86')
+$pf   = [Environment]::GetFolderPath('ProgramFiles')
+$lad  = [Environment]::GetFolderPath('LocalApplicationData')
+$isccCandidates = @(
+    (Join-Path $pf86 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $pf   'Inno Setup 6\ISCC.exe'),
+    (Join-Path $lad  'Programs\Inno Setup 6\ISCC.exe')
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $iscc) {
+    Write-Warning "Inno Setup not found. Install from https://jrsoftware.org/isdl.php to build the installer."
     Write-Host "Published app is in: $publish" -ForegroundColor Yellow
     exit 0
 }
 & $iscc "installer\bhserve.iss"
-Write-Host "done   installer in windows\installer\dist\" -ForegroundColor Green
+Write-Host "done   installer is in windows\installer\dist" -ForegroundColor Green
