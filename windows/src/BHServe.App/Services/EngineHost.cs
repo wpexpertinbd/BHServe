@@ -68,4 +68,54 @@ public sealed class EngineHost
     });
 
     public Task<Snapshot> Snapshot() => Task.Run(() => Engine.Api());
+
+    // ── tracked operations (installs etc.) — survive page navigation ──────────────
+    /// <summary>State of a long-running operation, readable from any page so progress persists.</summary>
+    public sealed class OpState
+    {
+        public string Name = "";
+        public bool Running;
+        public bool Success;
+        public double Progress = -1;   // 0–100, or -1 = indeterminate
+        public string Message = "";
+    }
+
+    public OpState? CurrentOp { get; private set; }
+    public event Action? OpChanged;
+    private void RaiseOp() => OpChanged?.Invoke();
+
+    /// <summary>Clear a finished operation's banner.</summary>
+    public void DismissOp() { if (CurrentOp is { Running: false }) { CurrentOp = null; RaiseOp(); } }
+
+    /// <summary>Run an install/long op on a background thread, tracked globally: live download %,
+    /// the engine's status messages, and a final success/failed — visible even after navigating away.</summary>
+    public async Task RunTracked(string name, Action action)
+    {
+        // One at a time keeps the single progress slot meaningful.
+        if (CurrentOp is { Running: true }) { await Run(action); return; }
+
+        var op = new OpState { Name = name, Running = true, Progress = -1, Message = "Starting…" };
+        CurrentOp = op;
+        void Cap(string l) { var t = l.Trim(); if (t.Length > 0) { op.Message = t; RaiseOp(); } }
+        LogAppended += Cap;
+        Downloader.OnProgress = p => { op.Progress = p; RaiseOp(); };
+        RaiseOp();
+        try
+        {
+            await Task.Run(action);
+            op.Success = true; op.Message = $"✓ {name} done";
+        }
+        catch (Exception ex)
+        {
+            var m = Describe(ex); Append($"  ✗ {m}");
+            op.Success = false; op.Message = "✗ " + m;
+        }
+        finally
+        {
+            op.Running = false; op.Progress = 100;
+            Downloader.OnProgress = null;
+            LogAppended -= Cap;
+            RaiseOp();
+        }
+    }
 }

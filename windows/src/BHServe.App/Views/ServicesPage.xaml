@@ -16,6 +16,21 @@
                 <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
 
+            <Border x:Name="OpBanner" Visibility="Collapsed" CornerRadius="8" Padding="12" BorderThickness="1"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                <StackPanel Spacing="6">
+                    <Grid>
+                        <TextBlock x:Name="OpName" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                            <TextBlock x:Name="OpPct" Opacity="0.7" VerticalAlignment="Center"/>
+                            <Button x:Name="OpDismiss" Content="Dismiss" Click="OpDismiss_Click" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Grid>
+                    <ProgressBar x:Name="OpBar" Minimum="0" Maximum="100"/>
+                    <TextBlock x:Name="OpMsg" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
             <ItemsControl x:Name="Groups">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="local:SvcGroup">
