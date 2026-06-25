@@ -71,7 +71,7 @@ public sealed partial class ServicesPage : Page
             Key = s.Key, Version = BHServe.Core.Services.ShortVersion(s.Key, cfg),
             Installed = s.Installed, Running = s.Running, AutoStart = s.AutoStart,
             Manageable = s.Role is ServiceRole.Php
-                || s.Key is "nginx" or "apache" or "mariadb" or "redis" or "memcached" or "mailpit",
+                || s.Key is "nginx" or "apache" or "mysql" or "mariadb" or "postgresql" or "redis" or "memcached" or "mailpit",
         }).ToList();
 
         Groups.ItemsSource = Order
