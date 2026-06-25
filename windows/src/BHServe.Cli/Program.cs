@@ -38,7 +38,12 @@ try
                         type:   f.GetValueOrDefault("type", "others"));
                     break;
                 }
-                case "rm" or "remove":     engine.SiteRemove(Arg(rest, 1)); break;
+                case "rm" or "remove":
+                {
+                    var purge = rest.Any(a => a is "--purge" or "--delete-files" or "--all");
+                    engine.SiteRemove(Arg(rest, 1), purgeFiles: purge, dropDb: purge);
+                    break;
+                }
                 case "php":                engine.SitePhp(Arg(rest, 1), Arg(rest, 2)); break;
                 case "server":             engine.SiteServer(Arg(rest, 1), Arg(rest, 2)); break;
                 case "enable":             engine.SiteEnable(Arg(rest, 1), true); break;

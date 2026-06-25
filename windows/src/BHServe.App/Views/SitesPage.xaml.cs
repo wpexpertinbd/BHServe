@@ -142,14 +142,37 @@ public sealed partial class SitesPage : Page
     private async void Remove_Click(object s, RoutedEventArgs e)
     {
         var name = Tag(s);
+        (string root, string db) t;
+        try { t = EngineHost.Instance.Engine.SiteTargets(name); } catch { t = ("", name); }
+
+        var warn = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
+            Foreground = new SolidColorBrush(Red), Visibility = Visibility.Collapsed,
+            Text = $"Permanently deletes (cannot be undone):\n• Files:  {t.root}\n• Database:  {t.db}",
+        };
+        var purge = new CheckBox { Content = "Also delete the site files and drop its database" };
+        purge.Checked   += (_, _) => warn.Visibility = Visibility.Visible;
+        purge.Unchecked += (_, _) => warn.Visibility = Visibility.Collapsed;
+
+        var panel = new StackPanel { Spacing = 6, MinWidth = 380 };
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Text = $"Remove '{name}'? By default this removes only the site mapping (vhost + hosts entry) and keeps your files and database.",
+        });
+        panel.Children.Add(purge);
+        panel.Children.Add(warn);
+
         var dlg = new ContentDialog
         {
-            Title = "Remove site", Content = $"Remove the vhost for '{name}'? (site files stay on disk)",
+            Title = "Remove site", Content = panel,
             PrimaryButtonText = "Remove", CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close, XamlRoot = this.XamlRoot,
         };
-        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
-            await Op(() => EngineHost.Instance.Engine.SiteRemove(name));
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+        var doPurge = purge.IsChecked == true;   // read on the UI thread before the background op
+        await Op(() => EngineHost.Instance.Engine.SiteRemove(name, doPurge, doPurge));
     }
 
     private static void Launch(string target)
