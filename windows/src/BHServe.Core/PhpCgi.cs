@@ -26,6 +26,9 @@ public static class PhpCgi
 
     private static string RunFile(string version) => Path.Combine(Paths.Run, $"php-{version}.json");
 
+    /// <summary>BHServe-managed extra-ini dir for a version (ionCube etc.), loaded via PHP_INI_SCAN_DIR.</summary>
+    public static string ConfDir(string version) => Path.Combine(Paths.Home, "php", "conf.d", version);
+
     public static PhpRun? Info(string version)
     {
         try
@@ -66,9 +69,13 @@ public static class PhpCgi
             RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        // PHP_FCGI_MAX_REQUESTS=0 → never recycle the listener. A per-version php.ini
-        // we manage can be added with `-c` later (php ini editor, phase 5).
+        // PHP_FCGI_MAX_REQUESTS=0 → never recycle the listener.
         psi.Environment["PHP_FCGI_MAX_REQUESTS"] = "0";
+        // Load BHServe's per-version conf.d (ionCube etc.) on top of the build's php.ini.
+        // Leading ';' keeps the compiled-in scan dir (Windows path-list separator).
+        var confd = ConfDir(version);
+        Directory.CreateDirectory(confd);
+        psi.Environment["PHP_INI_SCAN_DIR"] = ";" + confd;
 
         var proc = Process.Start(psi);
         if (proc is null) return false;

@@ -354,10 +354,27 @@ public sealed class Engine
     }
 
     // ── not-yet-on-Windows (phase 4/5) ─────────────────────────────────────────────
-    public string PhpIniPath(string version)  => Tools.PhpExe(version) is { } e
-        ? Path.Combine(Path.GetDirectoryName(e)!, "php.ini")
-        : throw new BhException($"php {version} not installed");
-    public void PhpIniReload(string version)   { PhpCgi.Stop(version); PhpCgi.Start(version); Ok($"php-cgi {version} reloaded"); }
+    public string PhpIniPath(string version) => Php.IniPath(version);
+    public void PhpIniReload(string version)
+    {
+        if (Php.IniReload(version)) Ok($"php-cgi {version} reloaded");
+        else Info($"php {version} not running — changes apply on next start");
+    }
+
+    public void PhpIoncube(string version)
+    {
+        NeedInit();
+        Hdr($"Enabling ionCube for PHP {version}");
+        Php.Ioncube(version, Ok);
+    }
+
+    public void PhpStatus()
+    {
+        NeedInit();
+        Hdr("PHP versions");
+        foreach (var p in Php.Status())
+            Out($"  ✓ {p.Version,-8} {(p.Running ? "running" : "stopped"),-8} ionCube: {p.Ioncube}");
+    }
     public void Db(string sub, params string[] args)
     {
         NeedInit();

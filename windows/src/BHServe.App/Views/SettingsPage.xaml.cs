@@ -37,4 +37,31 @@ public sealed partial class SettingsPage : Page
     {
         try { Process.Start(new ProcessStartInfo { FileName = Paths.Home, UseShellExecute = true }); } catch { }
     }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateBtn.IsEnabled = false; UpdateBusy.IsActive = true;
+        UpdateStatus.Text = "Checking…";
+        var r = await Updater.Check();
+        UpdateBusy.IsActive = false; UpdateBtn.IsEnabled = true;
+
+        if (r.Error is not null) { UpdateStatus.Text = $"Update check: {r.Error}  (you're on {Updater.CurrentVersion})"; return; }
+        if (!r.UpdateAvailable) { UpdateStatus.Text = $"You're on the latest version ({Updater.CurrentVersion})."; return; }
+
+        UpdateStatus.Text = $"Update available: {r.Latest} (you have {Updater.CurrentVersion}).";
+        if (r.AssetUrl is null) return;
+        var dlg = new ContentDialog
+        {
+            Title = $"BHServe {r.Latest} available",
+            Content = (string.IsNullOrWhiteSpace(r.Notes) ? "" : r.Notes + "\n\n") + "Download and run the installer now?",
+            PrimaryButtonText = "Download & install", CloseButtonText = "Later",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        {
+            UpdateStatus.Text = "Downloading installer…";
+            try { await Updater.DownloadAndRun(r.AssetUrl); }
+            catch (System.Exception ex) { UpdateStatus.Text = "Download failed: " + ex.Message; }
+        }
+    }
 }

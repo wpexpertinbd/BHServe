@@ -59,8 +59,28 @@ dotnet run --project src\BHServe.App
   Sites, Services, Settings (autostart). Run it from a **self-contained** build (or
   install the Windows App Runtime 1.6) — see Release below.
 
-Still TODO: system tray (close-to-tray), php.ini editor + ionCube, auto-updater,
-Inno Setup installer + signing. See `WINDOWS-PORT.md` §6.
+Also implemented: **system tray** (close hides to tray, right-click → Open/Quit),
+`php ini path|reload`, **`php ioncube <ver>`** (downloads the matching Windows loader
+and enables it via a per-version `conf.d`), `php status`, and an **in-app updater**
+(Settings → Check for updates → downloads + runs the latest `BHServe-Setup.exe`).
+
+### Code signing (TODO before public distribution)
+
+The installer + exes are currently **unsigned**, so Windows SmartScreen shows
+"Windows protected your PC" → users click **More info → Run anyway** (the analog of
+macOS "Open Anyway"). To sign, get an OV/EV code-signing certificate and run, after
+`build.ps1`:
+
+```powershell
+$st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\<ver>\x64\signtool.exe"
+& $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+    /f mycert.pfx /p <pwd> `
+    installer\dist\BHServe-Setup-0.1.0.exe
+```
+
+Sign the three payload exes (`BHServe.App.exe`, `bhserve.exe`, `bhserve-elevate.exe`)
+*before* packaging, then the installer itself. An EV cert clears SmartScreen
+immediately; an OV cert builds reputation over time.
 
 ## Release
 

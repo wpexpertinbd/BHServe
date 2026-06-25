@@ -50,6 +50,8 @@ try
             {
                 case "ini" when Arg(rest, 1) == "path":   Console.WriteLine(engine.PhpIniPath(Arg(rest, 2))); break;
                 case "ini" when Arg(rest, 1) == "reload": engine.PhpIniReload(Arg(rest, 2)); break;
+                case "ioncube":                           engine.PhpIoncube(Arg(rest, 1)); break;
+                case "status" or "":                      engine.PhpStatus(); break;
                 default: Usage(); return 1;
             }
             break;
