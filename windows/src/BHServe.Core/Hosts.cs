@@ -1,4 +1,5 @@
 using System.Security.Principal;
+using System.Text.RegularExpressions;
 
 namespace BHServe.Core;
 
@@ -11,6 +12,13 @@ namespace BHServe.Core;
 public static class Hosts
 {
     private const string Tag = "# BHServe";
+
+    /// <summary>A strict hostname: lowercase labels of [a-z0-9-] joined by dots, no leading/trailing
+    /// hyphen, max 253 chars. Critically rejects whitespace/newlines so the value can never inject
+    /// extra lines into the hosts file (this code runs elevated).</summary>
+    public static bool IsValidDomain(string domain) =>
+        !string.IsNullOrEmpty(domain) && domain.Length <= 253 &&
+        Regex.IsMatch(domain, @"^(?=.{1,253}$)([a-z0-9](-?[a-z0-9])*)(\.[a-z0-9](-?[a-z0-9])*)+$");
 
     public static bool IsElevated()
     {
@@ -38,6 +46,7 @@ public static class Hosts
     /// <summary>Append "127.0.0.1 domain # BHServe" if absent. Returns false (no-throw) when not elevated.</summary>
     public static bool Add(string domain)
     {
+        if (!IsValidDomain(domain)) return false;   // never write unvalidated input to the hosts file
         if (Has(domain)) return true;
         if (!IsElevated()) return false;
         try
@@ -51,6 +60,7 @@ public static class Hosts
     /// <summary>Remove our tagged line for a domain. Returns false when not elevated.</summary>
     public static bool Remove(string domain)
     {
+        if (!IsValidDomain(domain)) return false;
         if (!Has(domain)) return true;
         if (!IsElevated()) return false;
         try
