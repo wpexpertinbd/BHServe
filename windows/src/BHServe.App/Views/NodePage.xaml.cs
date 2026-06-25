@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
@@ -24,6 +25,15 @@ public sealed class NodeAppRow
     public Visibility HasBackendVis => HasBackend ? Visibility.Visible : Visibility.Collapsed;
 }
 
+public sealed class NodeVerRow
+{
+    public required string Version { get; init; }
+    public required bool IsDefault { get; init; }
+    public string Display => "v" + Version;
+    public bool NotDefault => !IsDefault;
+    public Visibility DefaultVis => IsDefault ? Visibility.Visible : Visibility.Collapsed;
+}
+
 public sealed partial class NodePage : Page
 {
     public NodePage() => InitializeComponent();
@@ -33,23 +43,23 @@ public sealed partial class NodePage : Page
     // ── fnm versions ────────────────────────────────────────────────────────────
     private async void RefreshVersions()
     {
-        var text = await Task.Run(() =>
+        var vers = await Task.Run(() =>
         {
-            var sb = new StringBuilder();
-            var eng = new Engine { Out = l => sb.AppendLine(l), Err = l => sb.AppendLine(l) };
-            try { eng.Node("list"); } catch (Exception ex) { sb.AppendLine(ex.Message); }
-            return sb.ToString().Trim();
+            try { return EngineHost.Instance.Engine.NodeVersions(); }
+            catch { return (IReadOnlyList<(string version, bool isDefault)>)Array.Empty<(string, bool)>(); }
         });
-        OutputBox.Text = string.IsNullOrWhiteSpace(text) ? "No Node versions installed yet." : text;
+        var rows = vers.Select(v => new NodeVerRow { Version = v.version, IsDefault = v.isDefault }).ToList();
+        VersList.ItemsSource = rows;
+        EmptyVers.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private async void Install_Click(object s, RoutedEventArgs e)   => await VerOp("install");
-    private async void Default_Click(object s, RoutedEventArgs e)   => await VerOp("default");
-    private async void Uninstall_Click(object s, RoutedEventArgs e) => await VerOp("uninstall");
+    private async void Install_Click(object s, RoutedEventArgs e) => await VerRun("install", VerBox.Text.Trim());
+    private async void Quick_Click(object s, RoutedEventArgs e)       { if ((s as FrameworkElement)?.Tag is string v) await VerRun("install", v); }
+    private async void Use_Click(object s, RoutedEventArgs e)         { if ((s as FrameworkElement)?.Tag is string v) await VerRun("use", v); }
+    private async void UninstallVer_Click(object s, RoutedEventArgs e){ if ((s as FrameworkElement)?.Tag is string v) await VerRun("uninstall", v); }
 
-    private async Task VerOp(string sub)
+    private async Task VerRun(string sub, string v)
     {
-        var v = VerBox.Text.Trim();
         if (v.Length == 0) return;
         Busy.IsActive = true;
         await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Node(sub, v));

@@ -14,6 +14,9 @@ public sealed class TrayIcon : IDisposable
 {
     public event Action? OpenRequested;
     public event Action? QuitRequested;
+    public event Action? StartAllRequested;
+    public event Action? StopAllRequested;
+    public event Action? RestartAllRequested;
 
     private const int WM_APP = 0x8000;
     private const int WM_TRAY = WM_APP + 1;
@@ -25,7 +28,7 @@ public sealed class TrayIcon : IDisposable
     private const uint NIF_MESSAGE = 0x01, NIF_ICON = 0x02, NIF_TIP = 0x04, NIF_INFO = 0x10;
     private const uint TPM_RIGHTBUTTON = 0x0002, TPM_RETURNCMD = 0x0100;
     private const int IDI_APPLICATION = 32512;
-    private const int CMD_OPEN = 1, CMD_QUIT = 2;
+    private const int CMD_OPEN = 1, CMD_QUIT = 2, CMD_START = 3, CMD_STOP = 4, CMD_RESTART = 5;
     private static readonly IntPtr HWND_MESSAGE = new(-3);
 
     private readonly WndProcDelegate _wndProc;   // kept alive so it isn't GC'd
@@ -99,13 +102,23 @@ public sealed class TrayIcon : IDisposable
         var menu = CreatePopupMenu();
         AppendMenu(menu, 0, CMD_OPEN, "Open BHServe");
         AppendMenu(menu, 0x800, 0, null);          // MF_SEPARATOR
+        AppendMenu(menu, 0, CMD_START, "Start all services");
+        AppendMenu(menu, 0, CMD_STOP, "Stop all services");
+        AppendMenu(menu, 0, CMD_RESTART, "Restart all");
+        AppendMenu(menu, 0x800, 0, null);
         AppendMenu(menu, 0, CMD_QUIT, "Quit");
         GetCursorPos(out var pt);
         SetForegroundWindow(_hwnd);                 // so the menu dismisses on click-away
         var cmd = TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.X, pt.Y, 0, _hwnd, IntPtr.Zero);
         DestroyMenu(menu);
-        if (cmd == CMD_OPEN) OpenRequested?.Invoke();
-        else if (cmd == CMD_QUIT) QuitRequested?.Invoke();
+        switch (cmd)
+        {
+            case CMD_OPEN:    OpenRequested?.Invoke(); break;
+            case CMD_START:   StartAllRequested?.Invoke(); break;
+            case CMD_STOP:    StopAllRequested?.Invoke(); break;
+            case CMD_RESTART: RestartAllRequested?.Invoke(); break;
+            case CMD_QUIT:    QuitRequested?.Invoke(); break;
+        }
     }
 
     public void Dispose()

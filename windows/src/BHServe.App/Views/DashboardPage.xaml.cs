@@ -16,6 +16,7 @@ public sealed partial class DashboardPage : Page
 {
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _loading, _pageSizeSet;
+    private readonly System.Collections.Generic.Queue<double> _cpuHist = new();
     private string _pmaUrl = "", _admUrl = "", _mailUrl = "";
 
     private static readonly SolidColorBrush On  = new(Colors.SeaGreen);
@@ -69,7 +70,18 @@ public sealed partial class DashboardPage : Page
         CacheDot.Fill = redis || memc ? On : Off;
 
         // ── metrics ──
-        var cpu = SystemMetrics.CpuPercent(); CpuText.Text = $"{cpu:0}%"; CpuBar.Value = cpu;
+        var cpu = SystemMetrics.CpuPercent(); CpuText.Text = $"{cpu:0}%";
+        _cpuHist.Enqueue(cpu);
+        while (_cpuHist.Count > 40) _cpuHist.Dequeue();
+        var arr = _cpuHist.ToArray();
+        var pts = new Microsoft.UI.Xaml.Media.PointCollection();
+        for (var i = 0; i < arr.Length; i++)
+        {
+            var x = arr.Length <= 1 ? 0 : i * 200.0 / (arr.Length - 1);
+            var y = 30 - arr[i] / 100.0 * 30;
+            pts.Add(new Windows.Foundation.Point(x, y));
+        }
+        CpuSpark.Points = pts;
         var (mu, mt, mp) = SystemMetrics.Memory(); MemText.Text = $"{mu:0.0} / {mt:0.0} GB"; MemBar.Value = mp;
         var (du, dt, dp) = SystemMetrics.Disk(); DiskText.Text = $"{du:0} / {dt:0} GB"; DiskBar.Value = dp;
         var (down, up) = SystemMetrics.Network();

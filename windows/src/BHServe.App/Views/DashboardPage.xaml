@@ -88,7 +88,10 @@
         <Grid ColumnSpacing="12">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border Grid.Column="0" Style="{StaticResource Card}">
-                <StackPanel Spacing="4"><TextBlock Text="CPU" Opacity="0.6" FontSize="12"/><TextBlock x:Name="CpuText" FontSize="20" FontWeight="SemiBold" Text="—"/><ProgressBar x:Name="CpuBar" Minimum="0" Maximum="100"/></StackPanel>
+                <StackPanel Spacing="4"><TextBlock Text="CPU" Opacity="0.6" FontSize="12"/><TextBlock x:Name="CpuText" FontSize="20" FontWeight="SemiBold" Text="—"/>
+                    <Viewbox Height="30" HorizontalAlignment="Stretch" Stretch="Fill">
+                        <Canvas Width="200" Height="30"><Polyline x:Name="CpuSpark" Stroke="{ThemeResource AccentFillColorDefaultBrush}" StrokeThickness="1.5" StrokeLineJoin="Round"/></Canvas>
+                    </Viewbox></StackPanel>
             </Border>
             <Border Grid.Column="1" Style="{StaticResource Card}">
                 <StackPanel Spacing="4"><TextBlock Text="Memory" Opacity="0.6" FontSize="12"/><TextBlock x:Name="MemText" FontSize="20" FontWeight="SemiBold" Text="—"/><ProgressBar x:Name="MemBar" Minimum="0" Maximum="100"/></StackPanel>

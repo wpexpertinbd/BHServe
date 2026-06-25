@@ -22,6 +22,9 @@ public sealed partial class MainWindow : Window
         _tray = new TrayIcon("BHServe — local web stack", icon);
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(ShowFromTray);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(QuitApp);
+        _tray.StartAllRequested   += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Start("all"); } catch { } });
+        _tray.StopAllRequested    += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Stop("all"); } catch { } });
+        _tray.RestartAllRequested += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Restart("all"); } catch { } });
 
         // Close → hide to tray when "keep running" is on (Settings); otherwise really quit.
         AppWindow.Closing += (_, e) =>

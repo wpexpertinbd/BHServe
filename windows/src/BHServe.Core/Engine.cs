@@ -820,6 +820,31 @@ public sealed class Engine
         if (sub is "install" or "i") Ok($"node {v} installed — run with: fnm use {v} (FNM_DIR={nodeDir})");
     }
 
+    /// <summary>Installed Node versions (via fnm) + which is the default — for the GUI list.</summary>
+    public IReadOnlyList<(string version, bool isDefault)> NodeVersions()
+    {
+        NeedInit();
+        var fnm = Tools.FnmExe();
+        if (fnm is null) return Array.Empty<(string, bool)>();
+        var nodeDir = Path.Combine(Paths.Home, "node");
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = fnm, Arguments = "list", UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = nodeDir,
+        };
+        psi.Environment["FNM_DIR"] = nodeDir;
+        string outp;
+        try { var p = System.Diagnostics.Process.Start(psi)!; outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd(); p.WaitForExit(); }
+        catch { return Array.Empty<(string, bool)>(); }
+        var list = new List<(string, bool)>();
+        foreach (var line in outp.Replace("\r", "").Split('\n'))
+        {
+            var m = Regex.Match(line, @"v(\d+\.\d+\.\d+)");
+            if (m.Success) list.Add((m.Groups[1].Value, line.Contains("default")));
+        }
+        return list;
+    }
+
     // ── Node-app sites (supervised frontend/backend behind an nginx reverse proxy) ──
     public void NodeSiteAdd(string name, string feDir, string feCmd, int fePort,
                             string? beDir, string? beCmd, int bePort, string apiPath)
