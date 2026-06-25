@@ -45,11 +45,19 @@ public sealed partial class SiteListControl : UserControl
 
     public SiteListControl() => InitializeComponent();
 
-    /// <summary>Pick the default page size (from config) in the Show box. Call before SetData.</summary>
+    /// <summary>Apply the configured default page size to the Show box. If the value isn't one of the
+    /// standard options (e.g. 5), insert it so the list actually defaults to exactly that number.</summary>
     public void SetDefaultPageSize(int size)
     {
-        var idx = size switch { 10 => 0, 15 => 1, 20 => 2, 50 => 3, 100 => 4, _ => 1 };
-        ShowBox.SelectedIndex = idx;
+        if (size < 1) size = 1;
+        var match = ShowBox.Items.OfType<ComboBoxItem>()
+                          .FirstOrDefault(i => i.Content?.ToString() == size.ToString());
+        if (match is null)
+        {
+            match = new ComboBoxItem { Content = size.ToString() };
+            ShowBox.Items.Insert(0, match);   // custom value at the top, before the standard options
+        }
+        ShowBox.SelectedItem = match;
         _ready = true;
     }
 
