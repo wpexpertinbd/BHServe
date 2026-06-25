@@ -110,6 +110,13 @@ public static class Tools
     public static string? ApacheRoot() =>
         HttpdExe() is { } exe ? Path.GetDirectoryName(Path.GetDirectoryName(exe)!) : null;
 
+    public static string? CloudflaredExe()
+    {
+        var managed = Path.Combine(Paths.Bin, "cloudflared", "cloudflared.exe");
+        if (File.Exists(managed)) return managed;
+        return FindUnder(Path.Combine(Paths.Bin, "cloudflared"), "cloudflared.exe");
+    }
+
     public static string? FnmExe()
     {
         var managed = FindUnder(Path.Combine(Paths.Bin, "fnm"), "fnm.exe");

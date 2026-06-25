@@ -72,6 +72,7 @@ try
         case "adminer": engine.Adminer(); break;
         case "pma" or "phpmyadmin": engine.PhpMyAdmin(); break;
         case "mailpit": engine.Mailpit(); break;
+        case "tunnel":  engine.Tunnel(Arg(rest, 0), rest.Skip(1).ToArray()); break;
 
         case "help" or "-h" or "--help": Usage(); break;
         default: Usage(); return 1;

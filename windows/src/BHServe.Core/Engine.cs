@@ -636,6 +636,52 @@ public sealed class Engine
         if (sub is "install" or "i") Ok($"node {v} installed — run with: fnm use {v} (FNM_DIR={nodeDir})");
     }
 
+    /// <summary>Cloudflare quick tunnel — share a local site on a public https URL (no account).</summary>
+    public void Tunnel(string sub, params string[] args)
+    {
+        NeedInit();
+        var name = args.Length > 0 ? args[0] : "";
+        switch (sub)
+        {
+            case "install":
+                if (Tools.CloudflaredExe() is not null) { Ok("cloudflared already installed"); return; }
+                Hdr("Installing cloudflared");
+                Ok($"cloudflared installed: {Downloader.InstallCloudflared().GetAwaiter().GetResult()}");
+                break;
+            case "start":
+            {
+                if (name == "") throw new BhException("usage: bhserve tunnel start <site>");
+                var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+                if (!File.Exists(conf)) throw new BhException($"no site '{name}'");
+                if (!Nginx.Running()) throw new BhException("nginx not running — start it first (bhserve start nginx)");
+                var cfg = Config.Load();
+                var domain = $"{name}.{cfg.Tld}";
+                var origin = File.ReadAllText(conf).Contains($"listen 127.0.0.1:{cfg.HttpsPort} ssl")
+                    ? $"https://127.0.0.1:{cfg.HttpsPort}" : $"http://127.0.0.1:{cfg.HttpPort}";
+                Hdr($"Cloudflare tunnel → {domain}");
+                var (ok, msg) = BHServe.Core.Tunnel.Start(name, domain, origin);
+                if (ok) { Ok($"public URL: {msg}"); Info($"origin: {origin} (Host: {domain})"); }
+                else No(msg);
+                break;
+            }
+            case "stop":
+                if (name == "") throw new BhException("usage: bhserve tunnel stop <site>");
+                BHServe.Core.Tunnel.Stop(name); Ok($"tunnel stopped ({name})");
+                break;
+            case "url":
+                if (name == "") throw new BhException("usage: bhserve tunnel url <site>");
+                Out(BHServe.Core.Tunnel.Url(name) ?? "(no tunnel)");
+                break;
+            case "" or "list" or "status":
+                Hdr("Tunnels");
+                var any = false;
+                foreach (var (n, u) in BHServe.Core.Tunnel.List()) { Ok($"{n,-16} {u}"); any = true; }
+                if (!any) Info("none running — bhserve tunnel start <site>");
+                break;
+            default: throw new BhException("usage: bhserve tunnel {install|start <site>|stop <site>|url <site>|list}");
+        }
+    }
+
     /// <summary>Download phpMyAdmin and serve it at phpmyadmin.&lt;tld&gt; (connects to BHServe's MySQL).</summary>
     public void PhpMyAdmin()
     {

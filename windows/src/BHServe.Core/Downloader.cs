@@ -125,6 +125,19 @@ public static class Downloader
         return Tools.MailpitExe() ?? throw new InvalidOperationException("mailpit.exe not found after extract");
     }
 
+    public static async Task<string> InstallCloudflared()
+    {
+        var url = await GithubAsset("cloudflare/cloudflared",
+            n => n.Equals("cloudflared-windows-amd64.exe", StringComparison.OrdinalIgnoreCase));
+        var dir = Path.Combine(Paths.Bin, "cloudflared");
+        Directory.CreateDirectory(dir);
+        var dest = Path.Combine(dir, "cloudflared.exe");
+        await using var s = await Http.GetStreamAsync(url);
+        await using var f = File.Create(dest);
+        await s.CopyToAsync(f);
+        return dest;
+    }
+
     public static async Task<string> InstallFnm()
     {
         // fnm ships fnm-windows.zip (contains fnm.exe)
