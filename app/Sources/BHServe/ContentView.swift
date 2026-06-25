@@ -115,18 +115,22 @@ struct StatusFooter: View {
                 if state.busy { ProgressView().controlSize(.small) }
             }
             VStack(spacing: 6) {
+                // Start: enabled only when something installed isn't already running.
                 Button { Task { await state.control("start", "all") } } label: {
                     Label("Start All", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.hasDaemons || state.allDaemonsRunning)
+                // Stop/Restart: enabled only when at least one service is running.
                 Button { Task { await state.control("stop", "all") } } label: {
                     Label("Stop All", systemImage: "stop.fill").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.anyDaemonRunning)
                 Button { Task { await state.restartAll() } } label: {
                     Label("Restart All", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.anyDaemonRunning)
             }
             .controlSize(.large)
-            .disabled(state.busy)
             if let note = state.lastAction {
                 Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }

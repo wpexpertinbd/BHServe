@@ -108,6 +108,16 @@ final class AppState {
     var running: [Service] { snapshot?.services.filter { $0.running } ?? [] }
     var installed: [Service] { snapshot?.services.filter { $0.installed } ?? [] }
 
+    /// Installed *daemon* services that Start/Stop/Restart-All actually manage — excludes
+    /// non-daemon tools (mkcert/fnm always report "active" once installed, so they'd skew
+    /// the all-running check). Drives the enabled/disabled state of the footer buttons.
+    var daemonServices: [Service] {
+        (snapshot?.services ?? []).filter { $0.installed && ["php", "web", "db", "cache", "mail", "dns"].contains($0.role) }
+    }
+    var hasDaemons: Bool { !daemonServices.isEmpty }
+    var allDaemonsRunning: Bool { let d = daemonServices; return !d.isEmpty && d.allSatisfy { $0.running } }
+    var anyDaemonRunning: Bool { daemonServices.contains { $0.running } }
+
     /// App version from the bundle (falls back to "dev" under `swift run`).
     var appVersion: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev" }
 

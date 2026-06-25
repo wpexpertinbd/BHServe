@@ -23,7 +23,9 @@
   - App name + version + a green/grey "any service running" dot
   - One-line list of running services
   - **Live CPU / RAM / Disk** bars + a CPU **sparkline**
-  - **Start All / Stop All / Restart All** buttons
+  - **Start All / Stop All / Restart All** buttons — **state-aware enablement**: Start All is disabled when all
+  installed daemon services are already running; Stop All / Restart All are disabled when nothing is running.
+  (mkcert/fnm are excluded — they're tools, not daemons, so they don't count toward "all running".)
   - First **5 sites** as clickable open-in-browser links (lock icon if HTTPS); "+N total" hint if >5
   - **Tools** quick-open (phpMyAdmin / Adminer / Mailpit) — only when installed & served
   - **Open BHServe** + **Quit**

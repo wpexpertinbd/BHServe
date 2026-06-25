@@ -112,10 +112,12 @@ struct MenuBarView: View {
 
             HStack {
                 Button("Start All") { Task { await state.control("start", "all") } }
+                    .disabled(state.busy || !state.hasDaemons || state.allDaemonsRunning)
                 Button("Stop All") { Task { await state.control("stop", "all") } }
+                    .disabled(state.busy || !state.anyDaemonRunning)
                 Button("Restart All") { Task { await state.restartAll() } }
+                    .disabled(state.busy || !state.anyDaemonRunning)
             }
-            .disabled(state.busy)
 
             if !state.realSites.isEmpty {
                 Divider()
