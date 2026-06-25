@@ -219,7 +219,7 @@ public sealed class Engine
         root ??= Path.Combine(cfg.SitesRoot, name);
         if (string.IsNullOrEmpty(server)) server = cfg.DefaultWeb;
         if (server is not ("nginx" or "apache")) throw new BhException("--server must be nginx or apache");
-        if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache (Laragon ships it)");
+        if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache from the Services page first");
         var phpKey = Services.PhpKey(php, cfg);
         var version = Services.PhpVersion(phpKey, cfg);
 
