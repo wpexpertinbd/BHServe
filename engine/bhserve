@@ -186,26 +186,26 @@ svc_stop_any(){
 # Is a brew-services formula currently started?
 brew_svc_running(){ brew services list 2>/dev/null | awk -v f="$1" '$1==f && $2=="started"{e=1} END{exit !e}'; }
 
-# Dump ALL MySQL/MariaDB databases to a timestamped file — the safety net before a
-# DB engine upgrade (a major-version jump can need a datadir migration; the dump means
-# data is always recoverable). The data directory itself is never touched by brew.
-db_backup_mysql(){
-  local dir="$BH_HOME/backups"; mkdir -p "$dir"
-  local out="$dir/mariadb-$(date +%Y%m%d-%H%M%S).sql" dump="$BREW_PREFIX/bin/mysqldump"
-  [ -x "$dump" ] || { warn "mysqldump not found — skipping pre-upgrade backup"; return 0; }
-  info "backing up all databases → $out"
-  if "$dump" --all-databases --single-transaction --routines --events >"$out" 2>/dev/null \
-     || "$dump" -u root --all-databases --single-transaction --routines --events >"$out" 2>/dev/null; then
-    ok "database backup saved: $out"
-  else warn "couldn't dump databases (continuing) — your data directory is left untouched"; rm -f "$out"; fi
+# Standard post-upgrade step for MariaDB/MySQL — the same `mariadb-upgrade` you'd run on a
+# live box: migrates the system / privilege tables to the new server version. No dump — the
+# data directory stays compatible across the upgrade; this just refreshes the metadata.
+db_post_upgrade(){
+  local up=""
+  for c in mariadb-upgrade mysql_upgrade; do [ -x "$BREW_PREFIX/bin/$c" ] && { up="$BREW_PREFIX/bin/$c"; break; }; done
+  [ -n "$up" ] || return 0
+  brew_svc_running "$(svc_formula mariadb)" || brew_svc_running "$(svc_formula mysql)" || {
+    warn "database not running — once it's up, run: $up"; return 0; }
+  sleep 1
+  info "running $(basename "$up") (migrate system tables to the new version)…"
+  if "$up" >/dev/null 2>&1 || "$up" -u root >/dev/null 2>&1; then ok "$(basename "$up") complete — databases ready"
+  else warn "$(basename "$up") reported issues — run it manually: $up"; fi
 }
 
-# Safely upgrade ONE service to the latest stable: (DB → back up first), brew upgrade,
-# then restart it onto the new binary so sites keep working. Data/config untouched.
+# Upgrade ONE service to the latest stable: brew upgrade, restart onto the new binary so
+# sites keep working, then (DB) run mariadb-upgrade. Data + config are never touched.
 update_one(){
   local key="$1" f role; f="$(svc_formula "$key")"; role="$(svc_role "$key")"
   hdr "Updating $key → latest stable  (brew upgrade $f)"
-  case "$key" in mariadb|mysql) brew_svc_running "$f" && db_backup_mysql ;; esac
   brew upgrade "$f" 2>&1 | tail -3 || true
   case "$role" in
     php) if fpm_running "$key"; then fpm_stop "$key" >/dev/null 2>&1 || true; fpm_start "$key" >/dev/null 2>&1 || true; fi ;;
@@ -214,9 +214,7 @@ update_one(){
     db|cache|mail) if brew_svc_running "$f"; then brew_svc stop "$key" >/dev/null 2>&1 || true; sleep 1; brew_svc start "$key" >/dev/null 2>&1 || warn "$key didn't restart after upgrade"; fi ;;
   esac
   ok "$key now $(probe_version "$BREW_PREFIX/$(svc_probe "$key")")"
-  case "$key" in mariadb|mysql)
-    brew_svc_running "$f" || warn "⚠ database not running after upgrade — your data is SAFE (backup in $BH_HOME/backups). Try: $BREW_PREFIX/bin/mariadb-upgrade  (or restore the dump)" ;;
-  esac
+  case "$key" in mariadb|mysql) db_post_upgrade ;; esac
 }
 
 cmd_update() {
@@ -225,8 +223,6 @@ cmd_update() {
   brew update >/dev/null 2>&1 || true
   if [ "$1" = all ]; then
     hdr "Updating all installed services → latest stable"
-    # back up DBs up-front (whole-fleet upgrade), then update each running/installed service
-    ( svc_installed mariadb && brew_svc_running "$(svc_formula mariadb)" ) && db_backup_mysql || true
     local IFS='|' key _f _p _r
     while read -r key _f _p _r; do
       [ -n "$key" ] || continue; svc_installed "$key" || continue
