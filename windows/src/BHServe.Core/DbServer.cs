@@ -76,9 +76,13 @@ public static class DbServer
         var psi = new ProcessStartInfo
         {
             FileName = mysqld,
-            // --bind-address=127.0.0.1: never expose the DB (esp. passwordless root) to the LAN.
-            // --max-allowed-packet=1G: allow large SQL imports/dumps (default 64M chokes big phpMyAdmin imports).
-            Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --max-allowed-packet=1024M --port={Port} --mysqlx=0",
+            // Security: --bind-address=127.0.0.1 (never expose the DB to the LAN).
+            // Capacity: --max-allowed-packet=1G (big SQL imports).
+            // Performance (dev-tuned): a 256M InnoDB buffer pool keeps WordPress's working set in
+            //   RAM, and flush-log-at-trx-commit=2 avoids an fsync per commit (safe enough for local
+            //   dev) — together a big speedup for query-heavy pages.
+            Arguments = $"--datadir=\"{DataDir}\" --bind-address=127.0.0.1 --max-allowed-packet=1024M " +
+                        $"--innodb-buffer-pool-size=256M --innodb-flush-log-at-trx-commit=2 --port={Port} --mysqlx=0",
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(mysqld)!,
