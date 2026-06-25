@@ -66,6 +66,7 @@ try
             break;
 
         case "db":      engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "pg":      engine.Pg(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "node":    engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "nodesite":
             switch (Arg(rest, 0))

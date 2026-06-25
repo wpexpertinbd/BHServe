@@ -1,9 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using BHServe.App.Services;
 using BHServe.Core;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 
 namespace BHServe.App.Views;
@@ -12,19 +16,41 @@ namespace BHServe.App.Views;
 public sealed class SvcRow
 {
     public required string Key { get; init; }
+    public required string Version { get; init; }
     public required bool Installed { get; init; }
     public required bool Running { get; init; }
-    public required bool Manageable { get; init; }   // nginx + php have start/stop wired
+    public required bool AutoStart { get; init; }
+    public required bool Manageable { get; init; }
     public bool NotInstalled => !Installed;
     public bool CanStart => Installed && !Running && Manageable;
     public bool IsPhp => Key.StartsWith("php");
-    public Microsoft.UI.Xaml.Visibility PhpVis => IsPhp ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
-    public string StatusText =>
-        (Installed ? "installed" : "not installed") + (Running ? " · running" : "");
+    public Visibility PhpVis => IsPhp ? Visibility.Visible : Visibility.Collapsed;
+    public Brush DotBrush => new SolidColorBrush(Running ? Colors.SeaGreen : Installed ? Colors.Gray : Colors.DimGray);
+    public string StatusText
+    {
+        get
+        {
+            var st = Running ? "running" : Installed ? "stopped" : "not installed";
+            return Version.Length > 0 ? $"{Version}  ·  {st}" : st;
+        }
+    }
+}
+
+/// <summary>A titled group of services (PHP, Web servers, …).</summary>
+public sealed class SvcGroup
+{
+    public required string Title { get; init; }
+    public required List<SvcRow> Rows { get; init; }
 }
 
 public sealed partial class ServicesPage : Page
 {
+    private static readonly (ServiceRole role, string title)[] Order =
+    {
+        (ServiceRole.Php, "PHP"), (ServiceRole.Web, "Web servers"), (ServiceRole.Db, "Databases"),
+        (ServiceRole.Cache, "Cache"), (ServiceRole.Mail, "Mail"), (ServiceRole.Node, "Node"), (ServiceRole.Tool, "Tools"),
+    };
+
     public ServicesPage() => InitializeComponent();
 
     protected override void OnNavigatedTo(NavigationEventArgs e) => Refresh();
@@ -33,45 +59,47 @@ public sealed partial class ServicesPage : Page
     {
         Snapshot snap;
         try { snap = await EngineHost.Instance.Snapshot(); } catch { return; }
-        List.ItemsSource = snap.Services.Select(s => new SvcRow
+        var cfg = Config.Load();
+
+        var rows = snap.Services.Select(s => new SvcRow
         {
-            Key = s.Key, Installed = s.Installed, Running = s.Running,
+            Key = s.Key, Version = BHServe.Core.Services.ShortVersion(s.Key, cfg),
+            Installed = s.Installed, Running = s.Running, AutoStart = s.AutoStart,
             Manageable = s.Role is ServiceRole.Php
                 || s.Key is "nginx" or "apache" or "mariadb" or "redis" or "memcached" or "mailpit",
         }).ToList();
+
+        Groups.ItemsSource = Order
+            .Select(o => new SvcGroup
+            {
+                Title = o.title,
+                Rows = rows.Where(r => BHServe.Core.Services.RoleOf(r.Key) == o.role).ToList(),
+            })
+            .Where(g => g.Rows.Count > 0)
+            .ToList();
     }
 
-    // Map a service key to the install token the Engine understands.
-    private static string InstallToken(string key) => key switch
+    private static string InstallToken(string key) => key;   // "php@8.4" / "nginx" / … pass through
+
+    private void AutoStar_Click(object sender, RoutedEventArgs e)
     {
-        "nginx" or "mkcert" => key,
-        _ when key.StartsWith("php") => key,   // "php" | "php@8.4"
-        _ => key,
-    };
+        if (sender is not ToggleButton tb || tb.Tag is not string key) return;
+        var cfg = Config.Load();
+        if (tb.IsChecked == true) BHServe.Core.Services.Enable(key, cfg);
+        else BHServe.Core.Services.Disable(key, cfg);
+    }
 
     private async void Install_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as Button)?.Tag is string key)
-            await Op(() => EngineHost.Instance.Engine.Install(InstallToken(key)));
-    }
+    { if ((sender as Button)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Install(InstallToken(key))); }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as Button)?.Tag is string key)
-            await Op(() => EngineHost.Instance.Engine.Start(key));
-    }
+    { if ((sender as Button)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Start(key)); }
 
     private async void Stop_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is string key)
-            await Op(() => EngineHost.Instance.Engine.Stop(key));
-    }
+    { if ((sender as FrameworkElement)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Stop(key)); }
 
     private async void Update_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is string key)
-            await Op(() => EngineHost.Instance.Engine.Update(InstallToken(key)));
-    }
+    { if ((sender as FrameworkElement)?.Tag is string key) await Op(() => EngineHost.Instance.Engine.Update(InstallToken(key))); }
 
     private async void Uninstall_Click(object sender, RoutedEventArgs e)
     {

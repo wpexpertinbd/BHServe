@@ -201,6 +201,19 @@ public static class Downloader
         return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
     }
 
+    private const string PgPinned = "16.4-1";
+
+    /// <summary>Download PostgreSQL (EDB portable Windows binaries) into bin\postgresql.</summary>
+    public static async Task<string> InstallPostgres()
+    {
+        var url = $"https://get.enterprisedb.com/postgresql/postgresql-{PgPinned}-windows-x64-binaries.zip";
+        var zip = await DownloadToTmp(url, "postgresql.zip");
+        var dir = Path.Combine(Paths.Bin, "postgresql");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(zip, dir);   // → bin\postgresql\pgsql\bin\postgres.exe
+        return Tools.PostgresExe() ?? throw new InvalidOperationException("postgres.exe not found after extract");
+    }
+
     /// <summary>Download Apache (Apache Lounge build) into bin\apache.</summary>
     public static async Task<string> InstallApache()
     {
@@ -299,9 +312,10 @@ public static class Downloader
         if (File.Exists(sample) && !File.Exists(cfg))
         {
             var txt = await File.ReadAllTextAsync(sample);
+            var rootPw = Config.Load().RootPassword;
             txt = txt.Replace("database_name_here", db)
                      .Replace("username_here", "root")
-                     .Replace("'password_here'", "''")
+                     .Replace("'password_here'", $"'{rootPw}'")
                      .Replace("localhost", "127.0.0.1");
             try
             {
@@ -337,6 +351,7 @@ public static class Downloader
 
         // config.inc.php: connect to BHServe's MySQL as passwordless root.
         var secret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        var allowNoPw = Config.Load().RootPassword.Length == 0 ? "true" : "false";
         File.WriteAllText(Path.Combine(root, "config.inc.php"),
             "<?php\n" +
             $"$cfg['blowfish_secret'] = '{secret}';\n" +
@@ -344,7 +359,7 @@ public static class Downloader
             "$cfg['Servers'][$i]['host'] = '127.0.0.1';\n" +
             "$cfg['Servers'][$i]['port'] = '3306';\n" +
             "$cfg['Servers'][$i]['auth_type'] = 'cookie';\n" +
-            "$cfg['Servers'][$i]['AllowNoPassword'] = true;\n");
+            $"$cfg['Servers'][$i]['AllowNoPassword'] = {allowNoPw};\n");
     }
 
     /// <summary>Download the latest single-file Adminer to <paramref name="dest"/>.</summary>

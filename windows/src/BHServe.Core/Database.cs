@@ -11,7 +11,31 @@ public static class Database
 {
     private static readonly string[] SystemSchemas = { "information_schema", "performance_schema", "mysql", "sys" };
 
-    private static string BaseArgs => $"-u root -h 127.0.0.1 -P {DbServer.Port} --connect-timeout=5";
+    public static bool HasRootPassword => Config.Load().RootPassword.Length > 0;
+
+    private static string BaseArgs
+    {
+        get
+        {
+            var pw = Config.Load().RootPassword;
+            return $"-u root -h 127.0.0.1 -P {DbServer.Port} --connect-timeout=5" + (pw.Length > 0 ? $" -p{pw}" : "");
+        }
+    }
+
+    /// <summary>Set (or clear, with "") the root@localhost / root@127.0.0.1 password and persist it
+    /// so every later connection uses it. Local-dev only.</summary>
+    public static void SetRootPassword(string newPw)
+    {
+        if (!DbServer.Running()) throw new BhException("database server not running — bhserve start mariadb");
+        var p = Esc(newPw);
+        var sql =
+            $"ALTER USER 'root'@'localhost' IDENTIFIED BY '{p}';" +
+            $"ALTER USER 'root'@'127.0.0.1' IDENTIFIED BY '{p}';" +
+            "FLUSH PRIVILEGES;";
+        var (code, outp) = Mysql($"-e \"{sql}\"");
+        if (code != 0) throw new BhException("set root password failed:\n" + outp);
+        var cfg = Config.Load(); cfg.RootPassword = newPw; cfg.Save();
+    }
 
     private static (int code, string output) Mysql(string sqlArgs)
     {

@@ -21,6 +21,7 @@ public static class Services
         list.Add(new("nginx",     ServiceRole.Web));
         list.Add(new("apache",    ServiceRole.Web));
         list.Add(new("mariadb",   ServiceRole.Db));
+        list.Add(new("postgresql",ServiceRole.Db));
         list.Add(new("redis",     ServiceRole.Cache));
         list.Add(new("memcached", ServiceRole.Cache));
         list.Add(new("mkcert",    ServiceRole.Tool));
@@ -31,6 +32,22 @@ public static class Services
 
     public static bool Exists(string key) => All.Any(s => s.Key == key);
     public static ServiceRole RoleOf(string key) => All.FirstOrDefault(s => s.Key == key)?.Role ?? ServiceRole.Other;
+
+    /// <summary>A short version/label for a service row (best-effort, no process spawn).</summary>
+    public static string ShortVersion(string key, Config cfg) => key switch
+    {
+        "nginx"     => "nginx 1.27",
+        "apache"    => "httpd 2.4",
+        "mariadb"   => "MySQL 8.4",
+        "postgresql"=> "PostgreSQL 16",
+        "redis"     => "Redis",
+        "memcached" => "Memcached",
+        "mailpit"   => "Mailpit",
+        "mkcert"    => "mkcert",
+        "fnm"       => "fnm",
+        _ when RoleOf(key) == ServiceRole.Php => "PHP " + PhpVersion(key, cfg),
+        _ => "",
+    };
 
     /// <summary>Normalize a --php value ("8.4" | "php@8.4" | "default" | "") to a registry key (mirrors bash php_key).</summary>
     public static string PhpKey(string? v, Config cfg)
@@ -53,6 +70,7 @@ public static class Services
         "nginx"     => Tools.NginxExe() is not null,
         "apache"    => Tools.HttpdExe() is not null,
         "mariadb"   => Tools.MysqldExe() is not null,
+        "postgresql"=> Tools.PostgresExe() is not null,
         "redis"     => Tools.RedisServerExe() is not null,
         "memcached" => Tools.MemcachedExe() is not null,
         "mkcert"    => Tools.MkcertExe() is not null,

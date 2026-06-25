@@ -17,14 +17,42 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="10">
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <TextBox x:Name="VerBox" PlaceholderText="version (e.g. 20, 22, lts)" Width="200"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBox x:Name="VerBox" PlaceholderText="version (e.g. 20, 22, lts)" Width="170"/>
                     <Button Content="Install" Click="Install_Click" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button Content="Set default" Click="Default_Click"/>
-                    <Button Content="Uninstall" Click="Uninstall_Click"/>
                     <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock x:Name="OutputBox" FontFamily="Consolas" TextWrapping="Wrap" Text="Installed versions appear here."/>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Quick install:" Opacity="0.7" VerticalAlignment="Center"/>
+                    <Button Content="18"     Tag="18"     Click="Quick_Click"/>
+                    <Button Content="20"     Tag="20"     Click="Quick_Click"/>
+                    <Button Content="22"     Tag="22"     Click="Quick_Click"/>
+                    <Button Content="24"     Tag="24"     Click="Quick_Click"/>
+                    <Button Content="lts"    Tag="lts"    Click="Quick_Click"/>
+                    <Button Content="latest" Tag="latest" Click="Quick_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="EmptyVers" Text="No Node versions installed yet." Opacity="0.6" Visibility="Collapsed"/>
+                <ItemsControl x:Name="VersList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:NodeVerRow">
+                            <Grid Padding="4,5" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Display}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" VerticalAlignment="Center" CornerRadius="4" Padding="7,2"
+                                        Background="{ThemeResource AccentFillColorDefaultBrush}" Visibility="{x:Bind DefaultVis}">
+                                    <TextBlock Text="default" FontSize="11" Foreground="White"/>
+                                </Border>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Use as default" Tag="{x:Bind Version}" Click="Use_Click" IsEnabled="{x:Bind NotDefault}"/>
+                                    <Button Content="Uninstall" Tag="{x:Bind Version}" Click="UninstallVer_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
         </Border>
 

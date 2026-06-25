@@ -21,6 +21,9 @@ public sealed class Config
     [JsonPropertyName("minimize_to_tray")] public bool MinimizeToTray { get; set; } = true;
     [JsonPropertyName("dashboard_page_size")] public int DashboardPageSize { get; set; } = 10;
     [JsonPropertyName("sites_page_size")]     public int SitesPageSize { get; set; } = 15;
+    [JsonPropertyName("auto_update")]              public bool AutoUpdate { get; set; } = true;
+    [JsonPropertyName("start_services_on_launch")] public bool StartServicesOnLaunch { get; set; } = false;
+    [JsonPropertyName("root_password")]            public string RootPassword { get; set; } = "";   // "" = passwordless root
 
     private static readonly JsonSerializerOptions Opts = new()
     {

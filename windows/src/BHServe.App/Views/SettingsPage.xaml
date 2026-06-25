@@ -5,35 +5,54 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <ScrollViewer>
-        <StackPanel Padding="24" Spacing="16" MaxWidth="640" HorizontalAlignment="Left">
+        <StackPanel Padding="24" Spacing="16" MaxWidth="660" HorizontalAlignment="Left">
             <TextBlock Text="Settings" FontSize="26" FontWeight="SemiBold"/>
 
+            <!-- Domains, ports & defaults (editable) -->
             <Border BorderThickness="1" CornerRadius="8" Padding="16"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="10">
-                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="TLD" Opacity="0.7"/><TextBlock x:Name="TldText" Grid.Column="1"/></Grid>
-                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="HTTP / HTTPS port" Opacity="0.7"/><TextBlock x:Name="PortsText" Grid.Column="1"/></Grid>
-                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="Default PHP" Opacity="0.7"/><TextBlock x:Name="PhpText" Grid.Column="1"/></Grid>
-                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="Sites root" Opacity="0.7"/><TextBlock x:Name="RootText" Grid.Column="1" TextWrapping="Wrap"/></Grid>
-                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="Data directory" Opacity="0.7"/><TextBlock x:Name="HomeText" Grid.Column="1" TextWrapping="Wrap"/></Grid>
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Domains, ports &amp; defaults" FontWeight="SemiBold"/>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBox  x:Name="TldBox"   Header="TLD" Width="120"/>
+                        <NumberBox x:Name="HttpBox"  Header="HTTP port"  Width="130" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="HttpsBox" Header="HTTPS port" Width="130" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Compact"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ComboBox x:Name="PhpDefBox" Header="Default PHP" Width="120"/>
+                        <ComboBox x:Name="WebDefBox" Header="Default web server" Width="160">
+                            <ComboBoxItem Content="nginx"/>
+                            <ComboBoxItem Content="apache"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="RootBox" Header="Sites root" Grid.Column="0"/>
+                        <Button Content="Browse…" Grid.Column="1" Click="BrowseRoot_Click" VerticalAlignment="Bottom"/>
+                    </Grid>
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="Data directory" Opacity="0.7" VerticalAlignment="Center"/><TextBlock x:Name="HomeText" Grid.Column="1" TextWrapping="Wrap" VerticalAlignment="Center"/></Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="SaveBtn" Content="Save" Click="Save_Click" Style="{StaticResource AccentButtonStyle}"/>
+                        <Button Content="Revert" Click="Revert_Click"/>
+                        <ProgressRing x:Name="Busy" IsActive="False" Width="18" Height="18" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SaveStatus" Opacity="0.7" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <TextBlock Text="Changing the TLD or ports re-renders all vhosts and restarts nginx. After a TLD change, re-issue HTTPS per site." Opacity="0.55" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
+            <!-- App behavior -->
             <Border BorderThickness="1" CornerRadius="8" Padding="16"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                 <StackPanel Spacing="10">
-                    <ToggleSwitch x:Name="AutostartToggle" Header="Start BHServe at login"
-                                  OffContent="Off" OnContent="On" Toggled="Autostart_Toggled"/>
+                    <ToggleSwitch x:Name="AutostartToggle" Header="Start BHServe at login" OffContent="Off" OnContent="On" Toggled="Autostart_Toggled"/>
+                    <ToggleSwitch x:Name="StartSvcToggle" Header="Start services when BHServe launches" OffContent="Off" OnContent="On" Toggled="Flag_Toggled"/>
                     <ToggleSwitch x:Name="TrayToggle" Header="Keep running in the system tray when the window is closed"
-                                  OffContent="Off — closing the window quits BHServe" OnContent="On — sites stay up in the background"
-                                  Toggled="Tray_Toggled"/>
+                                  OffContent="Off — closing the window quits BHServe" OnContent="On — sites stay up in the background" Toggled="Tray_Toggled"/>
+                    <ToggleSwitch x:Name="AutoUpdateToggle" Header="Automatically check for updates" OffContent="Off" OnContent="On" Toggled="Flag_Toggled"/>
                     <StackPanel Orientation="Horizontal" Spacing="16">
                         <NumberBox x:Name="DashSizeBox" Header="Dashboard list — sites per page" Width="220"
                                    Minimum="1" Maximum="500" SpinButtonPlacementMode="Inline" ValueChanged="ListSize_Changed"/>

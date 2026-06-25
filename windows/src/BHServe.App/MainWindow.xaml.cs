@@ -22,6 +22,9 @@ public sealed partial class MainWindow : Window
         _tray = new TrayIcon("BHServe — local web stack", icon);
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(ShowFromTray);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(QuitApp);
+        _tray.StartAllRequested   += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Start("all"); } catch { } });
+        _tray.StopAllRequested    += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Stop("all"); } catch { } });
+        _tray.RestartAllRequested += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Restart("all"); } catch { } });
 
         // Close → hide to tray when "keep running" is on (Settings); otherwise really quit.
         AppWindow.Closing += (_, e) =>
@@ -36,6 +39,20 @@ public sealed partial class MainWindow : Window
                     "Your sites stay up in the background. Click this icon to reopen — use the ^ to show hidden icons if you don't see it. Turn this off in Settings.");
             }
         };
+
+        if (Config.Load().AutoUpdate) _ = CheckUpdateBadge();
+    }
+
+    /// <summary>If an update is available, show an attention dot on the Settings nav item (mac sidebar badge).</summary>
+    private async System.Threading.Tasks.Task CheckUpdateBadge()
+    {
+        try
+        {
+            var r = await Updater.Check();
+            if (r.UpdateAvailable && Nav.SettingsItem is NavigationViewItem si)
+                si.InfoBadge = new InfoBadge();   // default style = attention dot
+        }
+        catch { }
     }
 
     private void ShowFromTray()
