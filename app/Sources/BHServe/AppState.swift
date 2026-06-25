@@ -12,6 +12,32 @@ final class AppState {
     var busy = false
     var lastAction: String?
 
+    /// Outcome of a long action (add site / install service) → shown in a result sheet.
+    struct ActionResult: Identifiable, Equatable {
+        let id = UUID()
+        var title: String
+        var success: Bool
+        var steps: [Step]
+        var url: String?
+        struct Step: Identifiable, Equatable { let id = UUID(); var done: Bool; var text: String }
+    }
+    var actionResult: ActionResult?
+
+    /// Parse engine output into result steps: ANSI-stripped, ✓-lines are "done".
+    static func parseSteps(_ raw: String) -> [ActionResult.Step] {
+        let clean = raw.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+        return clean.split(separator: "\n").compactMap { l in
+            let t = l.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            let done = t.hasPrefix("✓")
+            var text = t
+            for p in ["✓ ", "✗ ", "! ", "✓", "✗"] where text.hasPrefix(p) { text = String(text.dropFirst(p.count)); break }
+            // skip the engine's own header lines (e.g. "Site 'x' added")
+            if text.hasPrefix("Site '") || text.hasPrefix("Installing ") { return nil }
+            return ActionResult.Step(done: done, text: text)
+        }
+    }
+
     let engine: Engine
     static let shared = AppState()
 
@@ -468,7 +494,9 @@ final class AppState {
     }
 
     func installService(_ key: String) async {
-        await runUser(["install", key], note: "installing \(key)…")
+        let (ok, steps) = await runCapturing(["install", key], note: "installing \(key)…")
+        actionResult = ActionResult(title: ok ? "\(key) installed" : "Couldn't install \(key)",
+                                    success: ok, steps: steps, url: nil)
     }
 
     func addSite(name: String, php: String, server: String = "nginx", type: String = "php", root: String? = nil) async {
@@ -477,8 +505,18 @@ final class AppState {
         var args = ["site", "add", clean, "--php", php, "--server", server, "--type", type]
         if let r = root?.trimmingCharacters(in: .whitespaces), !r.isEmpty { args += ["--root", r] }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
-        await runUser(args, note: note)
+        let (ok, steps) = await runCapturing(args, note: note)
         await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
+        let tld = snapshot?.config.tld ?? "test"
+        let secure = snapshot?.sites.first { $0.name == clean }?.secure ?? false
+        actionResult = ActionResult(title: ok ? "Site ‘\(clean)’ added" : "Couldn't add ‘\(clean)’",
+                                    success: ok, steps: steps,
+                                    url: ok ? "\(secure ? "https" : "http")://\(clean).\(tld)" : nil)
+    }
+
+    func setSitePhp(_ name: String, _ php: String) async {
+        await runUser(["site", "php", name, php], note: "switching \(name) to \(php)…")
+        await control("restart", "nginx")
     }
 
     // ── Cloudflare quick tunnels (share a site publicly) ────────────────────
@@ -500,8 +538,10 @@ final class AppState {
 
     func restartAll() async { await control("restart", "all") }
 
-    func removeSite(_ name: String) async {
-        await runUser(["site", "rm", name], note: "removing \(name)…")
+    func removeSite(_ name: String, purge: Bool = false) async {
+        var args = ["site", "rm", name]
+        if purge { args.append("--purge") }
+        await runUser(args, note: purge ? "removing \(name) + files + database…" : "removing \(name)…")
         await control("restart", "nginx")  // drop the vhost from the running server
     }
 
@@ -611,6 +651,21 @@ final class AppState {
             await reload()
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+
+    /// Like runUser but captures the engine output and returns (ok, parsed steps) for a result sheet.
+    private func runCapturing(_ args: [String], note: String) async -> (ok: Bool, steps: [ActionResult.Step]) {
+        guard !busy else { return (false, []) }
+        busy = true; lastAction = note; defer { busy = false; lastAction = nil }
+        let eng = engine
+        do {
+            let out = try await Task.detached { try eng.run(args) }.value
+            await reload()
+            return (true, AppState.parseSteps(out))
+        } catch {
+            let msg = (error as? EngineError)?.message ?? error.localizedDescription
+            return (false, AppState.parseSteps(msg))
         }
     }
 }

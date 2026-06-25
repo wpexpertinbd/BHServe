@@ -89,6 +89,10 @@ struct ContentView: View {
         } message: {
             Text(state.errorText ?? "")
         }
+        // Success/failure notice after add-site / install (shown over any tab).
+        .sheet(item: Binding(get: { state.actionResult }, set: { state.actionResult = $0 })) { r in
+            ResultSheet(result: r)
+        }
     }
 }
 

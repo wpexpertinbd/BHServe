@@ -1020,12 +1020,32 @@ site_autosecure(){
 }
 
 site_rm() {
-  [ $# -ge 1 ] || die "usage: bhserve site rm <name>"
-  local name="$1"; valid_site_name "$name"
+  local name="" purge=0
+  while [ $# -gt 0 ]; do case "$1" in --purge) purge=1; shift;; *) name="$1"; shift;; esac; done
+  [ -n "$name" ] || die "usage: bhserve site rm <name> [--purge]"
+  valid_site_name "$name"
+  # capture the doc root BEFORE deleting the vhost (needed for --purge file deletion)
+  local conf="$BH_HOME/nginx/sites/$name.conf" root=""
+  [ -f "$conf" ] && root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
   rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled" \
         "$BH_HOME/apache/sites/$name.conf"
   ok "removed vhost for $name"
-  info "(site files left on disk; remove manually if desired)"
+  if [ "$purge" = 1 ]; then
+    # drop the site's database (named after the site) + its user
+    local db; db="$(db_dbname "$name")"
+    if mysql_run -e "DROP DATABASE IF EXISTS \`$db\`; DROP USER IF EXISTS '$(mysql_esc "$db")'@'localhost';" 2>/dev/null; then
+      ok "dropped database '$db'"
+    else warn "couldn't drop database '$db' (server not running?)"; fi
+    # delete the site files — ONLY if the root is inside the user's home (never rm system paths)
+    if [ -n "$root" ] && [ -d "$root" ]; then
+      case "$root" in
+        "$HOME"/*) rm -rf "$root" && ok "deleted files: $root" || warn "couldn't delete $root" ;;
+        *) warn "left files in place — root is outside your home folder: $root" ;;
+      esac
+    fi
+  else
+    info "(site files + database left in place)"
+  fi
   maybe_reload_nginx
   apache_reload
 }
@@ -1978,8 +1998,8 @@ cmd_api() {
       web) [ "$key" = nginx ] && nginx_running && running=true ;;
       php) fpm_running "$key" && running=true ;;
       dns) dnsmasq_running && running=true ;;
-      # mkcert isn't a daemon — once installed, the local CA is ready, so "active".
-      tls) [ "$installed" = true ] && running=true ;;
+      # mkcert (tls) + fnm (node) aren't daemons — once installed they're ready, so "active".
+      tls|node) [ "$installed" = true ] && running=true ;;
       *)   printf '%s\n' "$brewlist" | awk -v f="$formula" '$1==f && $2=="started"{x=1} END{exit !x}' && running=true ;;
     esac
     local en=false; svc_enabled "$key" && en=true

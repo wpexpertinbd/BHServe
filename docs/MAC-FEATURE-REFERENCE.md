@@ -67,6 +67,9 @@ signature feature — Windows needs a `PerformanceCounter`/WMI sampler feeding t
 - **The "…" menu** (installed services): **Update to latest** · **Edit php.ini** (PHP rows only — opens an
   editor sheet, saves + reloads that version's FPM) · **Uninstall** (confirm dialog).
 - Buttons disabled while `busy`; nginx/all/dns may show an admin prompt unless the password-less helper is on.
+- **Non-daemon tools show "active" once installed:** mkcert (tls) and **fnm (node)** report running when
+  installed (they're ready, not background services). Install/update show a **result sheet** (success/failure
+  + the engine's steps) via `ResultSheet`.
 - **Update to latest = auto-upgrade to latest stable** (engine `update_one`, the standard live-server flow):
   `brew update` + `brew upgrade <formula>` installs the **latest stable**, then the service is **restarted onto
   the new binary** so sites keep working, and for **MariaDB/MySQL** it runs **`mariadb-upgrade`** (= the
@@ -105,6 +108,12 @@ The Sites tab and the Dashboard websites panel share the **same row + add sheet*
   - *Others* → domain only, no DB.
   - *Node app* → frontend (folder + run command + port) **+ optional backend/API** (folder + command + port) +
     api-paths regex. BHServe runs both as supervised processes and reverse-proxies them at the domain.
+- **Site-added success notice** (`ResultSheet`, `AppState.ActionResult`): after Add Site (and after installing a
+  service) a sheet shows the engine's steps with green checks, the new URL as a link, and **Open site / Done**.
+- **Per-site "…" menu** (php `WebsiteRow`): **Change PHP ▸** (version submenu) · **Change root folder…** ·
+  **Switch to nginx/apache** · **Enable HTTPS** · **Delete**. (The Node row keeps its own node-specific menu.)
+- **Remove site dialog** (`RemoveSiteSheet`): a checkbox **"Also delete the site files and drop its database"**
+  → engine `site rm --purge` (drops the named DB + `rm -rf` the root, guarded to `$HOME` only). Default keeps both.
 
 ### Node sites (managed) — `NodeSiteUI.swift`, engine `nodesite` verb, `Models.Site` node fields
 A first-class **Node** site type. Engine: `bhserve nodesite {add|list|rm|start|stop|restart|status|npm}` —
