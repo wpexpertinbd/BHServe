@@ -16,6 +16,8 @@
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home"/>
                 <muxc:NavigationViewItem Content="Sites"     Tag="sites"     Icon="World"/>
+                <muxc:NavigationViewItem Content="Databases" Tag="databases" Icon="Library"/>
+                <muxc:NavigationViewItem Content="Node"      Tag="node"      Icon="Repair"/>
                 <muxc:NavigationViewItem Content="Services"  Tag="services"  Icon="AllApps"/>
             </muxc:NavigationView.MenuItems>
 

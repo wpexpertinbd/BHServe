@@ -24,7 +24,8 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible arm64
 ArchitecturesInstallIn64BitMode=x64compatible arm64
 WizardStyle=modern
-; SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico
+SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico
+UninstallDisplayIcon={app}\{#MyAppExe}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

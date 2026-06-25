@@ -59,6 +59,7 @@ try
         case "db":      engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "node":    engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "adminer": engine.Adminer(); break;
+        case "pma" or "phpmyadmin": engine.PhpMyAdmin(); break;
         case "mailpit": engine.Mailpit(); break;
 
         case "help" or "-h" or "--help": Usage(); break;

@@ -33,7 +33,7 @@ public sealed class TrayIcon : IDisposable
     private readonly string _className = "BHServeTrayWnd";
     private bool _added;
 
-    public TrayIcon(string tooltip)
+    public TrayIcon(string tooltip, string? iconPath = null)
     {
         _wndProc = WndProc;
         var wc = new WNDCLASS
@@ -49,7 +49,11 @@ public sealed class TrayIcon : IDisposable
         var data = NewData(tooltip);
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WM_TRAY;
-        data.hIcon = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
+        // Use the app icon (16x16 for the tray) if we have it; else a stock icon.
+        var loaded = iconPath is not null && File.Exists(iconPath)
+            ? LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+            : IntPtr.Zero;
+        data.hIcon = loaded != IntPtr.Zero ? loaded : LoadIcon(IntPtr.Zero, IDI_APPLICATION);
         data.szTip = tooltip;
         _added = Shell_NotifyIcon(NIM_ADD, ref data);
     }
@@ -125,6 +129,8 @@ public sealed class TrayIcon : IDisposable
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr DefWindowProc(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] private static extern IntPtr LoadIcon(IntPtr inst, int name);
+    private const uint IMAGE_ICON = 1, LR_LOADFROMFILE = 0x0010;
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr LoadImage(IntPtr inst, string name, uint type, int cx, int cy, uint load);
     [DllImport("user32.dll")] private static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool AppendMenu(IntPtr menu, uint flags, int id, string? item);
     [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr menu);

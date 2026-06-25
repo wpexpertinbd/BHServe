@@ -26,6 +26,7 @@ public sealed class ServiceRow
 public sealed partial class DashboardPage : Page
 {
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private string _lastSig = "";   // skip the list rebuild when nothing changed (kills the flicker)
 
     public DashboardPage()
     {
@@ -59,7 +60,12 @@ public sealed partial class DashboardPage : Page
                 AutoStart = s.AutoStart,
                 StatusText = s.Running ? "running" : s.Installed ? "stopped" : "not installed",
             }).ToList();
-        ServicesList.ItemsSource = rows;
+
+        // Only touch the ListView when the data actually changed — otherwise the
+        // 2s tick rebuilds the list every time and it visibly flickers.
+        var sig = string.Join(";", rows.Select(r => $"{r.Key}|{r.Running}|{r.Installed}|{r.AutoStart}"));
+        if (sig != _lastSig) { ServicesList.ItemsSource = rows; _lastSig = sig; }
+
         var up = rows.Count(r => r.Running);
         SubTitle.Text = $"{up} service(s) running · {snap.Sites.Count} site(s)";
     }

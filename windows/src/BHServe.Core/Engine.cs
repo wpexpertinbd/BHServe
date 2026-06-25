@@ -440,7 +440,21 @@ public sealed class Engine
         if (sub is "install" or "i") Ok($"node {v} installed — run with: fnm use {v} (FNM_DIR={nodeDir})");
     }
 
-    public void PhpMyAdmin() => throw new BhException("pma: phase 4 — use Adminer for now (bhserve adminer)");
+    /// <summary>Download phpMyAdmin and serve it at phpmyadmin.&lt;tld&gt; (connects to BHServe's MySQL).</summary>
+    public void PhpMyAdmin()
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var root = Path.Combine(cfg.SitesRoot, "phpmyadmin");
+        if (!File.Exists(Path.Combine(root, "index.php")))
+        {
+            Hdr("Downloading phpMyAdmin (latest, all-languages)");
+            Downloader.InstallPhpMyAdmin(root).GetAwaiter().GetResult();
+            Ok($"phpMyAdmin: {root}");
+        }
+        if (!DbServer.Running()) Warn("database not running — start it so phpMyAdmin can log in: bhserve start mariadb");
+        SiteAdd("phpmyadmin", root: root, type: "others");
+    }
 
     /// <summary>Download Adminer (single-file DB UI) and serve it at adminer.&lt;tld&gt;.</summary>
     public void Adminer()

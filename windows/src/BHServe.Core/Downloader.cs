@@ -149,6 +149,37 @@ public static class Downloader
         return dir;
     }
 
+    /// <summary>Download + extract the latest phpMyAdmin into <paramref name="root"/> and write config.inc.php.</summary>
+    public static async Task InstallPhpMyAdmin(string root)
+    {
+        var verJson = await Http.GetStringAsync("https://www.phpmyadmin.net/home_page/version.json");
+        using var doc = JsonDocument.Parse(verJson);
+        var ver = doc.RootElement.GetProperty("version").GetString()
+                  ?? throw new InvalidOperationException("could not resolve phpMyAdmin version");
+        var url = $"https://files.phpmyadmin.net/phpMyAdmin/{ver}/phpMyAdmin-{ver}-all-languages.zip";
+        var zip = await DownloadToTmp(url, "phpmyadmin.zip");
+
+        var tmp = Path.Combine(Paths.Tmp, "pma-extract");
+        if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+        ExtractZip(zip, tmp);
+        var inner = Directory.GetDirectories(tmp).FirstOrDefault() ?? tmp;   // phpMyAdmin-<ver>-all-languages\
+
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        Directory.CreateDirectory(Path.GetDirectoryName(root)!);
+        Directory.Move(inner, root);
+
+        // config.inc.php: connect to BHServe's MySQL as passwordless root.
+        var secret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        File.WriteAllText(Path.Combine(root, "config.inc.php"),
+            "<?php\n" +
+            $"$cfg['blowfish_secret'] = '{secret}';\n" +
+            "$i = 0; $i++;\n" +
+            "$cfg['Servers'][$i]['host'] = '127.0.0.1';\n" +
+            "$cfg['Servers'][$i]['port'] = '3306';\n" +
+            "$cfg['Servers'][$i]['auth_type'] = 'cookie';\n" +
+            "$cfg['Servers'][$i]['AllowNoPassword'] = true;\n");
+    }
+
     /// <summary>Download the latest single-file Adminer to <paramref name="dest"/>.</summary>
     public static async Task InstallAdminer(string dest)
     {

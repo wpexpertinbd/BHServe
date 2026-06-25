@@ -14,7 +14,10 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        _tray = new TrayIcon("BHServe — local web stack");
+        var icon = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (System.IO.File.Exists(icon)) { try { AppWindow.SetIcon(icon); } catch { } }
+
+        _tray = new TrayIcon("BHServe — local web stack", icon);
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(ShowFromTray);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(QuitApp);
 
@@ -53,9 +56,11 @@ public sealed partial class MainWindow : Window
         if (args.SelectedItemContainer is NavigationViewItem { Tag: string tag })
             ContentFrame.Navigate(tag switch
             {
-                "sites"    => typeof(SitesPage),
-                "services" => typeof(ServicesPage),
-                _          => typeof(DashboardPage),
+                "sites"     => typeof(SitesPage),
+                "databases" => typeof(DatabasesPage),
+                "node"      => typeof(NodePage),
+                "services"  => typeof(ServicesPage),
+                _           => typeof(DashboardPage),
             });
     }
 }
