@@ -21,6 +21,8 @@ public sealed partial class DashboardPage : Page
 
     private static readonly SolidColorBrush On  = new(Colors.SeaGreen);
     private static readonly SolidColorBrush Off = new(Colors.Gray);
+    private static readonly Style? _accent =
+        Application.Current.Resources.TryGetValue("AccentButtonStyle", out var s) ? s as Style : null;
 
     public DashboardPage()
     {
@@ -92,6 +94,21 @@ public sealed partial class DashboardPage : Page
 
         SubTitle.Text = $"{snap.Services.Count(s => s.Running)} services running · {sites.Count} sites";
 
+        // ── global buttons reflect real service state ──
+        // "active" = installed + auto-start (★). Start all only has work when an active service
+        // isn't running yet; once everything active is up, Stop becomes the highlighted action.
+        if (!Busy.IsActive)
+        {
+            string[] daemonKeys = { "nginx", "apache", "mysql", "mariadb", "postgresql", "redis", "memcached", "mailpit" };
+            var daemons = snap.Services.Where(s => daemonKeys.Contains(s.Key)).ToList();
+            var toStart = daemons.Count(s => s.Installed && s.AutoStart && !s.Running);
+            var anyRunning = snap.Services.Any(s => s.Running);
+            var somethingToStart = toStart > 0;
+            SetBtn(StartBtn, somethingToStart, somethingToStart);
+            SetBtn(StopBtn, anyRunning, !somethingToStart && anyRunning);
+            SetBtn(RestartBtn, anyRunning, false);   // can't restart what isn't running
+        }
+
         // ── websites (delegated to the shared list control: Show + search + actions + paging) ──
         if (!_pageSizeSet) { SiteList.SetDefaultPageSize(Config.Load().DashboardPageSize); _pageSizeSet = true; }
         SiteList.SetData(sites.Select(s => new SiteRow
@@ -145,14 +162,20 @@ public sealed partial class DashboardPage : Page
     private async void StopAll_Click(object sender, RoutedEventArgs e)    => await Op(() => EngineHost.Instance.Engine.Stop("all"));
     private async void RestartAll_Click(object sender, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Restart("all"));
 
+    private void SetBtn(Button b, bool enabled, bool accent)
+    {
+        b.IsEnabled = enabled;
+        var style = accent ? _accent : null;
+        if (!ReferenceEquals(b.Style, style)) b.Style = style;
+    }
+
     private async Task Op(Action action)
     {
         Busy.IsActive = true;
         StartBtn.IsEnabled = StopBtn.IsEnabled = RestartBtn.IsEnabled = false;
         await EngineHost.Instance.Run(action);
         Busy.IsActive = false;
-        StartBtn.IsEnabled = StopBtn.IsEnabled = RestartBtn.IsEnabled = true;
-        Refresh();
+        Refresh();   // recomputes the correct enabled/highlight state
     }
 
     private static void Launch(string target)

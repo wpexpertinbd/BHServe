@@ -15,7 +15,7 @@ public sealed class DbRow
 {
     public required string Name { get; init; }
     public required bool IsMysql { get; init; }
-    public string Engine => IsMysql ? "MySQL" : "PostgreSQL";
+    public required string Engine { get; init; }   // real engine name: MariaDB / MySQL / PostgreSQL
     public string Key => (IsMysql ? "my:" : "pg:") + Name;
     public Visibility MysqlVis => IsMysql ? Visibility.Visible : Visibility.Collapsed;
 }
@@ -26,18 +26,39 @@ public sealed partial class DatabasesPage : Page
 
     protected override void OnNavigatedTo(NavigationEventArgs e) => Refresh();
 
+    private string _startEngine = "mariadb";
+
     private async void Refresh()
     {
         var snap = await Task.Run(() => (
             myRunning: DbServer.Running(),
+            myEngine:  DbServer.ActiveEngine(),                  // "mysql"/"mariadb"/null
+            mariadbInstalled: Tools.MariadbInstalled,
+            mysqlInstalled:   Tools.MysqlInstalled,
+            mariadbVer: Tools.DbVersionFor("mariadb"),
+            mysqlVer:   Tools.DbVersionFor("mysql"),
             myDbs:     DbServer.Running() ? Database.List().ToList() : new List<string>(),
             pgInstalled: Tools.PostgresExe() is not null,
             pgRunning: PgServer.Running(),
             pgDbs:     PgServer.Running() ? PgDatabase.List().ToList() : new List<string>()));
 
+        var sqlInstalled = snap.mariadbInstalled || snap.mysqlInstalled;
+        var sqlEngineName = snap.myEngine == "mariadb" ? "MariaDB" : "MySQL";
+
+        // Row label = the REAL engine (the active one when running; the installed one(s) otherwise).
+        DbEngineLabel.Text =
+            snap.myRunning ? $"{sqlEngineName} {(snap.myEngine == "mariadb" ? snap.mariadbVer : snap.mysqlVer)}".Trim()
+            : snap.mariadbInstalled && snap.mysqlInstalled ? "MySQL / MariaDB"
+            : snap.mariadbInstalled ? $"MariaDB {snap.mariadbVer}".Trim()
+            : snap.mysqlInstalled ? $"MySQL {snap.mysqlVer}".Trim()
+            : "MySQL / MariaDB";
+
+        _startEngine = snap.mariadbInstalled ? "mariadb" : "mysql";   // prefer MariaDB when present
+
         var hasRootPw = Config.Load().RootPassword.Length > 0;
-        RootPwStatus.Text = snap.myRunning ? (hasRootPw ? "running · root password set" : "running · no password") : "stopped";
-        StartDbBtn.IsEnabled = !snap.myRunning;
+        RootPwStatus.Text = !sqlInstalled ? "not installed"
+            : snap.myRunning ? (hasRootPw ? "running · root password set" : "running · no password") : "stopped";
+        StartDbBtn.IsEnabled = sqlInstalled && !snap.myRunning;
         StopDbBtn.IsEnabled = snap.myRunning;
 
         PgStatus.Text = !snap.pgInstalled ? "not installed" : snap.pgRunning ? "running" : "stopped";
@@ -45,13 +66,34 @@ public sealed partial class DatabasesPage : Page
         StartPgBtn.IsEnabled = snap.pgInstalled && !snap.pgRunning;
         StopPgBtn.IsEnabled = snap.pgRunning;
 
-        var rows = snap.myDbs.Select(d => new DbRow { Name = d, IsMysql = true })
-            .Concat(snap.pgDbs.Select(d => new DbRow { Name = d, IsMysql = false })).ToList();
+        // Create: only an engine that's actually RUNNING can accept a new database.
+        var engines = new List<string>();
+        if (snap.myRunning) engines.Add(sqlEngineName);
+        if (snap.pgRunning) engines.Add("PostgreSQL");
+        var prev = (EngineBox.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        EngineBox.Items.Clear();
+        foreach (var en in engines) EngineBox.Items.Add(new ComboBoxItem { Content = en });
+        if (engines.Count > 0) EngineBox.SelectedIndex = Math.Max(0, engines.IndexOf(prev ?? ""));
+        CreateBtn.IsEnabled = engines.Count > 0;
+        NameBox.IsEnabled = engines.Count > 0;
+        UpdatePassVis();
+
+        var rows = snap.myDbs.Select(d => new DbRow { Name = d, IsMysql = true, Engine = sqlEngineName })
+            .Concat(snap.pgDbs.Select(d => new DbRow { Name = d, IsMysql = false, Engine = "PostgreSQL" })).ToList();
         DbList.ItemsSource = rows;
         EmptyDbs.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private async void StartDb_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start("mariadb"));
+    private void UpdatePassVis()
+    {
+        var pg = IsPgSelected;
+        PassBox.Visibility = pg ? Visibility.Collapsed : Visibility.Visible;
+        GenBtn.Visibility  = pg ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void Engine_Changed(object s, SelectionChangedEventArgs e) => UpdatePassVis();
+
+    private async void StartDb_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start(_startEngine));
     private async void StopDb_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.Stop("mariadb"));
     private async void StartPg_Click(object s, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Start("postgresql"));
     private async void StopPg_Click(object s, RoutedEventArgs e)  => await Op(() => EngineHost.Instance.Engine.Stop("postgresql"));
