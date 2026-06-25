@@ -61,6 +61,21 @@ final class AppState {
         await reload()
         if autostartEnabled { await control("start", "all") }
         if autoUpdateCheckEnabled { await checkForUpdate(auto: true) }
+        startUpdatePolling()
+    }
+
+    /// BHServe runs persistently (menu bar), so a one-shot launch check misses releases
+    /// published later. Re-check every 6h while running (cheap; well under GitHub's limit).
+    private var updatePolling = false
+    private func startUpdatePolling() {
+        guard !updatePolling else { return }
+        updatePolling = true
+        Task { [self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(6 * 3600))
+                if autoUpdateCheckEnabled, !updateAvailable { await checkForUpdate(auto: true) }
+            }
+        }
     }
 
     /// One-time cleanup: earlier builds used SMAppService (mainApp, then a `.helper`
@@ -449,8 +464,13 @@ final class AppState {
             var req = URLRequest(url: url)
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-                if !auto { updateStatus = .upToDate }; return
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else {
+                // Don't claim "up to date" on a failed check — that hides the real state.
+                if !auto { updateStatus = .failed(code == 403
+                    ? "GitHub rate-limited the check — try again in a few minutes"
+                    : "couldn't reach GitHub (HTTP \(code))") }
+                return
             }
             let rel = try JSONDecoder().decode(Release.self, from: data)
             let latest = rel.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))

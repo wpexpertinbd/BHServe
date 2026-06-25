@@ -75,6 +75,8 @@ struct ContentView: View {
         }
         .task {
             await state.reload()   // boot auto-start is handled in AppDelegate (window-independent)
+            // opening the window is a natural moment to (re)check for updates
+            if state.autoUpdateCheckEnabled && !state.updateAvailable { await state.checkForUpdate(auto: true) }
             // live auto-refresh while the window is open (skip while an action runs)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(4))
