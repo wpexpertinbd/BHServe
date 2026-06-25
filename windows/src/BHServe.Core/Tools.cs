@@ -18,6 +18,17 @@ public static class Tools
         if (!string.Equals(appBin, Paths.Bin, StringComparison.OrdinalIgnoreCase)) yield return appBin;
     }
 
+    /// <summary>Highest version embedded in a path (e.g. …\nginx-1.31.2\… → 1.31.2), else 0.0 — so the
+    /// newest of several coexisting version dirs is preferred when a locked old one can't be removed.</summary>
+    private static Version PathVersion(string path)
+    {
+        Version best = new(0, 0);
+        foreach (System.Text.RegularExpressions.Match m in
+                 System.Text.RegularExpressions.Regex.Matches(path.Replace('\\', '/'), @"(\d+\.\d+(?:\.\d+)?)"))
+            if (Version.TryParse(m.Groups[1].Value, out var v) && v > best) best = v;
+        return best;
+    }
+
     /// <summary>First match for <paramref name="fileName"/> under <c>&lt;root&gt;\&lt;tool&gt;\…</c> across both roots.</summary>
     private static string? Find(string tool, string fileName)
     {
@@ -29,6 +40,7 @@ public static class Tools
             {
                 var hit = Directory.EnumerateFiles(dir, fileName, SearchOption.AllDirectories)
                                    .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar))
+                                   .ThenByDescending(PathVersion)   // when a stale + new version dir coexist, the newest wins
                                    .FirstOrDefault();
                 if (hit is not null) return hit;
             }
@@ -41,6 +53,13 @@ public static class Tools
     public static string? PhpCgiExe(string version) => Find(Path.Combine("php", version), "php-cgi.exe");
 
     public static string? NginxExe() => Find("nginx", "nginx.exe");
+    /// <summary>Installed nginx version parsed from its dir (…\nginx-1.31.2\…), or null.</summary>
+    public static string? NginxVersion()
+    {
+        if (NginxExe() is not { } e) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(e.Replace('\\', '/'), @"/nginx-(\d+\.\d+\.\d+)");
+        return m.Success ? m.Groups[1].Value : null;
+    }
     public static string? NginxPrefix() => NginxExe() is { } exe ? Path.GetDirectoryName(exe) : null;
 
     public static string? MkcertExe() => Find("mkcert", "mkcert.exe");
