@@ -105,33 +105,7 @@
 
         <!-- websites -->
         <TextBlock x:Name="WebHeader" Text="Websites" FontSize="16" FontWeight="SemiBold"/>
-        <Border Style="{StaticResource Card}" Padding="4">
-            <StackPanel>
-                <TextBlock x:Name="NoSites" Text="No sites yet — add one from the Sites page." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
-                <ListView x:Name="WebsitesList" SelectionMode="None">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="local:WebsiteRow">
-                            <Grid Padding="8,6" ColumnSpacing="10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="14"/><ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Ellipse Grid.Column="0" Width="9" Height="9" Fill="{x:Bind DotBrush}" VerticalAlignment="Center"/>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{x:Bind Domain}" Opacity="0.6" FontSize="12"/>
-                                </StackPanel>
-                                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="4" Padding="7,2" Margin="0,0,8,0"
-                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                                    <TextBlock Text="{x:Bind Badge}" FontSize="11" Opacity="0.8"/>
-                                </Border>
-                                <Button Grid.Column="3" Content="Open" Tag="{x:Bind Url}" Click="OpenSite_Click" VerticalAlignment="Center"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-            </StackPanel>
-        </Border>
+        <local:SiteListControl x:Name="SiteList"/>
 
         <!-- web tools -->
         <TextBlock Text="Web tools" FontSize="16" FontWeight="SemiBold"/>

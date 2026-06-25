@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using BHServe.App.Services;
 using BHServe.Core;
@@ -24,8 +25,19 @@ public sealed partial class SettingsPage : Page
         HomeText.Text  = Paths.Home;
         AutostartToggle.IsOn = Autostart.IsEnabled();
         TrayToggle.IsOn = cfg.MinimizeToTray;
+        DashSizeBox.Value = cfg.DashboardPageSize;
+        SitesSizeBox.Value = cfg.SitesPageSize;
         Version.Text = "BHServe for Windows · 0.1.0";
         _loading = false;
+    }
+
+    private void ListSize_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        var cfg = Config.Load();
+        if (!double.IsNaN(DashSizeBox.Value))  cfg.DashboardPageSize = Math.Clamp((int)DashSizeBox.Value, 1, 500);
+        if (!double.IsNaN(SitesSizeBox.Value)) cfg.SitesPageSize = Math.Clamp((int)SitesSizeBox.Value, 1, 500);
+        cfg.Save();
     }
 
     private void Autostart_Toggled(object sender, RoutedEventArgs e)
