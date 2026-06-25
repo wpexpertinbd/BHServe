@@ -83,6 +83,7 @@ public static class Tools
     public static bool MysqlInstalled   => Find("mysql", "mysqld.exe") is not null;
     public static bool MariadbInstalled => Find("mariadb", "mysqld.exe") is not null;
     public static string? MariadbInstallDbExe() => Find("mariadb", "mariadb-install-db.exe") ?? Find("mariadb", "mysql_install_db.exe");
+    public static string? MariadbUpgradeExe()   => Find("mariadb", "mariadb-upgrade.exe")    ?? Find("mariadb", "mysql_upgrade.exe");
 
     public static string? PostgresExe() => Find("postgresql", "postgres.exe");
     public static string? PgCtlExe()    => Find("postgresql", "pg_ctl.exe");

@@ -132,6 +132,21 @@ public static class DbServer
     /// <summary>Parameterless start (provisioning) — brings up the default installed engine.</summary>
     public static (bool ok, string msg) Start() => Running() ? (true, "database already running") : Start(DefaultEngine());
 
+    /// <summary>Reconcile the data dir's system tables with the (just-installed) new engine binary —
+    /// the standard post-upgrade step. MariaDB needs mariadb-upgrade; MySQL 8+/9 self-upgrades on
+    /// start, so it's a no-op there. The data dir is never dumped/rebuilt — this only fixes the
+    /// system schema. Returns a short status, or "" if nothing to do.</summary>
+    public static string RunUpgrade(string engine)
+    {
+        if (engine != "mariadb" || !Running()) return "";
+        var exe = Tools.MariadbUpgradeExe();
+        if (exe is null) return "";
+        var pw = Config.Load().RootPassword;
+        var (code, outp) = RunWait(exe, $"-u root -h 127.0.0.1 -P {Port} {(pw.Length > 0 ? $"-p{pw} " : "")}");
+        return code == 0 ? "system tables upgraded (mariadb-upgrade)"
+                         : $"mariadb-upgrade reported: {outp.Trim()}";
+    }
+
     public static void Stop()
     {
         var admin = Tools.MysqlClientExe() is { } cli ? Path.Combine(Path.GetDirectoryName(cli)!, "mysqladmin.exe") : null;

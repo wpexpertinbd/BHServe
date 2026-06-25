@@ -128,6 +128,18 @@ public sealed class Engine
         System.Threading.Thread.Sleep(500);   // let the process release its file locks
         _force = true;
         try { Install(tool); } finally { _force = false; }
+
+        // DB engines: the regular upgrade flow — stop → swap binaries → restart → run the upgrade
+        // command. No dump: the data dir is never touched; mariadb-upgrade just reconciles the
+        // system tables (MySQL self-upgrades on start).
+        if (tool is "mariadb" or "mysql")
+        {
+            var (ok, msg) = DbServer.Start(tool);
+            if (!ok) { Warn($"new {tool} binary failed to start: {msg}"); return; }
+            Ok(msg);
+            var up = DbServer.RunUpgrade(tool);
+            if (up.Length > 0) Ok(up);
+        }
     }
 
     public void Uninstall(string tool)
