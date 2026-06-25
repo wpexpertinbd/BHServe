@@ -51,6 +51,10 @@ public static class Database
         var outp = p.StandardOutput.ReadToEnd();
         var err = p.StandardError.ReadToEnd();
         p.WaitForExit();
+        // MariaDB's client prints a harmless "--ssl-verify-server-cert is disabled … passwordless
+        // login" warning to stderr on local logins. Drop it so it can't be mistaken for a database
+        // name in List() or clutter error messages.
+        err = string.Join('\n', err.Split('\n').Where(l => !l.Contains("ssl-verify-server-cert")));
         return (p.ExitCode, outp + err);
     }
 
@@ -66,6 +70,7 @@ public static class Database
         var (code, outp) = Mysql("-N -e \"SHOW DATABASES;\"");
         if (code != 0) return Array.Empty<string>();
         return outp.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                   .Where(d => !d.StartsWith("WARNING", StringComparison.OrdinalIgnoreCase) && !d.Contains(' '))
                    .Where(d => !SystemSchemas.Contains(d))
                    .ToList();
     }
