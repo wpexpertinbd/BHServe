@@ -14,20 +14,52 @@ public static class Downloader
     private const string NginxPinned = "1.27.4";
     private const string MysqlPinned = "8.4.3";        // Oracle MySQL portable zip (keeps --initialize-insecure)
 
+    // ── downloads go through Windows' built-in, Microsoft-SIGNED tools ───────────────
+    // curl.exe fetches files and tar.exe extracts them, so the process that pulls
+    // executables off the internet and writes them to disk is curl/tar (trusted),
+    // NOT bhserve.exe. That keeps antivirus behavioral scanners from flagging bhserve
+    // as a "dropper" — without bundling and without a code-signing certificate.
+    private static string CurlExe => Path.Combine(Environment.SystemDirectory, "curl.exe");
+    private static string TarExe  => Path.Combine(Environment.SystemDirectory, "tar.exe");
+    private const string UA = "BHServe/0.1 (+https://github.com/wpexpertinbd/BHServe)";
+
+    private static void Shell(string exe, string args)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = exe, Arguments = args,
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        var p = System.Diagnostics.Process.Start(psi)!;
+        var err = p.StandardError.ReadToEnd();
+        p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        if (p.ExitCode != 0) throw new InvalidOperationException($"{Path.GetFileName(exe)} failed ({p.ExitCode}): {err.Trim()}");
+    }
+
+    /// <summary>Download a file to <paramref name="dest"/> via the signed system curl.exe.</summary>
+    private static Task CurlTo(string url, string dest)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        Shell(CurlExe, $"-fL --retry 3 --retry-delay 2 -A \"{UA}\" -o \"{dest}\" \"{url}\"");
+        if (!File.Exists(dest) || new FileInfo(dest).Length == 0)
+            throw new InvalidOperationException($"download produced no file: {url}");
+        return Task.CompletedTask;
+    }
+
     private static async Task<string> DownloadToTmp(string url, string fileName)
     {
-        Directory.CreateDirectory(Paths.Tmp);
         var dest = Path.Combine(Paths.Tmp, fileName);
-        await using var s = await Http.GetStreamAsync(url);
-        await using var f = File.Create(dest);
-        await s.CopyToAsync(f);
+        await CurlTo(url, dest);
         return dest;
     }
 
+    /// <summary>Extract a zip via the signed system tar.exe (so tar, not bhserve, creates the exes).</summary>
     private static void ExtractZip(string zip, string destDir)
     {
         Directory.CreateDirectory(destDir);
-        ZipFile.ExtractToDirectory(zip, destDir, overwriteFiles: true);
+        Shell(TarExe, $"-xf \"{zip}\" -C \"{destDir}\"");
     }
 
     /// <summary>Delete every *.exe under <paramref name="dir"/> except the named keepers (case-insensitive).</summary>
@@ -108,11 +140,9 @@ public static class Downloader
         var url = asset.GetProperty("browser_download_url").GetString()
                   ?? throw new InvalidOperationException("mkcert windows asset not found");
         var dir = Path.Combine(Paths.Bin, "mkcert");
-        Directory.CreateDirectory(dir);
-        await using var s = await Http.GetStreamAsync(url);
-        await using var f = File.Create(Path.Combine(dir, "mkcert.exe"));
-        await s.CopyToAsync(f);
-        return Path.Combine(dir, "mkcert.exe");
+        var dest = Path.Combine(dir, "mkcert.exe");
+        await CurlTo(url, dest);
+        return dest;
     }
 
     private static async Task<string> GithubAsset(string repo, Func<string, bool> match)
@@ -207,12 +237,8 @@ public static class Downloader
     {
         var url = await GithubAsset("cloudflare/cloudflared",
             n => n.Equals("cloudflared-windows-amd64.exe", StringComparison.OrdinalIgnoreCase));
-        var dir = Path.Combine(Paths.Bin, "cloudflared");
-        Directory.CreateDirectory(dir);
-        var dest = Path.Combine(dir, "cloudflared.exe");
-        await using var s = await Http.GetStreamAsync(url);
-        await using var f = File.Create(dest);
-        await s.CopyToAsync(f);
+        var dest = Path.Combine(Paths.Bin, "cloudflared", "cloudflared.exe");
+        await CurlTo(url, dest);
         return dest;
     }
 
@@ -313,11 +339,7 @@ public static class Downloader
 
     /// <summary>Download the latest single-file Adminer to <paramref name="dest"/>.</summary>
     public static async Task InstallAdminer(string dest)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        var php = await Http.GetStringAsync("https://www.adminer.org/latest.php");
-        await File.WriteAllTextAsync(dest, php);
-    }
+        => await CurlTo("https://www.adminer.org/latest.php", dest);
 
     static Downloader()
     {

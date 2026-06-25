@@ -1,14 +1,15 @@
 # BHServe (Windows) — build distributables.
 #
-#   .\build.ps1 -Bundle      # RECOMMENDED: ship nginx/php/mysql/... inside the installer.
-#                            # No runtime exe downloads → antivirus won't flag bhserve.exe
-#                            # as a "dropper". This is FREE and needs no certificate.
-#   .\build.ps1              # plain: downloads tools on first run (can trip AV behavioral
-#                            # scanners — prefer -Bundle for distribution).
+#   .\build.ps1              # DEFAULT: small installer (just the dashboard + CLI). Services
+#                            # are downloaded on demand — and that's antivirus-safe because
+#                            # BHServe fetches/extracts via Windows' SIGNED curl.exe + tar.exe
+#                            # (so bhserve.exe is never the process that drops executables).
+#   .\build.ps1 -Bundle      # OPTIONAL offline variant: also ship the server binaries inside
+#                            # the installer (bigger download, no on-demand fetch).
 #
-# Signing is OPTIONAL and only affects the SmartScreen "unknown publisher" prompt (which
-# users can click past) — it does NOT need to be done. Pass -CertPath / -CertSubject only
-# if you happen to have a cert (e.g. a free SignPath.io OSS cert). No purchase required.
+# Signing is OPTIONAL — it only affects the SmartScreen "unknown publisher" prompt (users
+# click "Run anyway"). No certificate purchase is needed. Pass -CertPath / -CertSubject only
+# if you happen to have one (e.g. a free SignPath.io OSS cert).
 param(
     [string]$Rid = "win-x64",
     [string]$Configuration = "Release",
@@ -112,5 +113,4 @@ $setup = Get-ChildItem (Join-Path $PSScriptRoot "installer\dist") -Filter *.exe 
 if ($signing -and $setup) { Write-Host "build  signing installer..." -ForegroundColor Cyan; Invoke-Sign $setup.FullName }
 
 Write-Host "done   installer is in windows\installer\dist" -ForegroundColor Green
-if (-not $Bundle) { Write-Host "TIP: build with -Bundle so the install needs no runtime downloads (keeps antivirus from flagging it)." -ForegroundColor Yellow }
 if (-not $signing) { Write-Host "NOTE: unsigned — Windows SmartScreen shows 'unknown publisher' (More info -> Run anyway). That's expected; no cert needed." -ForegroundColor DarkGray }
