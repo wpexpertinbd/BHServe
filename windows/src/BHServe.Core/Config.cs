@@ -18,6 +18,7 @@ public sealed class Config
     [JsonPropertyName("sites_root")]   public string SitesRoot { get; set; } =
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "BHServe", "www");
     [JsonPropertyName("autostart")]    public bool Autostart { get; set; } = false;
+    [JsonPropertyName("minimize_to_tray")] public bool MinimizeToTray { get; set; } = true;
 
     private static readonly JsonSerializerOptions Opts = new()
     {

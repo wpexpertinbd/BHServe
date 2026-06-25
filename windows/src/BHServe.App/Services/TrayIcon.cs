@@ -21,8 +21,8 @@ public sealed class TrayIcon : IDisposable
     private const int WM_LBUTTONDBLCLK = 0x0203;
     private const int WM_RBUTTONUP = 0x0205;
     private const int WM_COMMAND = 0x0111;
-    private const uint NIM_ADD = 0, NIM_DELETE = 2;
-    private const uint NIF_MESSAGE = 0x01, NIF_ICON = 0x02, NIF_TIP = 0x04;
+    private const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2;
+    private const uint NIF_MESSAGE = 0x01, NIF_ICON = 0x02, NIF_TIP = 0x04, NIF_INFO = 0x10;
     private const uint TPM_RIGHTBUTTON = 0x0002, TPM_RETURNCMD = 0x0100;
     private const int IDI_APPLICATION = 32512;
     private const int CMD_OPEN = 1, CMD_QUIT = 2;
@@ -31,10 +31,12 @@ public sealed class TrayIcon : IDisposable
     private readonly WndProcDelegate _wndProc;   // kept alive so it isn't GC'd
     private readonly IntPtr _hwnd;
     private readonly string _className = "BHServeTrayWnd";
+    private readonly string _tip;
     private bool _added;
 
     public TrayIcon(string tooltip, string? iconPath = null)
     {
+        _tip = tooltip;
         _wndProc = WndProc;
         var wc = new WNDCLASS
         {
@@ -64,7 +66,21 @@ public sealed class TrayIcon : IDisposable
         hWnd = _hwnd,
         uID = 1,
         szTip = tip,
+        szInfo = "", szInfoTitle = "",   // ByValTStr fields must be non-null
     };
+
+    /// <summary>Show a balloon/toast from the tray icon (used once to reveal where the app went
+    /// when it minimizes to tray — Windows 11 tucks new tray icons into the hidden-icons overflow).</summary>
+    public void ShowBalloon(string title, string text)
+    {
+        if (!_added) return;
+        var d = NewData(_tip);
+        d.uFlags = NIF_INFO;
+        d.szInfoTitle = title;
+        d.szInfo = text;
+        d.dwInfoFlags = 0;   // NIIF_NONE
+        try { Shell_NotifyIcon(NIM_MODIFY, ref d); } catch { }
+    }
 
     private IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
@@ -117,6 +133,11 @@ public sealed class TrayIcon : IDisposable
         public int cbSize; public IntPtr hWnd; public int uID; public uint uFlags;
         public int uCallbackMessage; public IntPtr hIcon;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string szTip;
+        public uint dwState; public uint dwStateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string szInfo;
+        public uint uTimeoutOrVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string szInfoTitle;
+        public uint dwInfoFlags;
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }

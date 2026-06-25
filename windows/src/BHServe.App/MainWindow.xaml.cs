@@ -1,5 +1,6 @@
 using BHServe.App.Services;
 using BHServe.App.Views;
+using BHServe.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -9,6 +10,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly TrayIcon _tray;
     private bool _reallyQuit;
+    private bool _trayHintShown;
 
     public MainWindow()
     {
@@ -21,12 +23,18 @@ public sealed partial class MainWindow : Window
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(ShowFromTray);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(QuitApp);
 
-        // Close → hide to tray (matches the mac menu-bar behavior); Quit really exits.
+        // Close → hide to tray when "keep running" is on (Settings); otherwise really quit.
         AppWindow.Closing += (_, e) =>
         {
-            if (_reallyQuit) { _tray.Dispose(); return; }
+            if (_reallyQuit || !Config.Load().MinimizeToTray) { _tray.Dispose(); return; }
             e.Cancel = true;
             AppWindow.Hide();
+            if (!_trayHintShown)
+            {
+                _trayHintShown = true;
+                _tray.ShowBalloon("BHServe is still running",
+                    "Your sites stay up in the background. Click this icon to reopen — use the ^ to show hidden icons if you don't see it. Turn this off in Settings.");
+            }
         };
     }
 
