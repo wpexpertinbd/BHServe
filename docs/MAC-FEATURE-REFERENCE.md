@@ -92,11 +92,29 @@ The Sites tab and the Dashboard websites panel share the **same row + add sheet*
   - 📡 **Share publicly** (Cloudflare Tunnel — gives a public URL; green when active)
   - ▶️/⏸ **Start/Stop** (enable/disable the vhost)
   - 🗑 **Delete** (confirm; files kept on disk)
-- **Add Site sheet** (`AddSiteSheet`): name + `.tld`; **Type = WordPress / PHP / Others(static)**;
+- **Add Site sheet** (`AddSiteSheet`): name + `.tld`; **Type = WordPress / PHP / Others(static) / Node app**;
   **PHP version**; **web server** (nginx/apache); **site root = default folder or custom (folder picker)**.
   - *WordPress* → creates DB + downloads WP + pre-writes wp-config.
   - *PHP* → creates a DB named after the site.
   - *Others* → domain only, no DB.
+  - *Node app* → frontend (folder + run command + port) **+ optional backend/API** (folder + command + port) +
+    api-paths regex. BHServe runs both as supervised processes and reverse-proxies them at the domain.
+
+### Node sites (managed) — `NodeSiteUI.swift`, engine `nodesite` verb, `Models.Site` node fields
+A first-class **Node** site type. Engine: `bhserve nodesite {add|list|rm|start|stop|restart|status|npm}` —
+each site = a **frontend** process (dir/cmd/port) + **optional backend** (dir/cmd/port), supervised via pid
+files + per-process logs, fronted by an auto-rendered nginx reverse-proxy vhost (`/` → FE, `/api`,`/storage`,…
+→ BE) with mkcert HTTPS. Config in `~/.bhserve/node-sites/<name>.json`; the `api` snapshot carries
+`node/feRunning/beRunning/fePort/bePort/feDir/beDir/feCmd/beCmd/apiPaths`. **Node rows** in the Sites list
+(`WebsiteRow` node branch) show a green run-dot + `node` badge + fe/be port badges, and actions:
+**Open · Open folder · Start/Stop (processes) · Restart · Process logs · "…" menu** (Edit config
+[ports/commands] · Edit frontend/backend **.env** · **npm install** frontend/backend) · **Delete**.
+The **.env editor** (`EnvEditorSheet`) saves + restarts the site; **Edit config** (`EditNodeSheet`) changes
+folders/commands/ports and re-renders the vhost; **process logs** (`NodeLogsSheet`) show fe/be output.
+
+→ **Windows gap:** none of this exists in the Windows build yet. Port the whole `nodesite` engine verb +
+the GUI Node type + node rows + .env editor + npm-install. (Windows: spawn `node`/`npm`/`php` as child
+processes with pid files; same reverse-proxy vhost shape; `.env` editing identical.)
 
 → **Windows gaps to check:** pagination (10/page), the **6–7 per-row circle actions** (esp. **Open folder**,
 **per-site Logs**, **Cloudflare public Share**, Start/Stop, Edit-with-HTTPS), and the **3 site types with

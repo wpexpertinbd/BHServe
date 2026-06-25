@@ -509,6 +509,52 @@ final class AppState {
         await control("restart", "nginx")
     }
 
+    // ── Node sites (managed frontend + optional backend) ─────────────────────
+    /// Add a Node site: frontend (dir/cmd/port) + optional backend (dir/cmd/port).
+    func addNodeSite(name: String, feDir: String, feCmd: String, fePort: String,
+                     beDir: String, beCmd: String, bePort: String,
+                     apiPaths: String, start: Bool = true) async {
+        let clean = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !clean.isEmpty, !feDir.isEmpty, !fePort.isEmpty else { return }
+        var args = ["nodesite", "add", clean,
+                    "--fe-dir", feDir, "--fe-cmd", feCmd, "--fe-port", fePort]
+        if !beDir.trimmingCharacters(in: .whitespaces).isEmpty {
+            args += ["--be-dir", beDir, "--be-cmd", beCmd, "--be-port", bePort]
+        }
+        if !apiPaths.trimmingCharacters(in: .whitespaces).isEmpty { args += ["--api-paths", apiPaths] }
+        await runUser(args, note: "adding Node site \(clean)…")
+        if start { await nodeStart(clean) }
+    }
+
+    func nodeStart(_ name: String)   async { await runUser(["nodesite", "start", name],   note: "starting \(name)…") }
+    func nodeStop(_ name: String)    async { await runUser(["nodesite", "stop", name],    note: "stopping \(name)…") }
+    func nodeRestart(_ name: String) async { await runUser(["nodesite", "restart", name], note: "restarting \(name)…") }
+    func removeNodeSite(_ name: String) async {
+        await runUser(["nodesite", "rm", name], note: "removing \(name)…")
+        await control("restart", "nginx")
+    }
+    /// Run `npm install` for a site's frontend or backend (output goes to the action log).
+    func nodeNpmInstall(_ name: String, _ part: String) async {
+        await runUser(["nodesite", "npm", name, part], note: "npm install — \(name)/\(part)… (can take a minute)")
+    }
+
+    /// Path to a Node app's `.env` (or null if the dir is empty).
+    func envPath(_ dir: String?) -> String? {
+        guard let d = dir, !d.isEmpty else { return nil }
+        return d + "/.env"
+    }
+    /// Save an edited `.env`, then restart the site so the new values (e.g. ports) take effect.
+    func saveEnv(siteName: String, path: String, content: String) async {
+        guard !busy else { return }
+        busy = true; lastAction = "saving .env for \(siteName)…"; defer { busy = false; lastAction = nil }
+        do {
+            try content.write(toFile: path, atomically: true, encoding: .utf8)
+            let eng = engine
+            try await Task.detached { _ = try eng.run(["nodesite", "restart", siteName]) }.value
+            await reload()
+        } catch { errorText = error.localizedDescription }
+    }
+
     /// Reveal a path in Finder (view-level convenience lives here for reuse).
     func openInFinder(_ path: String) {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)

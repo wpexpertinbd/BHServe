@@ -58,10 +58,52 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     var enabled: Bool = true
     var server: String?
     var tunnel: String?   // public Cloudflare quick-tunnel URL when sharing
+    // ── Node-site fields (present only when server == "node") ────────────────
+    var node: Bool = false
+    var feRunning: Bool = false
+    var beRunning: Bool = false
+    var fePort: String?
+    var bePort: String?
+    var feDir: String?
+    var beDir: String?
+    var feCmd: String?
+    var beCmd: String?
+    var apiPaths: String?
     var id: String { name }
 
-    var serverKind: String { (server ?? "nginx") }
+    var serverKind: String { node ? "node" : (server ?? "nginx") }
+    var hasBackend: Bool { !(beDir ?? "").isEmpty }
+    /// Node site is "up" when the frontend (and backend, if any) processes run.
+    var nodeRunning: Bool { node && feRunning && (!hasBackend || beRunning) }
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }
+
+    enum CodingKeys: String, CodingKey {
+        case name, domain, php, root, secure, enabled, server, tunnel
+        case node, feRunning, beRunning, fePort, bePort, feDir, beDir, feCmd, beCmd, apiPaths
+    }
+    // Custom decode so site rows without the Node fields (every PHP/WordPress site)
+    // still decode — synthesized Decodable would throw keyNotFound and drop the whole list.
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name      = try c.decode(String.self, forKey: .name)
+        domain    = try c.decode(String.self, forKey: .domain)
+        php       = try c.decodeIfPresent(String.self, forKey: .php) ?? ""
+        root      = try c.decodeIfPresent(String.self, forKey: .root) ?? ""
+        secure    = try c.decodeIfPresent(Bool.self, forKey: .secure) ?? false
+        enabled   = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        server    = try c.decodeIfPresent(String.self, forKey: .server)
+        tunnel    = try c.decodeIfPresent(String.self, forKey: .tunnel)
+        node      = try c.decodeIfPresent(Bool.self, forKey: .node) ?? false
+        feRunning = try c.decodeIfPresent(Bool.self, forKey: .feRunning) ?? false
+        beRunning = try c.decodeIfPresent(Bool.self, forKey: .beRunning) ?? false
+        fePort    = try c.decodeIfPresent(String.self, forKey: .fePort)
+        bePort    = try c.decodeIfPresent(String.self, forKey: .bePort)
+        feDir     = try c.decodeIfPresent(String.self, forKey: .feDir)
+        beDir     = try c.decodeIfPresent(String.self, forKey: .beDir)
+        feCmd     = try c.decodeIfPresent(String.self, forKey: .feCmd)
+        beCmd     = try c.decodeIfPresent(String.self, forKey: .beCmd)
+        apiPaths  = try c.decodeIfPresent(String.self, forKey: .apiPaths)
+    }
 }
 
 struct Database: Codable, Sendable, Identifiable, Equatable {

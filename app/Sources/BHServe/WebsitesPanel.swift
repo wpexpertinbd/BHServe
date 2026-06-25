@@ -120,52 +120,108 @@ struct WebsiteRow: View {
     @State private var showingLogs = false
     @State private var confirmDelete = false
     @State private var sharing = false
+    @State private var editingNode = false
+    @State private var envPart: String?       // "fe" | "be" when editing .env
+    @State private var showingNodeLogs = false
+
+    private var runDot: Bool { site.node ? site.nodeRunning : site.enabled }
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle().fill(site.enabled ? Color.green : Color.secondary.opacity(0.4)).frame(width: 9, height: 9)
+            Circle().fill(runDot ? Color.green : Color.secondary.opacity(0.4)).frame(width: 9, height: 9)
             VStack(alignment: .leading, spacing: 1) {
                 Text(site.name).font(.body.weight(.medium))
                 Text(site.domain).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            // server badge
             Text(site.serverKind).font(.caption2.weight(.medium))
                 .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(site.serverKind == "apache" ? Color.orange.opacity(0.2) : Color.blue.opacity(0.15), in: Capsule())
-                .foregroundStyle(site.serverKind == "apache" ? .orange : .blue)
-            Text(site.php).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(.quaternary, in: Capsule())
-
-            HStack(spacing: 5) {
-                CircleAction("safari", .blue, "Open in browser") {
-                    if let u = site.url { NSWorkspace.shared.open(u) }
-                }
-                CircleAction("folder", .gray, "Open folder") { state.openInFinder(site.root) }
-                CircleAction("pencil", .blue, "Edit") { editing = true }
-                CircleAction("doc.text.magnifyingglass", .gray, "Logs") { showingLogs = true }
-                CircleAction("antenna.radiowaves.left.and.right",
-                             state.tunnelURL(site.name) != nil ? .green : .gray,
-                             state.tunnelURL(site.name) != nil ? "Sharing publicly — manage" : "Share publicly (Cloudflare)") { sharing = true }
-                if site.enabled {
-                    CircleAction("pause.fill", .orange, "Stop") { Task { await state.setSiteEnabled(site.name, false) } }
-                } else {
-                    CircleAction("play.fill", .green, "Start") { Task { await state.setSiteEnabled(site.name, true) } }
-                }
-                CircleAction("trash", .red, "Delete") { confirmDelete = true }
+                .background(badgeBg, in: Capsule())
+                .foregroundStyle(badgeFg)
+            // version/port badge
+            if site.node {
+                let ports = [site.fePort.map { "fe :\($0)" }, site.hasBackend ? site.bePort.map { "be :\($0)" } : nil]
+                    .compactMap { $0 }.joined(separator: "  ")
+                Text(ports).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule())
+            } else {
+                Text(site.php).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule())
             }
+
+            HStack(spacing: 5) { site.node ? AnyView(nodeActions) : AnyView(phpActions) }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
         .disabled(state.busy)
         .sheet(isPresented: $editing) { EditSiteSheet(site: site) }
+        .sheet(isPresented: $editingNode) { EditNodeSheet(site: site) }
         .sheet(isPresented: $showingLogs) { SiteLogsSheet(site: site) }
+        .sheet(isPresented: $showingNodeLogs) { NodeLogsSheet(site: site) }
         .sheet(isPresented: $sharing) { ShareSheet(site: site) }
-        .confirmationDialog("Remove “\(site.name)”? (site files are kept on disk)",
+        .sheet(item: Binding(get: { envPart.map { EnvTarget(part: $0) } },
+                             set: { envPart = $0?.part })) { t in
+            EnvEditorSheet(site: site, part: t.part)
+        }
+        .confirmationDialog("Remove “\(site.name)”? (project files are kept on disk)",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Remove \(site.name)", role: .destructive) { Task { await state.removeSite(site.name) } }
+            Button("Remove \(site.name)", role: .destructive) {
+                Task { site.node ? await state.removeNodeSite(site.name) : await state.removeSite(site.name) }
+            }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var badgeBg: Color {
+        site.node ? Color.green.opacity(0.15) : (site.serverKind == "apache" ? Color.orange.opacity(0.2) : Color.blue.opacity(0.15))
+    }
+    private var badgeFg: Color {
+        site.node ? .green : (site.serverKind == "apache" ? .orange : .blue)
+    }
+
+    @ViewBuilder private var phpActions: some View {
+        CircleAction("safari", .blue, "Open in browser") { if let u = site.url { NSWorkspace.shared.open(u) } }
+        CircleAction("folder", .gray, "Open folder") { state.openInFinder(site.root) }
+        CircleAction("pencil", .blue, "Edit") { editing = true }
+        CircleAction("doc.text.magnifyingglass", .gray, "Logs") { showingLogs = true }
+        CircleAction("antenna.radiowaves.left.and.right",
+                     state.tunnelURL(site.name) != nil ? .green : .gray,
+                     state.tunnelURL(site.name) != nil ? "Sharing publicly — manage" : "Share publicly (Cloudflare)") { sharing = true }
+        if site.enabled {
+            CircleAction("pause.fill", .orange, "Stop") { Task { await state.setSiteEnabled(site.name, false) } }
+        } else {
+            CircleAction("play.fill", .green, "Start") { Task { await state.setSiteEnabled(site.name, true) } }
+        }
+        CircleAction("trash", .red, "Delete") { confirmDelete = true }
+    }
+
+    @ViewBuilder private var nodeActions: some View {
+        CircleAction("safari", .blue, "Open in browser") { if let u = site.url { NSWorkspace.shared.open(u) } }
+        CircleAction("folder", .gray, "Open frontend folder") { state.openInFinder(site.feDir ?? "") }
+        if site.nodeRunning {
+            CircleAction("pause.fill", .orange, "Stop") { Task { await state.nodeStop(site.name) } }
+        } else {
+            CircleAction("play.fill", .green, "Start") { Task { await state.nodeStart(site.name) } }
+        }
+        CircleAction("arrow.clockwise", .blue, "Restart") { Task { await state.nodeRestart(site.name) } }
+        CircleAction("doc.text.magnifyingglass", .gray, "Process logs") { showingNodeLogs = true }
+        Menu {
+            Button { editingNode = true } label: { Label("Edit config (ports/commands)", systemImage: "slider.horizontal.3") }
+            Divider()
+            Button { envPart = "fe" } label: { Label("Edit frontend .env", systemImage: "doc.text") }
+            Button { Task { await state.nodeNpmInstall(site.name, "fe") } } label: { Label("npm install (frontend)", systemImage: "shippingbox") }
+            if site.hasBackend {
+                Divider()
+                Button { envPart = "be" } label: { Label("Edit backend .env", systemImage: "doc.text") }
+                Button { Task { await state.nodeNpmInstall(site.name, "be") } } label: { Label("npm install (backend)", systemImage: "shippingbox") }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white).frame(width: 26, height: 26).background(Color.gray, in: Circle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        CircleAction("trash", .red, "Delete") { confirmDelete = true }
     }
 }
 

@@ -166,6 +166,14 @@ struct AddSiteSheet: View {
     @State private var type = "php"
     @State private var rootMode = "default"   // "default" | "custom"
     @State private var customRoot = ""
+    // Node app fields
+    @State private var feDir = ""; @State private var feCmd = "npm run dev"; @State private var fePort = ""
+    @State private var beDir = ""; @State private var beCmd = ""; @State private var bePort = ""
+    @State private var apiPaths = "api|storage|sanctum|admin|livewire|vendor|build|up"
+
+    private var isNode: Bool { type == "node" }
+    private var nodeReady: Bool { !feDir.isEmpty && !fePort.isEmpty
+        && (beDir.trimmingCharacters(in: .whitespaces).isEmpty || !bePort.isEmpty) }
 
     private var defaultRoot: String {
         (state.snapshot?.config.sitesRoot ?? "~/BHServe/www") + "/" + (cleanName.isEmpty ? "<name>" : cleanName)
@@ -184,41 +192,54 @@ struct AddSiteSheet: View {
                 Text("WordPress").tag("wordpress")
                 Text("PHP").tag("php")
                 Text("Others (static)").tag("others")
+                Text("Node app").tag("node")
             }
-            Group {
-                switch type {
-                case "wordpress": Text("Creates a database, downloads WordPress, and pre-fills wp-config (DB user root, no password). Just finish the title + admin step.")
-                case "php": Text("Creates a database named after the site (DB user root, no password).")
-                default: Text("Just sets up the domain — no database.")
+            if isNode {
+                Text("A managed Node app: a frontend (e.g. Next.js) plus an optional backend/API (e.g. Laravel). BHServe runs both and reverse-proxies them at the domain.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                NodeAppFields(title: "Frontend", dir: $feDir, cmd: $feCmd, port: $fePort)
+                NodeAppFields(title: "Backend / API (optional)", dir: $beDir, cmd: $beCmd, port: $bePort)
+                if !beDir.trimmingCharacters(in: .whitespaces).isEmpty {
+                    LabeledContent("API paths → backend") {
+                        TextField("api|storage|…", text: $apiPaths).font(.caption.monospaced())
+                    }
                 }
-            }
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Picker("PHP version", selection: $php) {
-                ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
-            }
-            Picker("Web server", selection: $server) {
-                Text("nginx (fast)").tag("nginx")
-                Text(state.httpdInstalled ? "Apache (.htaccess)" : "Apache — needs httpd").tag("apache")
-            }
-            if server == "apache" && !state.httpdInstalled {
-                Label("Install httpd in Services to use Apache.", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-            Picker("Site root", selection: $rootMode) {
-                Text("Default folder").tag("default")
-                Text("Custom folder…").tag("custom")
-            }
-            if rootMode == "default" {
-                Text(defaultRoot).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
             } else {
-                HStack {
-                    TextField("/path/to/site", text: $customRoot).textFieldStyle(.roundedBorder)
-                    Button("Choose…") { if let p = bhChooseFolder(start: state.snapshot?.config.sitesRoot) { customRoot = p } }
+                Group {
+                    switch type {
+                    case "wordpress": Text("Creates a database, downloads WordPress, and pre-fills wp-config (DB user root, no password). Just finish the title + admin step.")
+                    case "php": Text("Creates a database named after the site (DB user root, no password).")
+                    default: Text("Just sets up the domain — no database.")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Picker("PHP version", selection: $php) {
+                    ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
+                }
+                Picker("Web server", selection: $server) {
+                    Text("nginx (fast)").tag("nginx")
+                    Text(state.httpdInstalled ? "Apache (.htaccess)" : "Apache — needs httpd").tag("apache")
+                }
+                if server == "apache" && !state.httpdInstalled {
+                    Label("Install httpd in Services to use Apache.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Picker("Site root", selection: $rootMode) {
+                    Text("Default folder").tag("default")
+                    Text("Custom folder…").tag("custom")
+                }
+                if rootMode == "default" {
+                    Text(defaultRoot).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                } else {
+                    HStack {
+                        TextField("/path/to/site", text: $customRoot).textFieldStyle(.roundedBorder)
+                        Button("Choose…") { if let p = bhChooseFolder(start: state.snapshot?.config.sitesRoot) { customRoot = p } }
+                    }
                 }
             }
             if !name.isEmpty {
-                Label("Will be served at \(scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
+                Label("Will be served at \(isNode ? "https" : scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
                       systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -226,19 +247,28 @@ struct AddSiteSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Add") {
-                    let n = cleanName, p = php, s = server, t = type
-                    let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
-                    Task { await state.addSite(name: n, php: p, server: s, type: t, root: r) }
-                    dismiss()   // provisioning (incl. WP download) runs in the background
+                    if isNode {
+                        let n = cleanName
+                        Task {
+                            await state.addNodeSite(name: n, feDir: feDir, feCmd: feCmd, fePort: fePort,
+                                                    beDir: beDir, beCmd: beCmd, bePort: bePort, apiPaths: apiPaths)
+                        }
+                    } else {
+                        let n = cleanName, p = php, s = server, t = type
+                        let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
+                        Task { await state.addSite(name: n, php: p, server: s, type: t, root: r) }
+                    }
+                    dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(cleanName.isEmpty || php.isEmpty
-                          || (server == "apache" && !state.httpdInstalled)
-                          || (rootMode == "custom" && !customRoot.hasPrefix("/")))
+                .disabled(cleanName.isEmpty
+                          || (isNode ? !nodeReady
+                                     : (php.isEmpty || (server == "apache" && !state.httpdInstalled)
+                                        || (rootMode == "custom" && !customRoot.hasPrefix("/")))))
             }
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: isNode ? 460 : 380)
         .onAppear { if php.isEmpty { php = state.snapshot?.config.defaultPhp.hasPrefix("php") == true
             ? state.snapshot!.config.defaultPhp
             : (state.phpChoices.first ?? "php@8.4") } }
