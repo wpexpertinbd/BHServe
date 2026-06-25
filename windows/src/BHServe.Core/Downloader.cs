@@ -58,11 +58,14 @@ public static class Downloader
         return dest;
     }
 
-    /// <summary>Extract a zip via the signed system tar.exe (so tar, not bhserve, creates the exes).</summary>
+    /// <summary>Extract a zip via the signed system tar.exe (so tar, not bhserve, creates the exes).
+    /// Junk helper exes that trip generic AV heuristics (e.g. mingw's sizes.exe) are excluded so
+    /// they never touch disk and can't be flagged.</summary>
     private static void ExtractZip(string zip, string destDir)
     {
         Directory.CreateDirectory(destDir);
-        Shell(TarExe, $"-xf \"{zip}\" -C \"{destDir}\"");
+        // bsdtar: --exclude must precede -f, and its * does NOT cross '/', so match the basename.
+        Shell(TarExe, $"--exclude \"sizes.exe\" -xf \"{zip}\" -C \"{destDir}\"");
     }
 
     /// <summary>Delete every *.exe under <paramref name="dir"/> except the named keepers (case-insensitive).</summary>
