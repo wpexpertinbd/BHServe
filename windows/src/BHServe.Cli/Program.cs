@@ -58,6 +58,16 @@ try
 
         case "db":      engine.Db(Arg(rest, 0), rest.Skip(1).ToArray()); break;
         case "node":    engine.Node(Arg(rest, 0), rest.Skip(1).ToArray()); break;
+        case "doctor":  engine.Doctor(); break;
+        case "logs":    engine.Logs(Arg(rest, 0), int.TryParse(Arg(rest, 1), out var ln) ? ln : 200); break;
+        case "config":
+            switch (Arg(rest, 0))
+            {
+                case "set":               engine.ConfigSet(Arg(rest, 1), Arg(rest, 2)); break;
+                case "show" or "" or null: engine.ConfigShow(); break;
+                default: Usage(); return 1;
+            }
+            break;
         case "adminer": engine.Adminer(); break;
         case "pma" or "phpmyadmin": engine.PhpMyAdmin(); break;
         case "mailpit": engine.Mailpit(); break;

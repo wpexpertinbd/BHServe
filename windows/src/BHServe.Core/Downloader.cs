@@ -149,6 +149,46 @@ public static class Downloader
         return dir;
     }
 
+    private static void CopyDir(string src, string dst)
+    {
+        Directory.CreateDirectory(dst);
+        foreach (var d in Directory.GetDirectories(src, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(d.Replace(src, dst));
+        foreach (var f in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            File.Copy(f, f.Replace(src, dst), overwrite: true);
+    }
+
+    /// <summary>Download the latest WordPress into <paramref name="root"/> and pre-write wp-config.php.</summary>
+    public static async Task InstallWordPress(string root, string db)
+    {
+        var zip = await DownloadToTmp("https://wordpress.org/latest.zip", "wordpress.zip");
+        var tmp = Path.Combine(Paths.Tmp, "wp-extract");
+        if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+        ExtractZip(zip, tmp);
+        CopyDir(Path.Combine(tmp, "wordpress"), root);   // merge into the (possibly placeholder) root
+
+        var sample = Path.Combine(root, "wp-config-sample.php");
+        var cfg = Path.Combine(root, "wp-config.php");
+        if (File.Exists(sample) && !File.Exists(cfg))
+        {
+            var txt = await File.ReadAllTextAsync(sample);
+            txt = txt.Replace("database_name_here", db)
+                     .Replace("username_here", "root")
+                     .Replace("'password_here'", "''")
+                     .Replace("localhost", "127.0.0.1");
+            try
+            {
+                var salts = await Http.GetStringAsync("https://api.wordpress.org/secret-key/1.1/salt/");
+                if (salts.Trim().Length > 0)
+                    txt = System.Text.RegularExpressions.Regex.Replace(
+                        txt, @"define\(\s*'AUTH_KEY'.*?'NONCE_SALT'[^;]*\);",
+                        salts.Trim(), System.Text.RegularExpressions.RegexOptions.Singleline);
+            }
+            catch { /* keep sample salts if the API is unreachable */ }
+            await File.WriteAllTextAsync(cfg, txt);
+        }
+    }
+
     /// <summary>Download + extract the latest phpMyAdmin into <paramref name="root"/> and write config.inc.php.</summary>
     public static async Task InstallPhpMyAdmin(string root)
     {

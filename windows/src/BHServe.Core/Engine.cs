@@ -167,12 +167,34 @@ public sealed class Engine
         if (Nginx.Running()) Nginx.Reload(cfg);
         else { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
 
+        Provision(name, type, root);
         EnsureHosts(domain);
 
         Hdr($"Site '{name}' added");
         Info($"url    : http://{domain}");
         Info($"root   : {root}");
         Info($"php    : {phpKey}   server: {server}   type: {type}");
+    }
+
+    /// <summary>Per-type setup: WordPress (DB + files + wp-config) or php (DB only).</summary>
+    private void Provision(string name, string type, string root)
+    {
+        if (type is not ("php" or "wordpress")) return;
+        if (!DbServer.Running())
+        {
+            var (ok, _) = DbServer.Start();
+            if (!ok) { Warn("no database server — install/start MySQL, then create the DB yourself"); return; }
+        }
+        var db = Regex.Replace(name, "[^A-Za-z0-9_]", "_");
+        try { Database.Create(db); Ok($"database '{db}' ready  (root · no password · localhost)"); }
+        catch (Exception ex) { Warn($"could not create database '{db}': {ex.Message}"); }
+
+        if (type == "wordpress" && !File.Exists(Path.Combine(root, "wp-load.php")))
+        {
+            Hdr("Downloading WordPress (latest)");
+            try { Downloader.InstallWordPress(root, db).GetAwaiter().GetResult(); Ok("WordPress installed — open the site to finish setup (title + admin user)"); }
+            catch (Exception ex) { Warn("WordPress download failed: " + ex.Message); }
+        }
     }
 
     public void SiteRemove(string name)
@@ -374,6 +396,134 @@ public sealed class Engine
         Hdr("PHP versions");
         foreach (var p in Php.Status())
             Out($"  ✓ {p.Version,-8} {(p.Running ? "running" : "stopped"),-8} ionCube: {p.Ioncube}");
+    }
+
+    // ── logs ────────────────────────────────────────────────────────────────────
+    public void Logs(string name = "", int lines = 200)
+    {
+        NeedInit();
+        if (name is "--list" or "list")
+        {
+            Hdr("Logs");
+            if (Directory.Exists(Paths.Logs))
+                foreach (var f in Directory.EnumerateFiles(Paths.Logs, "*.log")) Ok(Path.GetFileName(f));
+            return;
+        }
+        if (name == "") name = "nginx-error.log";
+        if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) throw new BhException("invalid log name");
+        var path = Path.Combine(Paths.Logs, name);
+        if (!File.Exists(path)) { Info($"(no log yet: {name})"); return; }
+        foreach (var line in File.ReadLines(path).TakeLast(lines)) Out(line);
+    }
+
+    public IReadOnlyList<string> LogFiles() =>
+        Directory.Exists(Paths.Logs)
+            ? Directory.EnumerateFiles(Paths.Logs, "*.log").Select(Path.GetFileName).Where(n => n is not null).Cast<string>().OrderBy(n => n).ToList()
+            : Array.Empty<string>();
+
+    public string LogText(string name, int lines = 400)
+    {
+        if (name.Contains('/') || name.Contains('\\') || name.Contains("..")) return "";
+        var path = Path.Combine(Paths.Logs, name);
+        return File.Exists(path) ? string.Join("\n", File.ReadLines(path).TakeLast(lines)) : "(empty)";
+    }
+
+    // ── doctor ──────────────────────────────────────────────────────────────────
+    public void Doctor()
+    {
+        var cfg = Config.Load();
+        Hdr("Tools");
+        Tool("nginx",   Tools.NginxExe());
+        Tool($"php {cfg.DefaultPhp}", Tools.PhpCgiExe(cfg.DefaultPhp));
+        Tool("mysqld",  Tools.MysqldExe());
+        Tool("mkcert",  Tools.MkcertExe());
+        Tool("mailpit", Tools.MailpitExe());
+        Tool("fnm",     Tools.FnmExe());
+
+        Hdr("Ports");
+        Port("HTTP ", cfg.HttpPort);
+        Port("HTTPS", cfg.HttpsPort);
+        Port("MySQL", DbServer.Port);
+
+        Hdr("Environment");
+        Info($"data dir : {Paths.Home}");
+        Info($"hosts editable now (admin): {Hosts.IsElevated()}  (else BHServe prompts via UAC)");
+        Info($"initialized: {Directory.Exists(Paths.Config)}");
+    }
+
+    private void Tool(string label, string? path)
+    {
+        if (path is not null) Ok($"{label,-12} {path}");
+        else Warn($"{label,-12} not found (install via bhserve install / the GUI)");
+    }
+
+    private void Port(string label, int port)
+    {
+        var open = PortInUse(port);
+        if (open) Ok($"{label} :{port}  in use (a server is listening)");
+        else Info($"{label} :{port}  free");
+    }
+
+    private static bool PortInUse(int port)
+    {
+        try { using var c = new System.Net.Sockets.TcpClient(); return c.ConnectAsync("127.0.0.1", port).Wait(400) && c.Connected; }
+        catch { return false; }
+    }
+
+    // ── config ──────────────────────────────────────────────────────────────────
+    public void ConfigShow() { NeedInit(); Out(File.ReadAllText(Paths.ConfigJson)); }
+
+    public void ConfigSet(string key, string val)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        switch (key)
+        {
+            case "tld":
+                if (!Regex.IsMatch(val, "^[a-z][a-z0-9-]*$")) throw new BhException("tld must be lowercase letters/digits/hyphen");
+                cfg.Tld = val; break;
+            case "http_port":  cfg.HttpPort  = ParsePort(val, key); break;
+            case "https_port": cfg.HttpsPort = ParsePort(val, key); break;
+            case "default_php": cfg.DefaultPhp = Services.PhpVersion(Services.PhpKey(val, cfg), cfg); break;
+            case "default_web":
+                if (val is not ("nginx" or "apache")) throw new BhException("default_web must be nginx|apache");
+                cfg.DefaultWeb = val; break;
+            case "sites_root":
+                if (string.IsNullOrWhiteSpace(val)) throw new BhException("sites_root cannot be empty");
+                cfg.SitesRoot = val; break;
+            case "autostart":
+                if (val is not ("true" or "false")) throw new BhException("autostart must be true|false");
+                cfg.Autostart = val == "true"; break;
+            default: throw new BhException($"unknown/uneditable key: {key}");
+        }
+        cfg.Save();
+        Ok($"set {key} = {val}");
+        if (key is "http_port" or "https_port" or "tld")
+        {
+            RegenVhosts(cfg);
+            NginxConfig.RenderMain(cfg);
+            Warn("restart nginx to apply: bhserve restart nginx");
+            if (key == "tld") Warn($"TLD changed — re-issue HTTPS per site: bhserve secure <name>.{val}");
+        }
+    }
+
+    private static int ParsePort(string v, string key) =>
+        int.TryParse(v, out var p) && p is > 0 and < 65536 ? p : throw new BhException($"{key} must be a port number");
+
+    /// <summary>Re-render every site vhost (e.g. after a TLD/port change), proxy sites included.</summary>
+    private static void RegenVhosts(Config cfg)
+    {
+        if (!Directory.Exists(Paths.NginxSites)) return;
+        foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf"))
+        {
+            var name = Path.GetFileNameWithoutExtension(f);
+            var text = File.ReadAllText(f);
+            var domain = $"{name}.{cfg.Tld}";
+            var pm = Regex.Match(text, @"proxy_pass http://127\.0\.0\.1:(\d+)");
+            if (pm.Success) { NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg); continue; }
+            var (_, root, phpKey) = ParseVhost(f);
+            if (root.Length > 0) NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        }
     }
     public void Db(string sub, params string[] args)
     {
