@@ -27,6 +27,7 @@ public sealed partial class DashboardPage : Page
 {
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private bool _loading;
+    private string _sitesSig = "";   // only rebuild the website list when it changes (kills the flicker)
     private string _pmaUrl = "", _admUrl = "", _mailUrl = "";
 
     private static readonly SolidColorBrush On  = new(Colors.SeaGreen);
@@ -87,13 +88,15 @@ public sealed partial class DashboardPage : Page
 
         SubTitle.Text = $"{snap.Services.Count(s => s.Running)} services running · {sites.Count} sites";
 
-        // ── websites ──
-        WebsitesList.ItemsSource = sites.Select(s => new WebsiteRow
+        // ── websites (only rebuild the ListView when the data changed, else it flickers every tick) ──
+        var rows = sites.Select(s => new WebsiteRow
         {
             Name = s.Name, Domain = s.Domain, Enabled = s.Enabled,
             Url = (s.Secure ? "https://" : "http://") + s.Domain,
             Badge = !string.IsNullOrEmpty(s.Php) && s.Php != "-" ? $"{s.Server} · php {s.Php}" : s.Server,
         }).ToList();
+        var sig = string.Join(";", rows.Select(r => $"{r.Name}|{r.Domain}|{r.Enabled}|{r.Badge}|{r.Url}"));
+        if (sig != _sitesSig) { WebsitesList.ItemsSource = rows; _sitesSig = sig; }
         NoSites.Visibility = sites.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         WebHeader.Text = $"Websites ({sites.Count})";
 
