@@ -67,6 +67,11 @@ signature feature — Windows needs a `PerformanceCounter`/WMI sampler feeding t
 - **The "…" menu** (installed services): **Update to latest** · **Edit php.ini** (PHP rows only — opens an
   editor sheet, saves + reloads that version's FPM) · **Uninstall** (confirm dialog).
 - Buttons disabled while `busy`; nginx/all/dns may show an admin prompt unless the password-less helper is on.
+- **Update to latest = safe auto-upgrade** (engine `update_one`): `brew update` + `brew upgrade <formula>`
+  installs the **latest stable**, then the service is **restarted onto the new binary** so sites keep working.
+  Before any **database** upgrade (mariadb/mysql) it takes a **full `mysqldump --all-databases` backup** to
+  `~/.bhserve/backups/` (the data directory is never touched), and if the DB doesn't come back up it tells the
+  user the data is safe + how to recover. nginx that can't restart (no root) keeps serving on the old binary.
 
 → **Windows gap:** role-grouped list, ★ auto-start, install/uninstall, **and the per-row "…" menu with
 Edit php.ini** (the engine already has `php ini path|reload` — wire the GUI editor sheet to it).
@@ -146,7 +151,12 @@ change-password + drop. (The Windows CLI has `db list/create/drop` but the GUI n
 - **Installed versions** list: each row → **Use** (set default) + **Uninstall**, with a **default** badge.
 - Note about adding the default to PATH.
 
-→ **Windows gap:** the quick-pick buttons + installed-versions list with Use/Uninstall + default badge (fnm has a Windows build).
+- **Node apps section** (same screen): an **"Add Node app"** button + a list of the managed Node sites
+  (the same node `WebsiteRow`s as the Sites tab) — so Node apps can be added/managed **from either the Node
+  tab OR the Sites-tab "Node app" type**. `AddNodeAppSheet` = Name + frontend (folder/cmd/port) + optional
+  backend (folder/cmd/port) + api-paths.
+
+→ **Windows gap:** the quick-pick buttons + installed-versions list with Use/Uninstall + default badge (fnm has a Windows build). (Windows already has the Node-tab "Add Node app" + apps list — keep BOTH entry points, like macOS.)
 
 ---
 
