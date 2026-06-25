@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace BHServe.Core;
 
@@ -55,6 +56,11 @@ public static class PhpCgi
         var exe = Tools.PhpCgiExe(version);
         if (exe is null) return false;
 
+        // Raise the stock 2M upload cap to 2 GB on the build's php.ini before launching, so both
+        // nginx-served and Apache-served PHP honor it. Idempotent + survives PHP reinstalls (this
+        // runs on every start, but only writes when a value actually differs).
+        EnsureLimits(Path.GetDirectoryName(exe)!);
+
         var port = PortFor(version);
         var psi = new ProcessStartInfo
         {
@@ -83,6 +89,37 @@ public static class PhpCgi
         File.WriteAllText(RunFile(version),
             JsonSerializer.Serialize(new PhpRun(version, port, proc.Id)));
         return true;
+    }
+
+    /// <summary>BHServe's default PHP limits — generous for local dev (2 GB uploads).</summary>
+    private static readonly (string key, string val)[] Limits =
+    {
+        ("upload_max_filesize", "2048M"),
+        ("post_max_size",       "2048M"),
+        ("memory_limit",        "1024M"),
+        ("max_execution_time",  "600"),
+        ("max_input_time",      "600"),
+        ("max_file_uploads",    "50"),
+    };
+
+    /// <summary>Set the upload/size/time directives in a build's php.ini (active or commented),
+    /// only writing if something changed. Never throws (best-effort).</summary>
+    private static void EnsureLimits(string phpDir)
+    {
+        try
+        {
+            var ini = Path.Combine(phpDir, "php.ini");
+            if (!File.Exists(ini)) return;
+            var text = File.ReadAllText(ini);
+            var orig = text;
+            foreach (var (key, val) in Limits)
+            {
+                var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
+                text = rx.IsMatch(text) ? rx.Replace(text, $"{key} = {val}", 1) : text.TrimEnd() + $"\n{key} = {val}\n";
+            }
+            if (text != orig) File.WriteAllText(ini, text);
+        }
+        catch { }
     }
 
     public static void Stop(string version)
