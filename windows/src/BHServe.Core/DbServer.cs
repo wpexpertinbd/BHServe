@@ -110,7 +110,9 @@ public static class DbServer
         {
             FileName = mysqld,
             // bind loopback only; big packets; dev-tuned InnoDB. --mysqlx=0 is MySQL-only.
-            Arguments = $"--datadir=\"{data}\" --bind-address=127.0.0.1 --max-allowed-packet=1024M " +
+            // --enable-named-pipe: many apps use DB_HOST='localhost', which on Windows means the
+            // named pipe (not TCP) — without this their connection hangs. Matches Laragon.
+            Arguments = $"--datadir=\"{data}\" --bind-address=127.0.0.1 --enable-named-pipe --max-allowed-packet=1024M " +
                         $"--innodb-buffer-pool-size=256M --innodb-flush-log-at-trx-commit=2 --port={Port}" +
                         (engine == "mariadb" ? "" : " --mysqlx=0"),
             UseShellExecute = false, CreateNoWindow = true,

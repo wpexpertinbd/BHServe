@@ -78,6 +78,11 @@ public static class PhpCgi
         };
         // PHP_FCGI_MAX_REQUESTS=0 → never recycle the listener.
         psi.Environment["PHP_FCGI_MAX_REQUESTS"] = "0";
+        // PHP_FCGI_CHILDREN: spawn a pool of worker processes so one slow/cold request (a WordPress
+        // first-load phoning home, a heavy app compile) doesn't block every other site on this PHP
+        // version. Without it, php-cgi -b on Windows serializes to a SINGLE request at a time → 502s
+        // under multi-site load.
+        psi.Environment["PHP_FCGI_CHILDREN"] = "12";
         // Load BHServe's per-version conf.d (ionCube etc.) on top of the build's php.ini.
         // Leading ';' keeps the compiled-in scan dir (Windows path-list separator).
         var confd = ConfDir(version);

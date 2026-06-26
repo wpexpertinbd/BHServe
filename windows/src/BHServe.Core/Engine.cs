@@ -253,8 +253,10 @@ public sealed class Engine
     {
         NeedInit();
         if (string.IsNullOrWhiteSpace(name)) throw new BhException("usage: bhserve site add <name> [--php 8.4] [--root path]");
-        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$"))
-            throw new BhException($"invalid site name '{name}' (lowercase letters, digits, hyphens)");
+        // Allow dots for multi-label local domains (e.g. my.biswashost -> my.biswashost.test),
+        // which Laragon supports. Must start and end with an alphanumeric.
+        if (!Regex.IsMatch(name, "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"))
+            throw new BhException($"invalid site name '{name}' (lowercase letters, digits, hyphens, dots)");
 
         var cfg = Config.Load();
         var domain = $"{name}.{cfg.Tld}";
@@ -361,7 +363,7 @@ public sealed class Engine
     public void SiteRemove(string name, bool purgeFiles = false, bool dropDb = false)
     {
         NeedInit();
-        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$")) throw new BhException($"invalid site name '{name}'");
+        if (!Regex.IsMatch(name, "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) throw new BhException($"invalid site name '{name}'");
         var cfg = Config.Load();
         var (root, db) = SiteTargets(name);   // resolve BEFORE we delete the vhost
 
