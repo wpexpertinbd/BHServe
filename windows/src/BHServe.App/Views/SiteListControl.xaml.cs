@@ -151,12 +151,95 @@ public sealed partial class SiteListControl : UserControl
     private async void Share_Click(object s, RoutedEventArgs e)
     {
         var name = Tag(s);
+        // Start the tunnel (if it isn't already live), showing the busy ring while cloudflared connects.
         Busy.IsActive = true;
-        await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Tunnel("start", name));
+        if (!BHServe.Core.Tunnel.Running(name))
+            await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Tunnel("start", name));
         Busy.IsActive = false;
+
         var url = BHServe.Core.Tunnel.Url(name);
-        await Info("Public URL", url is null ? "Tunnel did not return a URL yet - check the activity log." :
-            $"{name} is now public at:\n\n{url}\n\n(Cloudflare quick tunnel - stops when you close it or run: bhserve tunnel stop {name})");
+        if (url is null)
+        {
+            await Info("Share publicly", "The tunnel didn't return a public URL. Check the activity log, then try again.");
+            return;
+        }
+        await ShowShareDialog(name, url);
+    }
+
+    /// <summary>Mac-parity "Share publicly" sheet: live status + copy + open-in-browser + stop sharing.</summary>
+    private async Task ShowShareDialog(string name, string url)
+    {
+        var accent = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
+        var green  = new SolidColorBrush(Color.FromArgb(255, 0x16, 0xA3, 0x4A));
+
+        // header: broadcast icon + title (ContentDialog.Title accepts any object)
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        header.Children.Add(new FontIcon { Glyph = "", FontSize = 18, Foreground = accent, VerticalAlignment = VerticalAlignment.Center });
+        header.Children.Add(new TextBlock { Text = $"Share “{name}” publicly", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+
+        var root = new StackPanel { Spacing = 14, MinWidth = 420 };
+        root.Children.Add(new TextBlock
+        {
+            Text = "Cloudflare Tunnel gives this site a temporary public https address — no account or port-forwarding. The link works while sharing is on.",
+            TextWrapping = TextWrapping.Wrap, Opacity = 0.8,
+        });
+
+        // live status
+        var live = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        live.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 9, Height = 9, Fill = green, VerticalAlignment = VerticalAlignment.Center });
+        live.Children.Add(new TextBlock { Text = "Live — anyone with this link can reach your site.", Foreground = green, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        root.Children.Add(live);
+
+        // url + copy + open
+        var urlRow = new Grid { ColumnSpacing = 6 };
+        urlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        urlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        urlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var urlBox = new TextBox { Text = url, IsReadOnly = true, IsSpellCheckEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(urlBox, 0);
+
+        var copyBtn = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, VerticalAlignment = VerticalAlignment.Stretch };
+        ToolTipService.SetToolTip(copyBtn, "Copy link");
+        copyBtn.Click += async (_, _) =>
+        {
+            try
+            {
+                var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dp.SetText(url);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+            }
+            catch { }
+            if (copyBtn.Content is FontIcon ic) { var old = ic.Glyph; ic.Glyph = ""; await Task.Delay(1200); ic.Glyph = old; }
+        };
+        Grid.SetColumn(copyBtn, 1);
+
+        var openBtn = new Button { Content = new FontIcon { Glyph = "", FontSize = 14 }, VerticalAlignment = VerticalAlignment.Stretch };
+        ToolTipService.SetToolTip(openBtn, "Open in browser");
+        openBtn.Click += (_, _) => Launch(url);
+        Grid.SetColumn(openBtn, 2);
+
+        urlRow.Children.Add(urlBox);
+        urlRow.Children.Add(copyBtn);
+        urlRow.Children.Add(openBtn);
+        root.Children.Add(urlRow);
+
+        var dlg = new ContentDialog
+        {
+            Title = header,
+            Content = root,
+            PrimaryButtonText = "Stop sharing",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        {
+            Busy.IsActive = true;
+            await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Tunnel("stop", name));
+            Busy.IsActive = false;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private async void ChangePhp_Click(object s, RoutedEventArgs e)
