@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.9"
+#define MyAppVersion "1.0.10"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -20,6 +20,8 @@ AppUpdatesURL=https://github.com/wpexpertinbd/BHServe/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; Inno 6 hides the Welcome page by default — show it so the branded intro + website link appear.
+DisableWelcomePage=no
 OutputDir=dist
 OutputBaseFilename=BHServe-Setup-{#MyAppVersion}
 Compression=lzma2
