@@ -5,9 +5,19 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:BHServe.App.Views">
 
-    <StackPanel Spacing="8">
+    <!-- Grid (not StackPanel) so the list row is height-bounded when the control is given a
+         bounded height (Sites page) — that lets the ListView's built-in ScrollViewer engage and
+         virtualize. When the control is placed in an unbounded container (the Dashboard's outer
+         ScrollViewer), the star row measures as content-size, so it still shows every row. -->
+    <Grid RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
         <!-- Show + search -->
-        <Grid>
+        <Grid Grid.Row="0">
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <TextBlock Text="Show" Opacity="0.7" VerticalAlignment="Center"/>
                 <ComboBox x:Name="ShowBox" Width="84" SelectionChanged="Show_Changed">
@@ -24,10 +34,10 @@
         </Grid>
 
         <!-- list -->
-        <Border BorderThickness="1" CornerRadius="8" Padding="4"
+        <Border Grid.Row="1" BorderThickness="1" CornerRadius="8" Padding="4"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <StackPanel>
+            <Grid>
                 <TextBlock x:Name="Empty" Text="No sites yet." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
                 <ListView x:Name="List" SelectionMode="None">
                     <ListView.ItemTemplate>
@@ -72,11 +82,11 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-            </StackPanel>
+            </Grid>
         </Border>
 
         <!-- pagination + jump -->
-        <StackPanel x:Name="Pager" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Visibility="Collapsed">
+        <StackPanel x:Name="Pager" Grid.Row="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Visibility="Collapsed">
             <Button x:Name="PrevBtn" Click="Prev_Click" ToolTipService.ToolTip="Previous"><FontIcon Glyph="&#xE76B;" FontSize="12"/></Button>
             <TextBlock x:Name="PageLabel" VerticalAlignment="Center" MinWidth="90" TextAlignment="Center"/>
             <Button x:Name="NextBtn" Click="Next_Click" ToolTipService.ToolTip="Next"><FontIcon Glyph="&#xE76C;" FontSize="12"/></Button>
@@ -84,5 +94,5 @@
             <NumberBox x:Name="JumpBox" Width="84" SpinButtonPlacementMode="Hidden" Minimum="1"/>
             <Button Content="Go" Click="Go_Click"/>
         </StackPanel>
-    </StackPanel>
+    </Grid>
 </UserControl>

@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 

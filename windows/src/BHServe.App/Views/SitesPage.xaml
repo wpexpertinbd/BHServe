@@ -38,6 +38,6 @@
             </StackPanel>
         </Border>
 
-        <local:SiteListControl x:Name="SiteList" Grid.Row="2" VerticalAlignment="Top"/>
+        <local:SiteListControl x:Name="SiteList" Grid.Row="2"/>
     </Grid>
 </Page>

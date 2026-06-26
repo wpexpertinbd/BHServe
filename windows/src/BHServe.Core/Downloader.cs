@@ -473,13 +473,17 @@ public static class Downloader
         return Tools.FnmExe() ?? throw new InvalidOperationException("fnm.exe not found after extract");
     }
 
-    /// <summary>Download + extract the Windows ionCube loaders for a VC build (cached per vc).</summary>
+    /// <summary>Download + extract the Windows ionCube loaders for a VC build (cached per vc).
+    /// We fetch the NON-thread-safe (nonts) bundle because BHServe's php-cgi builds are NTS — its
+    /// loader imports php8.dll. The plain `ioncube_loaders_win_<vc>_x86-64.zip` is the TS bundle,
+    /// whose loader imports php8ts.dll and fails to load into NTS PHP (LoadLibrary error 126).
+    /// Cached under a `nonts-<vc>` dir so an old (TS) `<vc>` cache is never reused.</summary>
     public static async Task<string> InstallIoncube(string vc)
     {
-        var dir = Path.Combine(Paths.Bin, "ioncube", vc);
+        var dir = Path.Combine(Paths.Bin, "ioncube", $"nonts-{vc}");
         if (Directory.Exists(Path.Combine(dir, "ioncube"))) return dir;   // already extracted
-        var url = $"https://downloads.ioncube.com/loader_downloads/ioncube_loaders_win_{vc}_x86-64.zip";
-        var zip = await DownloadToTmp(url, $"ioncube_{vc}.zip");
+        var url = $"https://downloads.ioncube.com/loader_downloads/ioncube_loaders_win_nonts_{vc}_x86-64.zip";
+        var zip = await DownloadToTmp(url, $"ioncube_nonts_{vc}.zip");
         // A 404 returns an HTML page, not a zip — ExtractZip throws, surfaced to the caller.
         ExtractZip(zip, dir);
         return dir;

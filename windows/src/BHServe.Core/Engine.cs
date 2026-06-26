@@ -113,7 +113,12 @@ public sealed class Engine
         var ver = Services.PhpVersion(Services.PhpKey(verArg, cfg), cfg);
         if (!_force && Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return null; }
         Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
-        return Downloader.InstallPhp(ver).GetAwaiter().GetResult();
+        var exe = Downloader.InstallPhp(ver).GetAwaiter().GetResult();
+        // Auto-enable ionCube so encoded apps (WHMCS, etc.) work out of the box on every PHP version.
+        // Best-effort: an ionCube loader-download hiccup must never fail the PHP install itself.
+        try { Php.Ioncube(ver, Out); }
+        catch (Exception ex) { Warn($"ionCube not auto-enabled for php {ver}: {ex.Message} (run later: bhserve php ioncube {ver})"); }
+        return exe;
     }
 
     /// <summary>Re-fetch the LATEST build of a tool, replacing the binaries in place. Stops the

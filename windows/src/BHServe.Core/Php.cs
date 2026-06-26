@@ -50,27 +50,37 @@ public static class Php
         return PhpCgi.Start(version);
     }
 
-    private static string VcTag(string phpExe)
+    /// <summary>The MSVC toolset windows.php.net builds each PHP branch with — it selects the matching
+    /// ionCube loader bundle. BHServe flattens PHP into bin\php\&lt;version&gt; (no vs## token in the path),
+    /// so sniffing the exe path is unreliable; map by version NUMBER, which is fixed per branch:
+    ///   7.x → VC15,  8.0–8.3 → VS16 (vc16),  8.4+ → VS17 (vc17).</summary>
+    private static string VcFor(string version)
     {
-        var p = phpExe.ToLowerInvariant();
-        if (p.Contains("vs17") || p.Contains("vc17")) return "vc17";
-        if (p.Contains("vs15") || p.Contains("vc15")) return "vc15";
-        return "vc16";   // vs16 builds (php 8.0–8.3)
+        var parts = version.Split('.');
+        var maj = parts.Length > 0 && int.TryParse(parts[0], out var a) ? a : 8;
+        var min = parts.Length > 1 && int.TryParse(parts[1], out var b) ? b : 0;
+        if (maj <= 7) return "vc15";
+        if (maj == 8 && min <= 3) return "vc16";
+        return "vc17";   // 8.4, 8.5, 8.6, future
     }
 
-    /// <summary>Download + enable the ionCube loader for a PHP version (writes conf.d\00-ioncube.ini).</summary>
+    /// <summary>Download + enable the ionCube loader for a PHP version.
+    /// ionCube must be the FIRST zend_extension (before OPcache) or it aborts with "The Loader must
+    /// appear as the first entry". The PHP_INI_SCAN_DIR (conf.d) always loads AFTER the main php.ini —
+    /// where windows.php.net enables OPcache — so a conf.d entry would load second and fail. We instead
+    /// insert the loader line into the MAIN php.ini, immediately before the opcache zend_extension.</summary>
     public static void Ioncube(string version, Action<string> log)
     {
         var exe = Tools.PhpExe(version) ?? throw new BhException($"php {version} not installed");
-        var vc = VcTag(exe);
+        var vc = VcFor(version);
         string loadersDir;
         try { loadersDir = Downloader.InstallIoncube(vc).GetAwaiter().GetResult(); }
         catch (Exception ex)
         {
             throw new BhException(
                 $"ionCube loader download/extract failed for {vc} ({ex.Message}). " +
-                "ionCube's URLs change per VC build — grab ioncube_loaders_win_<vc>_x86-64.zip manually " +
-                $"and extract into {Path.Combine(Paths.Bin, "ioncube", vc)}.");
+                "ionCube's URLs change per VC build — grab ioncube_loaders_win_nonts_<vc>_x86-64.zip manually " +
+                $"and extract into {Path.Combine(Paths.Bin, "ioncube", "nonts-" + vc)}.");
         }
 
         // NTS loader (our php-cgi builds are NTS): ioncube_loader_win_<mm>.dll (NOT *_ts.dll)
@@ -79,11 +89,26 @@ public static class Php
         if (dll is null)
             throw new BhException($"no NTS ionCube loader for PHP {version} in the {vc} bundle");
 
-        var confd = PhpCgi.ConfDir(version);
-        Directory.CreateDirectory(confd);
-        File.WriteAllText(Path.Combine(confd, "00-ioncube.ini"),
-            $"zend_extension={dll.Replace('\\', '/')}\n");
-        log($"ionCube configured for php {version}: {dll}");
+        var line = $"zend_extension={dll.Replace('\\', '/')}";
+        var ini = IniPath(version);
+        var lines = File.ReadAllLines(ini).ToList();
+        // Idempotent: drop any prior ionCube line we (or anyone) added.
+        lines.RemoveAll(l => l.TrimStart().StartsWith("zend_extension", StringComparison.OrdinalIgnoreCase)
+                          && l.Contains("ioncube_loader", StringComparison.OrdinalIgnoreCase));
+        // Insert before the first ACTIVE opcache zend_extension (commented ;… lines are skipped); else at top.
+        var idx = lines.FindIndex(l =>
+        {
+            var t = l.TrimStart();
+            return t.StartsWith("zend_extension", StringComparison.OrdinalIgnoreCase)
+                && t.Contains("opcache", StringComparison.OrdinalIgnoreCase);
+        });
+        lines.Insert(idx < 0 ? 0 : idx, line);
+        File.WriteAllLines(ini, lines);
+
+        // Retire the old conf.d approach (a stray scan-dir copy would load second and re-trigger the error).
+        try { File.Delete(Path.Combine(PhpCgi.ConfDir(version), "00-ioncube.ini")); } catch { }
+
+        log($"ionCube enabled for php {version} (before opcache in php.ini): {dll}");
         if (IniReload(version)) log($"php-cgi {version} reloaded with ionCube");
         else log("restart this PHP to load it: bhserve restart all");
     }
@@ -97,10 +122,12 @@ public static class Php
         {
             var exe = Tools.PhpExe(v);
             if (exe is null) continue;
-            var confd = PhpCgi.ConfDir(v);
-            var configured = File.Exists(Path.Combine(confd, "00-ioncube.ini"));
-            var (_, vout) = Run(exe, "-v", ("PHP_INI_SCAN_DIR", ";" + confd));
-            var loaded = vout.Contains("ioncube", StringComparison.OrdinalIgnoreCase);
+            var ini = IniPath(v);
+            var configured = File.ReadAllText(ini).Contains("ioncube_loader", StringComparison.OrdinalIgnoreCase);
+            var (_, vout) = Run(exe, "-v");
+            // Match the SUCCESS banner ("with the ionCube PHP Loader"); the failure messages
+            // ("Failed loading …ioncube…", "[ionCube Loader] The Loader must appear…") must NOT count as loaded.
+            var loaded = vout.Contains("ionCube PHP Loader", StringComparison.OrdinalIgnoreCase);
             list.Add(new PhpInfo(v, true, PhpCgi.Running(v),
                                  loaded ? "loaded" : configured ? "configured" : "no"));
         }

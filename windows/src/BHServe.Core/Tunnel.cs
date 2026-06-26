@@ -32,6 +32,23 @@ public static class Tunnel
         catch { return null; }
     }
 
+    /// <summary>Read a file that another process holds open for writing (cloudflared's log).
+    /// The default File.ReadAllText opens with FileShare.Read, which on Windows throws because
+    /// cloudflared (via the `cmd > log` redirect) holds the log open for writing — so the URL is
+    /// never seen and the tunnel reports "no URL yet". Opening with FileShare.ReadWrite fixes it.
+    /// (POSIX allows the concurrent read, which is why the mac engine never hit this.)</summary>
+    private static string ReadShared(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                          FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs);
+            return sr.ReadToEnd();
+        }
+        catch { return ""; }
+    }
+
     public static (bool ok, string msg) Start(string name, string domain, string origin)
     {
         var cf = Tools.CloudflaredExe();
@@ -58,10 +75,9 @@ public static class Tunnel
         File.WriteAllText(PidFile(name), proc.Id.ToString());
 
         // Poll the log for the public URL (cloudflared prints it within a few seconds).
-        for (var i = 0; i < 30; i++)
+        for (var i = 0; i < 40; i++)
         {
-            string log;
-            try { log = File.ReadAllText(LogFile(name)); } catch { log = ""; }
+            var log = ReadShared(LogFile(name));
             var m = Regex.Match(log, @"https://[a-z0-9-]+\.trycloudflare\.com");
             if (m.Success)
             {
