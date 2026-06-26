@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
     private readonly TrayIcon _tray;
     private bool _reallyQuit;
     private bool _trayHintShown;
+    private Updater.Result? _pendingUpdate;   // an available update waiting to be offered (shown when the window is visible)
 
     public MainWindow()
     {
@@ -40,19 +41,54 @@ public sealed partial class MainWindow : Window
             }
         };
 
-        if (Config.Load().AutoUpdate) _ = CheckUpdateBadge();
+        _ = CheckForUpdateOnLaunch();
     }
 
-    /// <summary>If an update is available, show an attention dot on the Settings nav item (mac sidebar badge).</summary>
-    private async System.Threading.Tasks.Task CheckUpdateBadge()
+    /// <summary>On launch (auto-update on), check GitHub for a newer build and PROACTIVELY tell the user —
+    /// a popup if the window is visible, or a tray balloon if BHServe started hidden (autostart). Also
+    /// puts the attention dot on the Settings item. The user no longer has to open Settings to discover
+    /// an update.</summary>
+    private async System.Threading.Tasks.Task CheckForUpdateOnLaunch()
     {
         try
         {
+            if (!Config.Load().AutoUpdate) return;
             var r = await Updater.Check();
-            if (r.UpdateAvailable && Nav.SettingsItem is NavigationViewItem si)
-                si.InfoBadge = new InfoBadge();   // default style = attention dot
+            if (!r.UpdateAvailable || r.AssetUrl is null) return;
+
+            if (Nav.SettingsItem is NavigationViewItem si) si.InfoBadge = new InfoBadge();   // attention dot
+            _pendingUpdate = r;
+
+            if (AppWindow.IsVisible)
+                await ShowUpdatePromptIfPending();
+            else
+                _tray.ShowBalloon($"BHServe {r.Latest} is available",
+                    "A new version is ready — open BHServe to update.");
         }
         catch { }
+    }
+
+    /// <summary>If an update is waiting, show the "update now / later" prompt. Cleared after one show so
+    /// it doesn't re-nag within a session (it re-checks next launch). Safe to call when nothing's pending.</summary>
+    private async System.Threading.Tasks.Task ShowUpdatePromptIfPending()
+    {
+        if (_pendingUpdate is not { AssetUrl: { } asset } r) return;
+        if ((Content as FrameworkElement)?.XamlRoot is not { } xamlRoot) return;   // window not ready yet — retry on next show
+        _pendingUpdate = null;
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Update available — BHServe {r.Latest}",
+            Content = $"A new version is ready.\n\nYou have {Updater.CurrentVersion} · latest is {r.Latest}.\n\n" +
+                      "Update now? BHServe will close, install the update, and reopen on its own.",
+            PrimaryButtonText = "Update now", CloseButtonText = "Later",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = xamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        {
+            try { await Updater.DownloadAndRun(asset); }
+            catch { /* UAC declined / network — the Settings dot + next launch will offer it again */ }
+        }
     }
 
     /// <summary>Autostart-at-login entry point: keep BHServe running in the tray ONLY. The window is
@@ -65,6 +101,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Show();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p) p.Restore();
         Activate();
+        _ = ShowUpdatePromptIfPending();   // if an update was found while hidden, offer it now that we're visible
     }
 
     private void QuitApp()
