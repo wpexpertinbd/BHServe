@@ -30,6 +30,8 @@
                     <ComboBoxItem Content="nginx"/>
                     <ComboBoxItem Content="apache"/>
                 </ComboBox>
+                <CheckBox x:Name="SslBox" Content="HTTPS" IsChecked="True"
+                          ToolTipService.ToolTip="Issue a trusted SSL certificate now. You can also enable it later from the site's row."/>
                 <Button x:Name="RootBtn" Click="PickRoot_Click" ToolTipService.ToolTip="Site root folder (optional — defaults to the Sites root)">
                     <FontIcon Glyph="&#xE8B7;" FontSize="14"/>
                 </Button>

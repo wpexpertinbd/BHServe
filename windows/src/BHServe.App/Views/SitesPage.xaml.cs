@@ -59,6 +59,9 @@ public sealed partial class SitesPage : Page
         var isNode = SelectedType == "node";
         if (PhpBox != null)    PhpBox.IsEnabled = !isNode;
         if (ServerBox != null) ServerBox.IsEnabled = !isNode;
+        // SSL-on-add re-renders a PHP vhost, which would clobber a Node app's proxy config — Node has
+        // its own add flow, so the HTTPS toggle doesn't apply there.
+        if (SslBox != null)    SslBox.IsEnabled = !isNode;
     }
 
     private async void Add_Click(object s, RoutedEventArgs e)
@@ -70,9 +73,18 @@ public sealed partial class SitesPage : Page
         if (type == "node") { await AddNodeApp(name); return; }
 
         string? root = _customRoot;
+        var wantSsl = SslBox.IsChecked == true;
         Busy.IsActive = true; AddBtn.IsEnabled = false;
         var (ok, output) = await EngineHost.Instance.RunCaptured(
             () => EngineHost.Instance.Engine.SiteAdd(name, php: php, root: root, server: server, type: type));
+        // Provision the cert in the same flow when HTTPS is ticked — best-effort: a cert failure (e.g.
+        // mkcert missing) is shown as a warning but the site itself stays added (ok reflects SiteAdd).
+        if (ok && wantSsl)
+        {
+            var (_, sslOut) = await EngineHost.Instance.RunCaptured(
+                () => EngineHost.Instance.Engine.Secure($"{name}.{Config.Load().Tld}"));
+            if (!string.IsNullOrWhiteSpace(sslOut)) output += "\n" + sslOut;
+        }
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
         await ShowResult(name, ok, output);
@@ -175,7 +187,9 @@ public sealed partial class SitesPage : Page
         head.Children.Add(new TextBlock { Text = heading, FontSize = 18, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
         root.Children.Add(head);
 
-        var url = Regex.Match(output, @"https?://[^\s]+").Value;
+        // Prefer the https URL (printed by Secure) when SSL was enabled; else fall back to http.
+        var url = Regex.Match(output, @"https://[^\s]+").Value;
+        if (url.Length == 0) url = Regex.Match(output, @"https?://[^\s]+").Value;
         if (url.Length > 0)
             root.Children.Add(new TextBlock { Text = url, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"] });
 

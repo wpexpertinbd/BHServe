@@ -508,6 +508,7 @@ public sealed class Engine
             if (Nginx.Running()) Nginx.Reload(cfg);
             Ok("re-rendered vhost with HTTPS");
         }
+        Ok($"secured: https://{domain}");
     }
 
     // ── status / api ────────────────────────────────────────────────────────────
