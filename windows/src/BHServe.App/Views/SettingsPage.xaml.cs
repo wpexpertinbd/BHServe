@@ -40,7 +40,7 @@ public sealed partial class SettingsPage : Page
         AutoUpdateToggle.IsOn = cfg.AutoUpdate;
         DashSizeBox.Value     = cfg.DashboardPageSize;
         SitesSizeBox.Value    = cfg.SitesPageSize;
-        Version.Text = "BHServe for Windows · 0.1.0";
+        Version.Text = $"BHServe for Windows · {Updater.CurrentVersion}";
 
         _orig = (cfg.Tld, cfg.HttpPort, cfg.HttpsPort);
         SaveStatus.Text = "";
