@@ -1036,12 +1036,17 @@ site_rm() {
     if mysql_run -e "DROP DATABASE IF EXISTS \`$db\`; DROP USER IF EXISTS '$(mysql_esc "$db")'@'localhost';" 2>/dev/null; then
       ok "dropped database '$db'"
     else warn "couldn't drop database '$db' (server not running?)"; fi
-    # delete the site files — ONLY if the root is inside the user's home (never rm system paths)
+    # delete the site files — ONLY if the root is inside the user's home. Canonicalize
+    # first (resolve symlinks + ..) so a crafted root like "$HOME/../etc" can't escape.
     if [ -n "$root" ] && [ -d "$root" ]; then
-      case "$root" in
-        "$HOME"/*) rm -rf "$root" && ok "deleted files: $root" || warn "couldn't delete $root" ;;
-        *) warn "left files in place — root is outside your home folder: $root" ;;
-      esac
+      local realroot realhome
+      realroot="$(cd "$root" 2>/dev/null && pwd -P)" || realroot=""
+      realhome="$(cd "$HOME" 2>/dev/null && pwd -P)" || realhome="$HOME"
+      if [ -n "$realroot" ] && [ "$realroot" != "$realhome" ] && [ "${realroot#"$realhome"/}" != "$realroot" ]; then
+        rm -rf "$realroot" && ok "deleted files: $realroot" || warn "couldn't delete $realroot"
+      else
+        warn "left files in place — root isn't safely inside your home folder: $root"
+      fi
     fi
   else
     info "(site files + database left in place)"
@@ -1076,6 +1081,9 @@ dnsmasq_running(){ pgrep -x dnsmasq >/dev/null 2>&1; }
 cmd_dns() {
   need_init
   local tld; tld="$(jget tld test)"
+  # tld is written (as root) into /etc/resolver/<tld> and dnsmasq config — never let a
+  # hand-edited config slip a path (/, ..) or shell-ish value into a privileged write.
+  printf '%s' "$tld" | grep -qE '^[a-z][a-z0-9-]*$' || die "invalid tld '$tld' (lowercase letters, digits, hyphens only)"
   svc_installed dnsmasq || die "dnsmasq not installed — run: bhserve install dnsmasq"
   if [ "$(id -u)" != 0 ]; then
     die "DNS setup needs admin — use the app's dnsmasq Start (it prompts), or: sudo bhserve dns"
@@ -1214,9 +1222,22 @@ site_php_keys(){
 }
 
 # brew-services managed daemons (db/cache/mail)
+# Bind MariaDB/MySQL to loopback ONLY. Root has no password by default, so the server
+# must never be reachable from the LAN — and brew's default binds all interfaces (0.0.0.0).
+# Idempotent drop-in in my.cnf.d (survives brew upgrades). Applied on every DB start; takes
+# effect on the next (re)start of the server.
+db_secure_bind(){
+  local d="$BREW_PREFIX/etc/my.cnf.d" f
+  [ -d "$d" ] || mkdir -p "$d" 2>/dev/null || return 0
+  f="$d/bhserve.cnf"
+  grep -q '127\.0\.0\.1' "$f" 2>/dev/null && return 0
+  printf '# BHServe — keep the DB on localhost only (root has no password by default)\n[mysqld]\nbind-address = 127.0.0.1\n' > "$f" 2>/dev/null || true
+}
+
 brew_svc(){ # action key
   local action="$1" key="$2" formula; formula="$(svc_formula "$key")"
   svc_installed "$key" || { warn "$key not installed"; return; }
+  case "$action:$key" in start:mariadb|start:mysql) db_secure_bind ;; esac
   brew services "$action" "$formula" >/dev/null 2>&1 && ok "$key $action" || no "$key $action failed"
 }
 
