@@ -166,6 +166,7 @@ struct AddSiteSheet: View {
     @State private var type = "php"
     @State private var rootMode = "default"   // "default" | "custom"
     @State private var customRoot = ""
+    @State private var enableHttps = true     // issue a trusted cert right after adding
     // Node app fields
     @State private var feDir = ""; @State private var feCmd = "npm run dev"; @State private var fePort = ""
     @State private var beDir = ""; @State private var beCmd = ""; @State private var bePort = ""
@@ -237,9 +238,10 @@ struct AddSiteSheet: View {
                         Button("Choose…") { if let p = bhChooseFolder(start: state.snapshot?.config.sitesRoot) { customRoot = p } }
                     }
                 }
+                Toggle("Enable HTTPS (trusted local certificate)", isOn: $enableHttps)
             }
             if !name.isEmpty {
-                Label("Will be served at \(isNode ? "https" : scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
+                Label("Will be served at \((isNode || enableHttps) ? "https" : scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
                       systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -254,9 +256,9 @@ struct AddSiteSheet: View {
                                                     beDir: beDir, beCmd: beCmd, bePort: bePort, apiPaths: apiPaths)
                         }
                     } else {
-                        let n = cleanName, p = php, s = server, t = type
+                        let n = cleanName, p = php, s = server, t = type, h = enableHttps
                         let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
-                        Task { await state.addSite(name: n, php: p, server: s, type: t, root: r) }
+                        Task { await state.addSite(name: n, php: p, server: s, type: t, root: r, https: h) }
                     }
                     dismiss()
                 }

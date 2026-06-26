@@ -95,6 +95,21 @@ struct ContentView: View {
         .sheet(item: Binding(get: { state.actionResult }, set: { state.actionResult = $0 })) { r in
             ResultSheet(result: r)
         }
+        // Proactive "Update now / Later" prompt when a newer version is found.
+        .alert("Update available", isPresented: Binding(
+            get: { state.pendingUpdatePrompt },
+            set: { if !$0 { state.pendingUpdatePrompt = false } }
+        )) {
+            Button("Update now") {
+                state.pendingUpdatePrompt = false
+                if case .available(_, let pkg) = state.updateStatus { Task { await state.downloadAndInstall(pkg) } }
+            }
+            Button("Later", role: .cancel) { state.pendingUpdatePrompt = false }
+        } message: {
+            if case .available(let v, _) = state.updateStatus {
+                Text("BHServe \(v) is available. Update now? (Settings ▸ Updates anytime.)")
+            }
+        }
     }
 }
 

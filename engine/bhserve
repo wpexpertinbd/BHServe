@@ -1145,6 +1145,7 @@ cmd_secure() {
     ok "re-rendered vhost with HTTPS"
     maybe_reload_nginx
   fi
+  ok "secured: https://$domain"
 }
 
 # ── process management ──────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import ServiceManagement
+import UserNotifications
 
 @MainActor
 @Observable
@@ -461,6 +462,30 @@ final class AppState {
     /// True only when a newer version was found — drives the sidebar badge.
     var updateAvailable: Bool { if case .available = updateStatus { return true }; return false }
 
+    /// Drives the proactive "Update now / Later" alert (once per session). A check that
+    /// finds an update sets this; ContentView shows the alert when a window is on screen.
+    var pendingUpdatePrompt = false
+    private var updatePromptedThisSession = false
+    /// Called when a check finds a newer version: surface it proactively (alert when a
+    /// window is up; a system notification when the app launched hidden in the menu bar).
+    private func announceUpdate(_ version: String) {
+        guard !updatePromptedThisSession else { return }
+        updatePromptedThisSession = true
+        pendingUpdatePrompt = true
+        // No visible window (background/login launch) → post a notification so the user knows.
+        if NSApp.windows.allSatisfy({ !$0.isVisible }) {
+            guard Bundle.main.bundleIdentifier != nil else { return }   // skip under `swift run`
+            let c = UNUserNotificationCenter.current()
+            c.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                guard granted else { return }
+                let content = UNMutableNotificationContent()
+                content.title = "BHServe update available"
+                content.body = "Version \(version) is ready — open BHServe to update."
+                c.add(UNNotificationRequest(identifier: "bhserve-update", content: content, trigger: nil))
+            }
+        }
+    }
+
     // ── site-list page-size preferences (persisted; each list's "Show" menu can override) ──
     private static let homePerPageKey = "homeSitesPerPage"
     private static let sidebarPerPageKey = "sidebarSitesPerPage"
@@ -505,6 +530,7 @@ final class AppState {
             if AppState.isNewer(latest, than: appVersion),
                let pkg = rel.assets.first(where: { $0.name.hasSuffix(".pkg") })?.url {
                 updateStatus = .available(version: latest, pkg: pkg)
+                if auto { announceUpdate(latest) }   // proactive prompt only for background/launch checks
             } else if !auto {
                 updateStatus = .upToDate
             }
@@ -547,15 +573,23 @@ final class AppState {
                                     success: ok, steps: steps, url: nil)
     }
 
-    func addSite(name: String, php: String, server: String = "nginx", type: String = "php", root: String? = nil) async {
+    func addSite(name: String, php: String, server: String = "nginx", type: String = "php",
+                 root: String? = nil, https: Bool = true) async {
         let clean = name.trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return }
         var args = ["site", "add", clean, "--php", php, "--server", server, "--type", type]
         if let r = root?.trimmingCharacters(in: .whitespaces), !r.isEmpty { args += ["--root", r] }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
-        let (ok, steps) = await runCapturing(args, note: note)
-        await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
         let tld = snapshot?.config.tld ?? "test"
+        var (ok, steps) = await runCapturing(args, note: note)
+        // Best-effort HTTPS: issue a trusted cert + re-render the vhost BEFORE the single
+        // nginx restart below. A cert failure (e.g. mkcert missing) must NOT fail the add —
+        // the site stays added over http.
+        if ok && https {
+            let (_, ssteps) = await runCapturing(["secure", "\(clean).\(tld)"], note: "enabling HTTPS for \(clean)…")
+            steps += ssteps
+        }
+        await control("restart", "nginx")   // ONE restart loads the new vhost (+ its SSL)
         let secure = snapshot?.sites.first { $0.name == clean }?.secure ?? false
         actionResult = ActionResult(title: ok ? "Site ‘\(clean)’ added" : "Couldn't add ‘\(clean)’",
                                     success: ok, steps: steps,

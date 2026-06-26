@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.6.8"
+VERSION="1.6.9"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
