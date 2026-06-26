@@ -12,6 +12,7 @@ public sealed partial class MainWindow : Window
     private bool _reallyQuit;
     private bool _trayHintShown;
     private Updater.Result? _pendingUpdate;   // an available update waiting to be offered (shown when the window is visible)
+    private readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(24) };   // daily re-check for long-running (tray) instances
 
     public MainWindow()
     {
@@ -42,6 +43,10 @@ public sealed partial class MainWindow : Window
         };
 
         _ = CheckForUpdateOnLaunch();
+        // Re-check once a day so an instance that stays open (tray/autostart) still notices updates
+        // without needing a restart. Same gating + prompt as the launch check.
+        _updateTimer.Tick += (_, _) => _ = CheckForUpdateOnLaunch();
+        _updateTimer.Start();
     }
 
     /// <summary>On launch (auto-update on), check GitHub for a newer build and PROACTIVELY tell the user —
@@ -84,11 +89,12 @@ public sealed partial class MainWindow : Window
             PrimaryButtonText = "Update now", CloseButtonText = "Later",
             DefaultButton = ContentDialogButton.Primary, XamlRoot = xamlRoot,
         };
-        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+        try
         {
-            try { await Updater.DownloadAndRun(asset); }
-            catch { /* UAC declined / network — the Settings dot + next launch will offer it again */ }
+            if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+                await Updater.DownloadAndRun(asset);
         }
+        catch { /* another dialog already open / UAC declined / network — re-offered on the next check */ }
     }
 
     /// <summary>Autostart-at-login entry point: keep BHServe running in the tray ONLY. The window is
