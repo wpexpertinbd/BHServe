@@ -718,6 +718,11 @@ public sealed class Engine
         Info($"data dir : {Paths.Home}");
         Info($"hosts editable now (admin): {Hosts.IsElevated()}  (else BHServe prompts via UAC)");
         Info($"initialized: {Directory.Exists(Paths.Config)}");
+
+        Hdr("Database host (Windows localhost stall)");
+        var fixedHosts = SiteDbHostFix.Run(cfg.SitesRoot);
+        if (fixedHosts.Count == 0) Ok("all site configs already use 127.0.0.1 (no slow localhost lookups)");
+        else foreach (var f in fixedHosts) Ok($"fixed localhost -> 127.0.0.1 : {f}");
     }
 
     private void Tool(string label, string? path)

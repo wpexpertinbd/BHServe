@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.10"
+#define MyAppVersion "1.0.11"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -44,7 +44,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Messages]
 ; Branded intro (mirrors the macOS installer's welcome screen).
 WelcomeLabel1=Welcome to BHServe
-WelcomeLabel2=Your own free local web server for Windows - a clean alternative to XAMPP, Laragon, WAMP and MAMP.%n%nThis installs BHServe into your Program Files. It includes:%n%n      -   Multiple PHP versions (7.4, 8.1-8.6), per site%n      -   nginx & Apache, MariaDB / MySQL / PostgreSQL%n      -   Redis & Memcached, Node.js (multiple versions)%n      -   phpMyAdmin, Adminer, Mailpit, trusted HTTPS + *.test domains%n      -   One-click WordPress / PHP sites with auto database%n      -   Share any site publicly with one click (Cloudflare tunnel)%n%n100%% free & open-source - built with love by BiswasHost.
+WelcomeLabel2=Your own free local web server for Windows - a clean alternative to XAMPP, Laragon, WAMP and MAMP.%n%nThis installs BHServe into your Program Files. It includes:%n%n      -   Multiple PHP versions (7.4, 8.1-8.6), per site%n      -   nginx & Apache, MariaDB / MySQL / PostgreSQL%n      -   Redis & Memcached, Node.js (multiple versions)%n      -   phpMyAdmin, Adminer, Mailpit, trusted HTTPS + *.test domains%n      -   One-click WordPress / PHP sites with auto database%n      -   Share any site publicly with one click (Cloudflare tunnel)%n%nCompletely free & open-source - built with love by BiswasHost.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"

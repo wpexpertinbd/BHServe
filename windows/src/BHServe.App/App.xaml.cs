@@ -22,6 +22,14 @@ public partial class App : Application
         if (startInTray) Window.StartHiddenInTray();
         else             Window.Activate();
 
+        // Auto-repair the Windows "localhost" DB stall on imported sites (idempotent, best-effort) so
+        // users don't have to touch any config — pages that felt like they loaded from a remote server
+        // become instant. New BHServe sites already use 127.0.0.1.
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try { BHServe.Core.SiteDbHostFix.Run(BHServe.Core.Config.Load().SitesRoot); } catch { }
+        });
+
         // Optionally bring all services up on launch (Settings → Start services when BHServe launches).
         if (BHServe.Core.Config.Load().StartServicesOnLaunch)
             System.Threading.Tasks.Task.Run(() =>
