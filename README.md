@@ -103,6 +103,25 @@ progress — see `docs/LINUX-PORT.md`.)
 
 ---
 
+## ✅ Before you start — install & turn these on
+
+Before adding a site, install these from the **Services** tab (the first run usually installs
+the core set for you) and make sure each shows **running / active**, or just click **Start All**:
+
+| Service | Why | Needed for |
+|---------|-----|-----------|
+| **nginx** | the web server | every site |
+| **PHP** (≥ one version, e.g. 8.4) | runs your PHP code | every PHP/WordPress site |
+| **MariaDB / MySQL** | the database | WordPress + any DB-backed site *(skip for static "Others")* |
+| **DNS** (dnsmasq) | makes `*.test` resolve | every site *(macOS — Windows handles this via the hosts file automatically)* |
+| **mkcert** *(optional)* | trusted local HTTPS | only if you want `https://` |
+
+> If a site shows **"This site can't be reached" / `DNS_PROBE_FINISHED_NXDOMAIN`**, the **DNS**
+> service isn't running — open **Services** and **Start dnsmasq** (it asks for admin once). If you
+> see **502 Bad Gateway**, the site's **PHP version or nginx** isn't running — start them.
+
+---
+
 ## 🚀 Quick start
 
 1. **Add a site** — Sites ▸ **+**. Enter a name (e.g. `myshop`), pick the **type**
