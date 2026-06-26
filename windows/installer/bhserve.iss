@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.11"
+#define MyAppVersion "1.0.12"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -31,12 +31,11 @@ ArchitecturesInstallIn64BitMode=x64compatible arm64
 WizardStyle=modern
 SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
-; Updating over a running BHServe: force-close any leftover instance (incl. the tray app, which
-; otherwise hides-to-tray instead of exiting and keeps BHServe.App.exe / Core.dll locked) so the
-; files can be replaced without "Setup was unable to close all applications". We relaunch via [Run],
-; so don't let the Restart Manager also restart it (that would double-launch).
-CloseApplications=force
-RestartApplications=no
+; The tray GUI hides-to-tray when asked to close, which fools Windows' Restart Manager (it sees the
+; window vanish, assumes the app closed, but the process is still alive and holding BHServe.App.exe /
+; Core.dll -> install stalls at "Closing applications..."). So we DON'T use the Restart Manager; instead
+; PrepareToInstall (see [Code]) force-kills the processes before the file copy. We relaunch via [Run].
+CloseApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -74,6 +73,18 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
 Filename: "{app}\{#MyAppExe}"; Description: "Launch BHServe"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// Force-close BHServe before installing. The GUI hides-to-tray on close (so the Restart Manager
+// can't reliably close it), so we kill it outright here, just before files are copied. The servers
+// (nginx/php/mariadb/...) run as separate processes and keep your sites up; the GUI relaunches via [Run].
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var rc: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM BHServe.App.exe', '', SW_HIDE, ewWaitUntilTerminated, rc);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM bhserve.exe',     '', SW_HIDE, ewWaitUntilTerminated, rc);
+  Sleep(700);   // let the file handles release before the copy
+end;
+
 procedure OpenWebsite(Sender: TObject);
 var ErrorCode: Integer;
 begin
