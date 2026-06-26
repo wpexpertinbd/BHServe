@@ -10,9 +10,34 @@ public static class Paths
     public static string Home =>
         Environment.GetEnvironmentVariable("BHSERVE_HOME") is { Length: > 0 } h
             ? h
-            : System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "BHServe");
+            : System.IO.Path.Combine(LocalAppData(), "BHServe");
+
+    /// <summary>Resolve %LOCALAPPDATA% robustly. <c>GetFolderPath(LocalApplicationData)</c> calls
+    /// SHGetKnownFolderPath, which on Windows can return the profile ROOT (…\Users\name) or an empty
+    /// string when the app is launched at login / via shell activation before the user profile is
+    /// fully ready. That made the autostart instance resolve <see cref="Home"/> to a wrong, near-empty
+    /// data dir (the "1 site" dashboard). The LOCALAPPDATA env var is reliably set for the user session,
+    /// so prefer it; fall back to the known-folder API only if it looks like a real AppData\Local path,
+    /// then build from USERPROFILE as a last resort. Never returns "" (which would make the path relative).</summary>
+    private static string LocalAppData()
+    {
+        var env = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        if (!string.IsNullOrWhiteSpace(env)) return env;
+
+        var known = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var localTail = System.IO.Path.Combine("AppData", "Local");
+        if (!string.IsNullOrWhiteSpace(known) && known.EndsWith(localTail, StringComparison.OrdinalIgnoreCase))
+            return known;
+
+        var profile = Environment.GetEnvironmentVariable("USERPROFILE");
+        if (string.IsNullOrWhiteSpace(profile))
+            profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(profile))
+            return System.IO.Path.Combine(profile, "AppData", "Local");
+
+        // Truly degenerate environment — fall back to the known value (even if imperfect) so Home is never relative.
+        return string.IsNullOrWhiteSpace(known) ? System.IO.Path.Combine("C:\\", "BHServe-data") : known;
+    }
 
     public static string Config     => Sub("config");
     public static string Bin        => Sub("bin");          // downloaded portable php/nginx/mariadb/...
