@@ -80,7 +80,7 @@ handles future versions.
 
 ### 🪟 Windows
 
-1. **Download and run `BHServe-Setup-1.0.0.exe`.**
+1. **Download and run `BHServe-Setup-x.x.x.exe`.**
 2. It's **unsigned**, so Windows SmartScreen shows *"Windows protected your PC"* →
    click **More info → Run anyway**. (One-time; signing certs are costly — the code is all here.)
 3. Finish the installer and launch BHServe.
