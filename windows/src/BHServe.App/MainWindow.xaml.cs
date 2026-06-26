@@ -19,7 +19,7 @@ public sealed partial class MainWindow : Window
         var icon = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         if (System.IO.File.Exists(icon)) { try { AppWindow.SetIcon(icon); } catch { } }
 
-        _tray = new TrayIcon("BHServe — local web stack", icon);
+        _tray = new TrayIcon($"BHServe {Updater.CurrentVersion} — local web stack", icon);
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(ShowFromTray);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(QuitApp);
         _tray.StartAllRequested   += () => System.Threading.Tasks.Task.Run(() => { try { EngineHost.Instance.Engine.Start("all"); } catch { } });
