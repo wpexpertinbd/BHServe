@@ -4,16 +4,19 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "1.0.9"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
+#define MyAppURL "https://www.biswashost.com"
 
 [Setup]
 AppId={{8F3A1C2E-9B4D-4E6F-A1B2-C3D4E5F60718}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-AppPublisherURL=https://github.com/wpexpertinbd/BHServe
+AppPublisherURL={#MyAppURL}
+AppSupportURL=https://github.com/wpexpertinbd/BHServe
+AppUpdatesURL=https://github.com/wpexpertinbd/BHServe/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -35,6 +38,11 @@ RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; Branded intro (mirrors the macOS installer's welcome screen).
+WelcomeLabel1=Welcome to BHServe
+WelcomeLabel2=Your own free local web server for Windows - a clean alternative to XAMPP, Laragon, WAMP and MAMP.%n%nThis installs BHServe into your Program Files. It includes:%n%n      -   Multiple PHP versions (7.4, 8.1-8.6), per site%n      -   nginx & Apache, MariaDB / MySQL / PostgreSQL%n      -   Redis & Memcached, Node.js (multiple versions)%n      -   phpMyAdmin, Adminer, Mailpit, trusted HTTPS + *.test domains%n      -   One-click WordPress / PHP sites with auto database%n      -   Share any site publicly with one click (Cloudflare tunnel)%n%n100%% free & open-source - built with love by BiswasHost.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
@@ -64,6 +72,29 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
 Filename: "{app}\{#MyAppExe}"; Description: "Launch BHServe"; Flags: nowait postinstall skipifsilent
 
 [Code]
+procedure OpenWebsite(Sender: TObject);
+var ErrorCode: Integer;
+begin
+  ShellExec('open', '{#MyAppURL}', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+end;
+
+// Add a clickable "www.biswashost.com" link near the bottom of the welcome page.
+procedure InitializeWizard;
+var Link: TNewStaticText;
+begin
+  // Free up a strip at the bottom of the welcome text for the link.
+  WizardForm.WelcomeLabel2.Height := WizardForm.WelcomePage.Height - WizardForm.WelcomeLabel2.Top - ScaleY(34);
+  Link := TNewStaticText.Create(WizardForm);
+  Link.Parent := WizardForm.WelcomePage;
+  Link.Caption := 'www.biswashost.com';
+  Link.Cursor := crHand;
+  Link.Font.Style := [fsUnderline];
+  Link.Font.Color := clBlue;
+  Link.OnClick := @OpenWebsite;
+  Link.Left := WizardForm.WelcomeLabel2.Left;
+  Link.Top := WizardForm.WelcomePage.Height - ScaleY(26);
+end;
+
 function NeedsAddPath(Param: string): Boolean;
 var
   OrigPath: string;
