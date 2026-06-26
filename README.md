@@ -137,6 +137,15 @@ and — for Node apps — start/stop/restart, edit `.env`, and `npm install`.
 
 ---
 
+## 📦 Moving sites from XAMPP / Local / Laragon / ServBay / Herd
+
+Already have sites in another local stack? Bringing them into BHServe is three steps — copy the
+files, import the database, point the app at BHServe — and works the same on macOS and Windows.
+See the **[Migration guide → `docs/MIGRATING.md`](docs/MIGRATING.md)** for per-stack file
+locations, database export/import, WordPress URL search-replace, and troubleshooting.
+
+---
+
 ## 🗄️ Databases & phpMyAdmin — important for new users
 
 For convenience on a local machine, **all databases use the `root` user with _no password_**
