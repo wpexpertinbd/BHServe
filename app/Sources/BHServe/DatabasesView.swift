@@ -6,20 +6,22 @@ struct DatabasesView: View {
     @State private var newPassword = ""
     @State private var newEngine = "mysql"
 
-    private var dbServers: [Service] {
-        state.snapshot?.services.filter { ["mariadb", "mysql", "postgresql@17"].contains($0.key) && $0.installed } ?? []
-    }
     private var anyServerRunning: Bool { state.mysqlRunning || state.pgRunning }
+    /// The selected engine must actually be running to create into it.
+    private var selectedEngineRunning: Bool { newEngine == "pg" ? state.pgRunning : state.mysqlRunning }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                // Servers
+                // Servers — always show the MySQL-family row first, PostgreSQL second.
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Database servers").font(.headline).foregroundStyle(.secondary)
-                    VStack(spacing: 0) { ForEach(dbServers) { ServiceRow(service: $0) } }
-                        .background(.quaternary.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    VStack(spacing: 0) {
+                        DbServerRow(label: state.mysqlLabel, key: state.mysqlServiceKey, isMysqlFamily: true)
+                        DbServerRow(label: "PostgreSQL", key: "postgresql@17", isMysqlFamily: false)
+                    }
+                    .background(.quaternary.opacity(0.4))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
                 // MySQL/MariaDB root user
@@ -27,16 +29,15 @@ struct DatabasesView: View {
                     RootUserCard()
                 }
 
-                // Create
-                if anyServerRunning {
+                // Create — engine dropdown auto-detects the installed engines
+                if !state.dbEngineOptions.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Create database").font(.headline).foregroundStyle(.secondary)
                         HStack {
                             TextField("database_name", text: $newName)
                                 .textFieldStyle(.roundedBorder)
                             Picker("", selection: $newEngine) {
-                                if state.mysqlRunning { Text("MySQL").tag("mysql") }
-                                if state.pgRunning { Text("PostgreSQL").tag("pg") }
+                                ForEach(state.dbEngineOptions, id: \.tag) { Text($0.label).tag($0.tag) }
                             }
                             .labelsHidden().fixedSize()
                         }
@@ -50,7 +51,12 @@ struct DatabasesView: View {
                                     newName = ""; newPassword = ""
                                 }
                             }
-                            .disabled(state.busy || newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(state.busy || newName.trimmingCharacters(in: .whitespaces).isEmpty || !selectedEngineRunning)
+                        }
+                        if !selectedEngineRunning {
+                            Label("Start \(newEngine == "pg" ? "PostgreSQL" : state.mysqlLabel) above to create databases.",
+                                  systemImage: "exclamationmark.circle")
+                                .font(.caption).foregroundStyle(.orange)
                         }
                         Text("Blank password = no dedicated user (use the database via the local socket). A password creates a user named after the database.")
                             .font(.caption2).foregroundStyle(.secondary)
@@ -84,9 +90,65 @@ struct DatabasesView: View {
         }
         .task {
             await state.reloadDatabases()
+            // default the picker to the first available engine (or a running one)
+            if let opts = state.dbEngineOptions.first?.tag, !state.dbEngineOptions.contains(where: { $0.tag == newEngine }) {
+                newEngine = opts
+            }
             if !state.mysqlRunning && state.pgRunning { newEngine = "pg" }
         }
         .onChange(of: anyServerRunning) { _, _ in Task { await state.reloadDatabases() } }
+    }
+}
+
+/// A database-server row (MariaDB/MySQL or PostgreSQL): version + state-aware
+/// Start/Stop, Install when absent, Root-password for the MySQL family. Always shown.
+struct DbServerRow: View {
+    @Environment(AppState.self) private var state
+    let label: String          // "MariaDB" / "MySQL" / "PostgreSQL"
+    let key: String            // service key: "mariadb" / "mysql" / "postgresql@17"
+    let isMysqlFamily: Bool
+    @State private var rootSheet = false
+
+    private var svc: Service? { state.snapshot?.services.first { $0.key == key } }
+    private var installed: Bool { svc?.installed ?? false }
+    private var running: Bool { svc?.running ?? false }
+
+    private var statusText: String {
+        guard installed else { return "not installed" }
+        if !running { return "stopped" }
+        return isMysqlFamily ? "running · \(state.rootStatus == "set" ? "password set" : "no password")" : "running"
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(running ? Color.green : Color.secondary.opacity(0.4)).frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(installed ? "\(label) \(svc?.shortVersion ?? "")".trimmingCharacters(in: .whitespaces) : label)
+                    .font(.body.weight(.medium))
+                Text(statusText).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !installed {
+                Button("Install \(label)") { Task { await state.installService(key) } }
+                    .controlSize(.small).disabled(state.busy)
+            } else {
+                Button("Start") { Task { await state.control("start", key) } }
+                    .controlSize(.small).disabled(state.busy || running)
+                Button("Stop") { Task { await state.control("stop", key) } }
+                    .controlSize(.small).disabled(state.busy || !running)
+                if isMysqlFamily {
+                    Button("Root password…") { rootSheet = true }
+                        .controlSize(.small).disabled(!running)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
+        .sheet(isPresented: $rootSheet) {
+            RootPasswordSheet(hasPassword: state.rootStatus == "set") { pw in
+                Task { await state.setRootPassword(pw) }
+            }
+        }
     }
 }
 

@@ -75,6 +75,8 @@ struct ContentView: View {
         }
         .task {
             await state.reload()   // boot auto-start is handled in AppDelegate (window-independent)
+            // opening the window is a natural moment to (re)check for updates
+            if state.autoUpdateCheckEnabled && !state.updateAvailable { await state.checkForUpdate(auto: true) }
             // live auto-refresh while the window is open (skip while an action runs)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(4))
@@ -88,6 +90,10 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(state.errorText ?? "")
+        }
+        // Success/failure notice after add-site / install (shown over any tab).
+        .sheet(item: Binding(get: { state.actionResult }, set: { state.actionResult = $0 })) { r in
+            ResultSheet(result: r)
         }
     }
 }
@@ -109,18 +115,22 @@ struct StatusFooter: View {
                 if state.busy { ProgressView().controlSize(.small) }
             }
             VStack(spacing: 6) {
+                // Start: enabled only when something installed isn't already running.
                 Button { Task { await state.control("start", "all") } } label: {
                     Label("Start All", systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.hasDaemons || state.allDaemonsRunning)
+                // Stop/Restart: enabled only when at least one service is running.
                 Button { Task { await state.control("stop", "all") } } label: {
                     Label("Stop All", systemImage: "stop.fill").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.anyDaemonRunning)
                 Button { Task { await state.restartAll() } } label: {
                     Label("Restart All", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
                 }
+                .disabled(state.busy || !state.anyDaemonRunning)
             }
             .controlSize(.large)
-            .disabled(state.busy)
             if let note = state.lastAction {
                 Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }

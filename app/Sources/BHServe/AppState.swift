@@ -12,6 +12,32 @@ final class AppState {
     var busy = false
     var lastAction: String?
 
+    /// Outcome of a long action (add site / install service) → shown in a result sheet.
+    struct ActionResult: Identifiable, Equatable {
+        let id = UUID()
+        var title: String
+        var success: Bool
+        var steps: [Step]
+        var url: String?
+        struct Step: Identifiable, Equatable { let id = UUID(); var done: Bool; var text: String }
+    }
+    var actionResult: ActionResult?
+
+    /// Parse engine output into result steps: ANSI-stripped, ✓-lines are "done".
+    static func parseSteps(_ raw: String) -> [ActionResult.Step] {
+        let clean = raw.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+        return clean.split(separator: "\n").compactMap { l in
+            let t = l.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty else { return nil }
+            let done = t.hasPrefix("✓")
+            var text = t
+            for p in ["✓ ", "✗ ", "! ", "✓", "✗"] where text.hasPrefix(p) { text = String(text.dropFirst(p.count)); break }
+            // skip the engine's own header lines (e.g. "Site 'x' added")
+            if text.hasPrefix("Site '") || text.hasPrefix("Installing ") { return nil }
+            return ActionResult.Step(done: done, text: text)
+        }
+    }
+
     let engine: Engine
     static let shared = AppState()
 
@@ -35,6 +61,21 @@ final class AppState {
         await reload()
         if autostartEnabled { await control("start", "all") }
         if autoUpdateCheckEnabled { await checkForUpdate(auto: true) }
+        startUpdatePolling()
+    }
+
+    /// BHServe runs persistently (menu bar), so a one-shot launch check misses releases
+    /// published later. Re-check every 6h while running (cheap; well under GitHub's limit).
+    private var updatePolling = false
+    private func startUpdatePolling() {
+        guard !updatePolling else { return }
+        updatePolling = true
+        Task { [self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(6 * 3600))
+                if autoUpdateCheckEnabled, !updateAvailable { await checkForUpdate(auto: true) }
+            }
+        }
     }
 
     /// One-time cleanup: earlier builds used SMAppService (mainApp, then a `.helper`
@@ -66,6 +107,16 @@ final class AppState {
 
     var running: [Service] { snapshot?.services.filter { $0.running } ?? [] }
     var installed: [Service] { snapshot?.services.filter { $0.installed } ?? [] }
+
+    /// Installed *daemon* services that Start/Stop/Restart-All actually manage — excludes
+    /// non-daemon tools (mkcert/fnm always report "active" once installed, so they'd skew
+    /// the all-running check). Drives the enabled/disabled state of the footer buttons.
+    var daemonServices: [Service] {
+        (snapshot?.services ?? []).filter { $0.installed && ["php", "web", "db", "cache", "mail", "dns"].contains($0.role) }
+    }
+    var hasDaemons: Bool { !daemonServices.isEmpty }
+    var allDaemonsRunning: Bool { let d = daemonServices; return !d.isEmpty && d.allSatisfy { $0.running } }
+    var anyDaemonRunning: Bool { daemonServices.contains { $0.running } }
 
     /// App version from the bundle (falls back to "dev" under `swift run`).
     var appVersion: String { (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev" }
@@ -172,9 +223,11 @@ final class AppState {
         lastAction = "\(action) \(target)…"
         defer { busy = false; lastAction = nil }
         let eng = engine
-        // nginx/all need root for :80/:443. With the privileged helper installed,
-        // the engine's internal `sudo nginx` is password-less → no osascript prompt.
-        let needsPrompt = (target == "nginx" || target == "all" || target == "dns") && !helperInstalled
+        // dnsmasq needs root (binds :53 + writes /etc/resolver) and the helper only
+        // covers nginx — so DNS ALWAYS prompts (osascript admin). nginx/all need root
+        // for :80/:443 but go password-less once the helper is installed.
+        let dnsLike = (target == "dnsmasq" || target == "dns")
+        let needsPrompt = dnsLike || ((target == "nginx" || target == "all") && !helperInstalled)
         do {
             try await Task.detached {
                 if needsPrompt { try eng.runPrivileged([action, target]) }
@@ -206,11 +259,29 @@ final class AppState {
 
     var httpdInstalled: Bool { snapshot?.services.contains { $0.key == "httpd" && $0.installed } ?? false }
 
+    func serviceInstalled(_ key: String) -> Bool { snapshot?.services.contains { $0.key == key && $0.installed } ?? false }
+
     var mysqlRunning: Bool {
         snapshot?.services.contains { ($0.key == "mariadb" || $0.key == "mysql") && $0.running } ?? false
     }
     var pgRunning: Bool {
         snapshot?.services.contains { $0.key == "postgresql@17" && $0.running } ?? false
+    }
+    /// The installed MySQL-family service key (MariaDB or MySQL), or "mariadb" as the
+    /// default install target when neither is installed yet.
+    var mysqlServiceKey: String {
+        serviceInstalled("mariadb") ? "mariadb" : (serviceInstalled("mysql") ? "mysql" : "mariadb")
+    }
+    var mysqlLabel: String { mysqlServiceKey == "mysql" ? "MySQL" : "MariaDB" }
+    var mysqlInstalled: Bool { serviceInstalled("mariadb") || serviceInstalled("mysql") }
+    var pgInstalled: Bool { serviceInstalled("postgresql@17") }
+
+    /// Engine choices for the "Create database" picker — only the installed engines.
+    var dbEngineOptions: [(tag: String, label: String)] {
+        var opts: [(String, String)] = []
+        if mysqlInstalled { opts.append(("mysql", mysqlLabel)) }
+        if pgInstalled { opts.append(("pg", "PostgreSQL")) }
+        return opts
     }
 
     func reloadDatabases() async {
@@ -421,8 +492,13 @@ final class AppState {
             var req = URLRequest(url: url)
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-                if !auto { updateStatus = .upToDate }; return
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else {
+                // Don't claim "up to date" on a failed check — that hides the real state.
+                if !auto { updateStatus = .failed(code == 403
+                    ? "GitHub rate-limited the check — try again in a few minutes"
+                    : "couldn't reach GitHub (HTTP \(code))") }
+                return
             }
             let rel = try JSONDecoder().decode(Release.self, from: data)
             let latest = rel.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
@@ -466,7 +542,9 @@ final class AppState {
     }
 
     func installService(_ key: String) async {
-        await runUser(["install", key], note: "installing \(key)…")
+        let (ok, steps) = await runCapturing(["install", key], note: "installing \(key)…")
+        actionResult = ActionResult(title: ok ? "\(key) installed" : "Couldn't install \(key)",
+                                    success: ok, steps: steps, url: nil)
     }
 
     func addSite(name: String, php: String, server: String = "nginx", type: String = "php", root: String? = nil) async {
@@ -475,8 +553,18 @@ final class AppState {
         var args = ["site", "add", clean, "--php", php, "--server", server, "--type", type]
         if let r = root?.trimmingCharacters(in: .whitespaces), !r.isEmpty { args += ["--root", r] }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
-        await runUser(args, note: note)
+        let (ok, steps) = await runCapturing(args, note: note)
         await control("restart", "nginx")   // load the new vhost (+ its SSL) immediately
+        let tld = snapshot?.config.tld ?? "test"
+        let secure = snapshot?.sites.first { $0.name == clean }?.secure ?? false
+        actionResult = ActionResult(title: ok ? "Site ‘\(clean)’ added" : "Couldn't add ‘\(clean)’",
+                                    success: ok, steps: steps,
+                                    url: ok ? "\(secure ? "https" : "http")://\(clean).\(tld)" : nil)
+    }
+
+    func setSitePhp(_ name: String, _ php: String) async {
+        await runUser(["site", "php", name, php], note: "switching \(name) to \(php)…")
+        await control("restart", "nginx")
     }
 
     // ── Cloudflare quick tunnels (share a site publicly) ────────────────────
@@ -498,8 +586,10 @@ final class AppState {
 
     func restartAll() async { await control("restart", "all") }
 
-    func removeSite(_ name: String) async {
-        await runUser(["site", "rm", name], note: "removing \(name)…")
+    func removeSite(_ name: String, purge: Bool = false) async {
+        var args = ["site", "rm", name]
+        if purge { args.append("--purge") }
+        await runUser(args, note: purge ? "removing \(name) + files + database…" : "removing \(name)…")
         await control("restart", "nginx")  // drop the vhost from the running server
     }
 
@@ -609,6 +699,21 @@ final class AppState {
             await reload()
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+
+    /// Like runUser but captures the engine output and returns (ok, parsed steps) for a result sheet.
+    private func runCapturing(_ args: [String], note: String) async -> (ok: Bool, steps: [ActionResult.Step]) {
+        guard !busy else { return (false, []) }
+        busy = true; lastAction = note; defer { busy = false; lastAction = nil }
+        let eng = engine
+        do {
+            let out = try await Task.detached { try eng.run(args) }.value
+            await reload()
+            return (true, AppState.parseSteps(out))
+        } catch {
+            let msg = (error as? EngineError)?.message ?? error.localizedDescription
+            return (false, AppState.parseSteps(msg))
         }
     }
 }

@@ -123,6 +123,7 @@ struct WebsiteRow: View {
     @State private var editingNode = false
     @State private var envPart: String?       // "fe" | "be" when editing .env
     @State private var showingNodeLogs = false
+    @State private var removing = false        // php-site Remove sheet (with purge option)
 
     private var runDot: Bool { site.node ? site.nodeRunning : site.enabled }
 
@@ -160,6 +161,7 @@ struct WebsiteRow: View {
         .sheet(isPresented: $showingLogs) { SiteLogsSheet(site: site) }
         .sheet(isPresented: $showingNodeLogs) { NodeLogsSheet(site: site) }
         .sheet(isPresented: $sharing) { ShareSheet(site: site) }
+        .sheet(isPresented: $removing) { RemoveSiteSheet(site: site) }
         .sheet(item: Binding(get: { envPart.map { EnvTarget(part: $0) } },
                              set: { envPart = $0?.part })) { t in
             EnvEditorSheet(site: site, part: t.part)
@@ -183,7 +185,6 @@ struct WebsiteRow: View {
     @ViewBuilder private var phpActions: some View {
         CircleAction("safari", .blue, "Open in browser") { if let u = site.url { NSWorkspace.shared.open(u) } }
         CircleAction("folder", .gray, "Open folder") { state.openInFinder(site.root) }
-        CircleAction("pencil", .blue, "Edit") { editing = true }
         CircleAction("doc.text.magnifyingglass", .gray, "Logs") { showingLogs = true }
         CircleAction("antenna.radiowaves.left.and.right",
                      state.tunnelURL(site.name) != nil ? .green : .gray,
@@ -193,7 +194,32 @@ struct WebsiteRow: View {
         } else {
             CircleAction("play.fill", .green, "Start") { Task { await state.setSiteEnabled(site.name, true) } }
         }
-        CircleAction("trash", .red, "Delete") { confirmDelete = true }
+        Menu {
+            Menu("Change PHP…") {
+                ForEach(state.phpChoices, id: \.self) { p in
+                    Button { Task { await state.setSitePhp(site.name, p) } } label: {
+                        if p == site.php { Label(p, systemImage: "checkmark") } else { Text(p) }
+                    }
+                }
+            }
+            Button { if let p = bhChooseFolder(start: site.root) { Task { await state.setSiteRoot(site.name, p) } } } label: {
+                Label("Change root folder…", systemImage: "folder")
+            }
+            if site.serverKind == "apache" {
+                Button { Task { await state.setSiteServer(site.name, "nginx") } } label: { Label("Switch to nginx", systemImage: "bolt.fill") }
+            } else {
+                Button { Task { await state.setSiteServer(site.name, "apache") } } label: { Label("Switch to apache", systemImage: "server.rack") }
+            }
+            if !site.secure {
+                Button { Task { await state.secure(domain: site.domain) } } label: { Label("Enable HTTPS", systemImage: "lock") }
+            }
+            Divider()
+            Button(role: .destructive) { removing = true } label: { Label("Delete", systemImage: "trash") }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white).frame(width: 26, height: 26).background(Color.gray, in: Circle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 
     @ViewBuilder private var nodeActions: some View {
