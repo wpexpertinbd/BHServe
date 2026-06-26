@@ -152,15 +152,21 @@ public sealed partial class SiteListControl : UserControl
     {
         var name = Tag(s);
         // Start the tunnel (if it isn't already live), showing the busy ring while cloudflared connects.
+        // The FIRST share auto-downloads cloudflared (no command needed), so this can take a few extra
+        // seconds; on failure we surface the engine's real output instead of a generic message.
         Busy.IsActive = true;
+        var output = "";
         if (!BHServe.Core.Tunnel.Running(name))
-            await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Tunnel("start", name));
+            (_, output) = await EngineHost.Instance.RunCaptured(() => EngineHost.Instance.Engine.Tunnel("start", name));
         Busy.IsActive = false;
 
         var url = BHServe.Core.Tunnel.Url(name);
         if (url is null)
         {
-            await Info("Share publicly", "The tunnel didn't return a public URL. Check the activity log, then try again.");
+            var detail = string.IsNullOrWhiteSpace(output)
+                ? "The tunnel didn't return a public URL. Check Logs, then try again."
+                : output.Trim();
+            await Info("Couldn't share publicly", detail);
             return;
         }
         await ShowShareDialog(name, url);

@@ -1046,6 +1046,12 @@ public sealed class Engine
                 var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
                 if (!File.Exists(conf)) throw new BhException($"no site '{name}'");
                 if (!Nginx.Running()) throw new BhException("nginx not running — start it first (bhserve start nginx)");
+                // First share auto-installs cloudflared — the user never has to run a command.
+                if (Tools.CloudflaredExe() is null)
+                {
+                    Hdr("Setting up public sharing (one-time cloudflared download)");
+                    Ok($"cloudflared installed: {Downloader.InstallCloudflared().GetAwaiter().GetResult()}");
+                }
                 var cfg = Config.Load();
                 var domain = $"{name}.{cfg.Tld}";
                 var origin = File.ReadAllText(conf).Contains($"listen 127.0.0.1:{cfg.HttpsPort} ssl")
