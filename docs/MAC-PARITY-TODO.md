@@ -1,5 +1,11 @@
 # Mac parity TODO — port these Windows features to the macOS build
 
+> ✅ **DONE — both ported to macOS in `v1.6.9`.** (1) HTTPS checkbox (default ON) on the
+> Add-site sheet → best-effort `secure` after add, engine prints `secured: https://<domain>`,
+> Node uses its own flow. (2) Proactive update: an "Update now / Later" alert on auto-checks
+> (launch + 6h poll + window-open) when a window is up, a system notification when launched
+> hidden; once per session, gated by the "Automatically check for updates" setting.
+
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
 = `win-v1.0.x` tags**.
