@@ -55,6 +55,11 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    /// <summary>Autostart-at-login entry point: keep BHServe running in the tray ONLY. The window is
+    /// never Activate()'d (so it never appears on screen and never gets a taskbar button), and we also
+    /// Hide() it as a belt-and-suspenders. The tray icon is the only entry point until the user opens it.</summary>
+    public void StartHiddenInTray() => AppWindow.Hide();
+
     private void ShowFromTray()
     {
         AppWindow.Show();
