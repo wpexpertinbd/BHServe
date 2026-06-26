@@ -29,4 +29,14 @@ public partial class App : Application
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
             });
     }
+
+    /// <summary>Fully exit the app — including the tray — bypassing the "hide to tray on close"
+    /// behavior. Used by the self-updater so the running BHServe.App.exe / Core.dll unlock and the
+    /// installer can replace them (otherwise the close request just hides the window to the tray and
+    /// the installer reports it couldn't close the app).</summary>
+    public static void ForceQuit()
+    {
+        Window?.QuitForUpdate();
+        Application.Current.Exit();
+    }
 }

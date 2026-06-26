@@ -74,6 +74,14 @@ public sealed partial class MainWindow : Window
         Application.Current.Exit();
     }
 
+    /// <summary>Self-updater path: mark a real quit (so the close handler doesn't hide to tray) and
+    /// remove the tray icon. App.ForceQuit() then exits the process, unlocking the files for the installer.</summary>
+    public void QuitForUpdate()
+    {
+        _reallyQuit = true;
+        try { _tray.Dispose(); } catch { }
+    }
+
     private void Nav_Loaded(object sender, RoutedEventArgs e)
     {
         Nav.SelectedItem = Nav.MenuItems[0];   // Dashboard

@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 
@@ -26,6 +26,12 @@ ArchitecturesInstallIn64BitMode=x64compatible arm64
 WizardStyle=modern
 SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
+; Updating over a running BHServe: force-close any leftover instance (incl. the tray app, which
+; otherwise hides-to-tray instead of exiting and keeps BHServe.App.exe / Core.dll locked) so the
+; files can be replaced without "Setup was unable to close all applications". We relaunch via [Run],
+; so don't let the Restart Manager also restart it (that would double-launch).
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

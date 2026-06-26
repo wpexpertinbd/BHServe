@@ -71,6 +71,17 @@ public static class Updater
         await using (var s = await http.GetStreamAsync(url))
         await using (var f = File.Create(dest))
             await s.CopyToAsync(f);
-        Process.Start(new ProcessStartInfo { FileName = dest, UseShellExecute = true });
+        // Launch the installer, then fully exit BHServe (incl. the tray) so the running
+        // BHServe.App.exe / Core.dll unlock and the installer can replace them without "couldn't
+        // close the application". /FORCECLOSEAPPLICATIONS is a fallback for any other instance
+        // (a second tray, the CLI) still holding files. Process.Start throws if the UAC prompt is
+        // declined — in which case we never reach ForceQuit and the app stays running.
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = dest,
+            Arguments = "/FORCECLOSEAPPLICATIONS",
+            UseShellExecute = true,
+        });
+        App.ForceQuit();
     }
 }
