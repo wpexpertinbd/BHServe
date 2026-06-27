@@ -500,6 +500,11 @@ final class AppState {
     var sidebarSitesPerPage: Int = (UserDefaults.standard.object(forKey: AppState.sidebarPerPageKey) as? Int) ?? 15 {
         didSet { UserDefaults.standard.set(max(1, sidebarSitesPerPage), forKey: AppState.sidebarPerPageKey) }
     }
+    private static let dbsPerPageKey = "dbsPerPage"
+    /// Default databases-per-page on the Databases tab (default 15).
+    var dbsPerPage: Int = (UserDefaults.standard.object(forKey: AppState.dbsPerPageKey) as? Int) ?? 15 {
+        didSet { UserDefaults.standard.set(max(1, dbsPerPage), forKey: AppState.dbsPerPageKey) }
+    }
 
     struct Release: Decodable {
         let tagName: String, htmlURL: String, assets: [Asset]

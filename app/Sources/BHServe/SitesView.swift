@@ -42,7 +42,7 @@ struct PerPagePicker: View {
             Text("All").tag(0)
         }
         .pickerStyle(.menu).fixedSize()
-        .help("How many sites to show per page")
+        .help("How many to show per page")
     }
 }
 

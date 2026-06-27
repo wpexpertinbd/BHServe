@@ -5,10 +5,22 @@ struct DatabasesView: View {
     @State private var newName = ""
     @State private var newPassword = ""
     @State private var newEngine = "mysql"
+    @State private var query = ""
+    @State private var page = 0
+    @State private var perPage = 15            // overwritten from Settings on appear
+    @FocusState private var searchFocused: Bool
 
     private var anyServerRunning: Bool { state.mysqlRunning || state.pgRunning }
     /// The selected engine must actually be running to create into it.
     private var selectedEngineRunning: Bool { newEngine == "pg" ? state.pgRunning : state.mysqlRunning }
+
+    /// Databases filtered by the search box (name or user).
+    private var filteredDbs: [Database] {
+        let all = state.databases
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.name.localizedCaseInsensitiveContains(query)
+                          || $0.user.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         ScrollView {
@@ -65,23 +77,46 @@ struct DatabasesView: View {
 
                 // List
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Databases").font(.headline).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Databases").font(.headline).foregroundStyle(.secondary)
+                        if anyServerRunning && !state.databases.isEmpty {
+                            Text("\(state.databases.count)").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            PerPagePicker(size: $perPage, settingsDefault: state.dbsPerPage)
+                            TextField("Search", text: $query)
+                                .textFieldStyle(.roundedBorder).frame(width: 180)
+                                .focused($searchFocused)
+                        }
+                    }
+                    .defaultFocus($searchFocused, false)   // don't auto-grab focus on open
                     if !anyServerRunning {
                         Text("Start a database server above to manage databases.")
                             .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
                     } else if state.databases.isEmpty {
                         Text("No user databases yet.")
                             .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
+                    } else if filteredDbs.isEmpty {
+                        Text("No databases match “\(query)”.")
+                            .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(state.databases) { DatabaseRow(db: $0) }
+                            ForEach(SitePaging.page(filteredDbs, page, size: perPage)) { DatabaseRow(db: $0) }
                         }
                         .background(.quaternary.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        PageBar(page: $page, pageCount: SitePaging.pageCount(filteredDbs.count, size: perPage))
+                            .padding(.vertical, 6)
                     }
                 }
             }
             .padding(20)
+        }
+        .onAppear { perPage = state.dbsPerPage }
+        .onChange(of: query) { page = 0 }
+        .onChange(of: perPage) { page = 0 }
+        .onChange(of: filteredDbs.count) {
+            let last = SitePaging.pageCount(filteredDbs.count, size: perPage) - 1
+            if page > last { page = max(0, last) }
         }
         .navigationTitle("Databases")
         .toolbar {

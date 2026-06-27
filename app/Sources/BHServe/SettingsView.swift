@@ -90,7 +90,7 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Section("Site lists") {
+            Section("List sizes") {
                 LabeledContent("Sites per page — Dashboard") {
                     TextField("10", value: Binding(
                         get: { state.homeSitesPerPage },
@@ -103,7 +103,13 @@ struct SettingsView: View {
                         set: { state.sidebarSitesPerPage = max(1, $0) }), format: .number)
                         .frame(width: 70).multilineTextAlignment(.trailing)
                 }
-                Text("Default page size for the website lists. Each list's “Show” menu can override it per view; the footer has prev/next plus a jump-to-page box.")
+                LabeledContent("Databases per page — Databases tab") {
+                    TextField("15", value: Binding(
+                        get: { state.dbsPerPage },
+                        set: { state.dbsPerPage = max(1, $0) }), format: .number)
+                        .frame(width: 70).multilineTextAlignment(.trailing)
+                }
+                Text("Default page size for the website and database lists. Each list's “Show” menu can override it per view; the footer has prev/next plus a jump-to-page box.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Defaults for new sites") {
