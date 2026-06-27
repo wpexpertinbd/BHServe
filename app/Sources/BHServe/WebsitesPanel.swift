@@ -1,6 +1,68 @@
 import SwiftUI
 import AppKit
 
+/// Reusable "managed apps" list section (Node tab, Python tab) — a header with the
+/// title + count + "Show" menu + Search + an Add button, a paginated list of WebsiteRows,
+/// and a prev/next + jump-to-page footer. Mirrors the Sites/Databases list behavior.
+struct ManagedAppsSection: View {
+    @Environment(AppState.self) private var state
+    let title: String
+    let apps: [Site]
+    let emptyText: String
+    let addLabel: String
+    let onAdd: () -> Void
+
+    @State private var query = ""
+    @State private var page = 0
+    @State private var perPage = 15            // overwritten from Settings on appear
+    @FocusState private var searchFocused: Bool
+
+    private var filtered: [Site] {
+        guard !query.isEmpty else { return apps }
+        return apps.filter { $0.name.localizedCaseInsensitiveContains(query)
+                          || $0.domain.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title).font(.headline).foregroundStyle(.secondary)
+                if !apps.isEmpty {
+                    Text("\(apps.count)").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !apps.isEmpty {
+                    PerPagePicker(size: $perPage, settingsDefault: state.appsPerPage)
+                    TextField("Search", text: $query)
+                        .textFieldStyle(.roundedBorder).frame(width: 160).focused($searchFocused)
+                }
+                Button { onAdd() } label: { Label(addLabel, systemImage: "plus") }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+            .defaultFocus($searchFocused, false)   // don't auto-grab focus on open
+            if apps.isEmpty {
+                Text(emptyText)
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.vertical, 8)
+            } else if filtered.isEmpty {
+                Text("No apps match “\(query)”.")
+                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
+            } else {
+                VStack(spacing: 0) { ForEach(SitePaging.page(filtered, page, size: perPage)) { WebsiteRow(site: $0) } }
+                    .background(.quaternary.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 10))
+                PageBar(page: $page, pageCount: SitePaging.pageCount(filtered.count, size: perPage))
+                    .padding(.vertical, 6)
+            }
+        }
+        .onAppear { perPage = state.appsPerPage }
+        .onChange(of: query) { page = 0 }
+        .onChange(of: perPage) { page = 0 }
+        .onChange(of: filtered.count) {
+            let last = SitePaging.pageCount(filtered.count, size: perPage) - 1
+            if page > last { page = max(0, last) }
+        }
+    }
+}
+
 /// Dashboard websites list (ServBay-style) with per-site actions.
 struct WebsitesPanel: View {
     @Environment(AppState.self) private var state

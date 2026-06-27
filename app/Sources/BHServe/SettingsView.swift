@@ -109,7 +109,13 @@ struct SettingsView: View {
                         set: { state.dbsPerPage = max(1, $0) }), format: .number)
                         .frame(width: 70).multilineTextAlignment(.trailing)
                 }
-                Text("Default page size for the website and database lists. Each list's “Show” menu can override it per view; the footer has prev/next plus a jump-to-page box.")
+                LabeledContent("Apps per page — Node & Python tabs") {
+                    TextField("15", value: Binding(
+                        get: { state.appsPerPage },
+                        set: { state.appsPerPage = max(1, $0) }), format: .number)
+                        .frame(width: 70).multilineTextAlignment(.trailing)
+                }
+                Text("Default page size for the website, database, and app lists. Each list's “Show” menu can override it per view; the footer has prev/next plus a jump-to-page box.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Defaults for new sites") {

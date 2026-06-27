@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.7.3"          # keep in sync with build-app.sh
+VERSION="1.7.4"          # keep in sync with build-app.sh
 IDENT="com.biswashost.bhserve"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"

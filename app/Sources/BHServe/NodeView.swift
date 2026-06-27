@@ -50,21 +50,12 @@ struct NodeView: View {
                 }
 
                 // ── Node apps (managed sites) ─────────────────────────────────
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Node apps").font(.headline).foregroundStyle(.secondary)
-                        Spacer()
-                        Button { addingApp = true } label: { Label("Add Node app", systemImage: "plus") }
-                            .buttonStyle(.borderedProminent).controlSize(.small)
-                    }
-                    if nodeApps.isEmpty {
-                        Text("No Node apps yet. Add one — a frontend (e.g. Next.js) plus an optional backend/API (e.g. Laravel). BHServe runs both and serves them at name.\(state.snapshot?.config.tld ?? "test").")
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.vertical, 8)
-                    } else {
-                        VStack(spacing: 0) { ForEach(nodeApps) { WebsiteRow(site: $0) } }
-                            .background(.quaternary.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                }
+                ManagedAppsSection(
+                    title: "Node apps",
+                    apps: nodeApps,
+                    emptyText: "No Node apps yet. Add one — a frontend (e.g. Next.js) plus an optional backend/API (e.g. Laravel). BHServe runs both and serves them at name.\(state.snapshot?.config.tld ?? "test").",
+                    addLabel: "Add Node app",
+                    onAdd: { addingApp = true })
             }
             .padding(20)
         }

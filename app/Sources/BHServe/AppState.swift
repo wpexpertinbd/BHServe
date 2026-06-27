@@ -505,6 +505,11 @@ final class AppState {
     var dbsPerPage: Int = (UserDefaults.standard.object(forKey: AppState.dbsPerPageKey) as? Int) ?? 15 {
         didSet { UserDefaults.standard.set(max(1, dbsPerPage), forKey: AppState.dbsPerPageKey) }
     }
+    private static let appsPerPageKey = "appsPerPage"
+    /// Default apps-per-page on the Node + Python tabs (default 15).
+    var appsPerPage: Int = (UserDefaults.standard.object(forKey: AppState.appsPerPageKey) as? Int) ?? 15 {
+        didSet { UserDefaults.standard.set(max(1, appsPerPage), forKey: AppState.appsPerPageKey) }
+    }
 
     struct Release: Decodable {
         let tagName: String, htmlURL: String, assets: [Asset]

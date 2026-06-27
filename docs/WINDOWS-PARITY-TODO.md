@@ -119,3 +119,13 @@ jump-to-page** footer the Sites tab already has, plus a persisted **"Databases p
 (default 15) alongside the existing site-list page-size settings. macOS reused its shared
 `SitePaging`/`PerPagePicker`/`PageBar`; search filters by **database name or user**. Mirror it on the
 Windows Databases page if it shows a long DB list, using whatever paging helper your Sites list uses.
+
+---
+
+## 4. NEW — search + per-page + pagination on the Node & Python tabs  *(macOS: v1.7.4)*
+
+Same search/Show/pagination as the Sites + Databases lists, now on the **Node apps** and **Python
+apps** lists. macOS extracted a reusable `ManagedAppsSection` (header: title + count + Show menu +
+Search + Add button; paginated `WebsiteRow`s; prev/next + jump-to-page footer) used by both tabs, and
+added one shared **"Apps per page — Node & Python tabs"** setting (default 15). Mirror on Windows if
+those tabs can hold many apps.
