@@ -39,21 +39,12 @@ struct PythonView: View {
                 }
 
                 // ── Python apps (managed sites) ──────────────────────────────
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Python apps").font(.headline).foregroundStyle(.secondary)
-                        Spacer()
-                        Button { addingApp = true } label: { Label("Add Python app", systemImage: "plus") }
-                            .buttonStyle(.borderedProminent).controlSize(.small)
-                    }
-                    if pyApps.isEmpty {
-                        Text("No Python apps yet. Add one — Flask, Django, FastAPI, Gunicorn or Uvicorn. BHServe supervises the process and serves it at name.\(state.snapshot?.config.tld ?? "test") over HTTPS.")
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.vertical, 8)
-                    } else {
-                        VStack(spacing: 0) { ForEach(pyApps) { WebsiteRow(site: $0) } }
-                            .background(.quaternary.opacity(0.4)).clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                }
+                ManagedAppsSection(
+                    title: "Python apps",
+                    apps: pyApps,
+                    emptyText: "No Python apps yet. Add one — Flask, Django, FastAPI, Gunicorn or Uvicorn. BHServe supervises the process and serves it at name.\(state.snapshot?.config.tld ?? "test") over HTTPS.",
+                    addLabel: "Add Python app",
+                    onAdd: { addingApp = true })
             }
             .padding(20)
         }
