@@ -145,3 +145,21 @@ string? ua = UA)` / `DownloadToTmp(..., ua)` now accept an optional UA, and `DoI
 `ua: null` so curl uses its own UA. (Also win-v1.0.13: each DB installer validates its OWN engine —
 `MysqldExe("mysql")` vs `("mariadb")` — so a failed download can't false-succeed by finding the other
 engine; check the Mac install verifies the right binary too.)
+
+---
+
+## 5. CHECK — WordPress wp-config salt injection ($ / special chars)  *(Windows fix: win-v1.0.20)*
+
+**Windows bug:** new WP sites sometimes got a broken `wp-config.php` ("Parse error: syntax error …")
+because the secret-key/salt block was used as the **replacement string of .NET `Regex.Replace`**, and
+WP salts contain `$` (and sequences `$'`, `` $` ``, `$&`) which .NET treats as substitution patterns →
+injected parts of the file. Fixed by a `MatchEvaluator` (literal replacement) in
+`Downloader.InstallWordPress`.
+
+**Check on macOS — `engine/bhserve` injects salts via `awk -v s="$salts" '…{printf "%s", s}…'`:**
+- `printf "%s", s` prints the salts **literally** (the `%`/`$`/`&` are in the *argument*, not the format
+  string), so the macOS path is **likely NOT affected** — no fix needed. Confirm a fresh WP site's
+  `wp-config.php` is valid (`php -l`).
+- The only residual risk: `awk -v s=…` processes **backslash escapes** in the value. WP salts don't
+  normally contain `\`, but if you want to be bulletproof, read the salts via `getline`/a file or an
+  env var instead of `-v` so no escape processing happens.
