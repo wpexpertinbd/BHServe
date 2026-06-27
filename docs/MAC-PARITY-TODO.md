@@ -7,7 +7,10 @@
 > hidden; once per session, gated by the "Automatically check for updates" setting.
 >
 > 🆕 **#3 below is NEW (pending on macOS)** — Add-site requirement guard + first-run setup
-> (win-v1.0.14), so users who skip the readme can't create a dead site with no servers installed.
+> (win-v1.0.14/15), so users who skip the readme can't create a dead site with no servers installed.
+>
+> 🔎 **#4 below is a CHECK** — Windows MySQL install hit a `dev.mysql.com` User-Agent 403 (win-v1.0.16).
+> Verify the Mac MySQL install path isn't affected (it probably uses Homebrew → fine) and fix if it is.
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
@@ -107,3 +110,32 @@ this never collides with the update prompt). If launched hidden (autostart), ski
 `MainWindow.QuitForUpdate()` + installer `CloseApplications=force` / `RestartApplications=no`, commit
 `70be473`, win-v1.0.4). Mac's `.pkg` flow handles its own replace, so only port if the Mac updater has
 the same "running app blocks the install" issue.
+
+---
+
+## 4. CHECK — does MySQL install on macOS? (Windows hit a User-Agent 403)  *(Windows fix: win-v1.0.16)*
+
+**The Windows bug:** installing **Oracle MySQL** (not MariaDB) silently failed — it looked like
+"Installing mysql done" but nothing landed. Root cause: **`dev.mysql.com`'s CDN returns `403
+Forbidden` for a custom `User-Agent`** (Windows sent `BHServe/0.1 (+github…)`; browser UAs also 403),
+but it serves **curl's default UA** fine. MariaDB was never affected (archive.mariadb.org ignores UA).
+Windows fix = download the MySQL zip with **no custom UA** (let curl use its own).
+
+**Check on macOS — only relevant if the Mac engine downloads MySQL DIRECTLY from `dev.mysql.com`:**
+1. Grep the engine: `grep -nE 'mysql|dev\.mysql\.com|brew install mysql' engine/bhserve`.
+   - If MySQL is installed via **Homebrew** (`brew install mysql`) → **NOT affected**, brew handles the
+     fetch. Nothing to do; note it and move on.
+   - If it does a **direct `curl`/`wget` from `dev.mysql.com`** with a custom UA (`curl -A …` /
+     `wget -U …` / a `--header 'User-Agent: …'`) → likely the same 403.
+2. Reproduce (any shell): `curl -fIL -A "BHServe/…"  '<the mysql zip url>'` vs `curl -fL -o /dev/null '<url>'`
+   (no `-A`). **Note:** a `HEAD`/`-I` request can return 200 even when the real GET 403s — test an
+   actual GET (a small range, `-r 0-1000`, is enough): `curl -fL -A "<UA>" -r 0-1000 '<url>'` → 403
+   means the UA is blocked.
+3. Fix: drop the custom UA for the MySQL download only (use the tool's default UA). Don't change the UA
+   globally — GitHub API + other hosts may want/need it.
+
+**Windows source to diff against:** `windows/src/BHServe.Core/Downloader.cs` — `CurlTo(url, dest,
+string? ua = UA)` / `DownloadToTmp(..., ua)` now accept an optional UA, and `DoInstallDb` passes
+`ua: null` so curl uses its own UA. (Also win-v1.0.13: each DB installer validates its OWN engine —
+`MysqldExe("mysql")` vs `("mariadb")` — so a failed download can't false-succeed by finding the other
+engine; check the Mac install verifies the right binary too.)
