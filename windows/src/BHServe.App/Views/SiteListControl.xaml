@@ -67,7 +67,7 @@
                                     <Button ToolTipService.ToolTip="More">
                                         <FontIcon Glyph="&#xE712;" FontSize="14"/>
                                         <Button.Flyout>
-                                            <MenuFlyout>
+                                            <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                 <MenuFlyoutItem Text="Change PHP…" Tag="{x:Bind Name}" Click="ChangePhp_Click"/>
                                                 <MenuFlyoutItem Text="Change root folder…" Tag="{x:Bind Name}" Click="ChangeRoot_Click"/>
                                                 <MenuFlyoutItem Text="Switch to nginx" Tag="{x:Bind Name}" Click="Nginx_Click"/>
