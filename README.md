@@ -85,16 +85,42 @@ handles future versions.
    click **More info → Run anyway**. (One-time; signing certs are costly — the code is all here.)
 3. Finish the installer and launch BHServe.
 
-**🛡️ If your antivirus blocks or quarantines BHServe** (some AVs flag unsigned installers /
-the bundled servers), add an **exclusion** for these two folders, then reinstall / relaunch:
+**🛡️ Recommended FIRST — add an antivirus folder exclusion (do this *before* installing).**
+BHServe is unsigned and downloads server binaries (PHP, nginx, MariaDB, redis, memcached…), so
+some antivirus engines false-positive and quarantine them — sometimes *after* a clean install
+(on the next scan), which silently breaks things. Excluding BHServe's two folders avoids this
+entirely, and you can **leave your antivirus on**. Add **both**:
 
 ```
-C:\Program Files\BHServe\*
+C:\Program Files\BHServe
+```
+```
 C:\Users\<your-user>\AppData\Local\BHServe
 ```
 
-The first is the app + CLI; the second is BHServe's data dir (config, downloaded server
-binaries, your site vhosts, certs). Excluding both lets BHServe run and self-update normally.
+The first is the app + CLI; the second is BHServe's data dir (config, downloaded server binaries,
+your site vhosts, certs). Replace `<your-user>` with your Windows username.
+
+How to add a **folder exclusion** in common antivirus:
+
+- **Windows Security (Defender):** Virus & threat protection → **Manage settings** → Exclusions →
+  **Add or remove exclusions** → **Add an exclusion → Folder** → pick each folder above.
+- **ESET** (NOD32 / Internet Security): Advanced setup (**F5**) → **Detection engine → Exclusions →
+  Performance exclusions → Edit → Add**, and enter each folder path (e.g. `C:\Program Files\BHServe`).
+  (For on-execute blocks also check **HIPS / Detection engine → Real-time file system protection**.)
+- **Avast / AVG:** Menu → Settings → **General → Exceptions → Add exception** → paste each folder.
+- **Bitdefender:** Protection → Antivirus → **Settings → Manage exceptions → Add an exception** → folder.
+- **Kaspersky:** Settings → **Security settings → Exclusions / trusted apps → Manage exclusions → Add**.
+- **Malwarebytes:** Settings → **Allow list → Add → Allow a file or folder** → pick each folder.
+- **Other AVs:** look for **Exclusions / Exceptions / Allow list / Trusted folders** and add the two
+  paths above.
+
+> ⚠️ An exclusion tells your antivirus to skip those folders — only do this because you trust
+> BHServe (the full source is in this repo). If you ever uninstall BHServe, remove the exclusions.
+
+If BHServe was already installed and a server won't start (its binary got quarantined), add the
+exclusions above, **restore** the quarantined file from your antivirus, then reinstall that service
+(Services tab) or relaunch BHServe.
 
 **🚫 "An Application Control policy has blocked this file" / "we can't confirm who published
 BHServe.App.exe"** — this is **Smart App Control** (a Windows 11 feature), not a virus. It blocks
