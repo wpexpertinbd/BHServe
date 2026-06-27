@@ -133,12 +133,31 @@ public static class Tools
     public static bool PythonInstalled => PythonExe() is not null;
     /// <summary>Directory holding the managed python.exe (prepended to a Python app's PATH).</summary>
     public static string? PythonBinDir() => PythonExe() is { } e ? Path.GetDirectoryName(e) : null;
-    /// <summary>Parsed CPython version from the extracted dir (…\cpython-3.13.1+…\…), or null.</summary>
+    private static string? _pyVer, _pyVerForExe;
+    /// <summary>The installed CPython version (e.g. "3.13.4"), from running <c>python --version</c>
+    /// (cached per exe). The python-build-standalone "install_only" tree extracts to a plain
+    /// <c>python\</c> folder with no version in the path, so the path can't be parsed.</summary>
     public static string? PythonVersion()
     {
         if (PythonExe() is not { } exe) return null;
-        var m = System.Text.RegularExpressions.Regex.Match(exe.Replace('\\', '/'), @"cpython-(\d+\.\d+(?:\.\d+)?)");
-        return m.Success ? m.Groups[1].Value : null;
+        if (_pyVerForExe == exe && _pyVer is not null) return _pyVer;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = exe, Arguments = "--version",
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            var p = System.Diagnostics.Process.Start(psi)!;
+            var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+            p.WaitForExit(4000);
+            var m = System.Text.RegularExpressions.Regex.Match(outp, @"(\d+\.\d+\.\d+)");
+            if (m.Success) { _pyVer = m.Groups[1].Value; _pyVerForExe = exe; return _pyVer; }
+        }
+        catch { }
+        var pm = System.Text.RegularExpressions.Regex.Match(exe.Replace('\\', '/'), @"cpython-(\d+\.\d+(?:\.\d+)?)");
+        return pm.Success ? pm.Groups[1].Value : null;
     }
 
     /// <summary>Directory holding the fnm-managed default node.exe + npm (for Node-app sites).</summary>

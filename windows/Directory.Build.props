@@ -2,7 +2,7 @@
   <!-- Shared properties for all BHServe Windows projects. Keep Version in sync
        with the GitHub release tag (the in-app updater compares against it). -->
   <PropertyGroup>
-    <Version>1.0.27</Version>
+    <Version>1.0.28</Version>
     <Company>BiswasHost</Company>
     <Authors>Benjamin Biswas</Authors>
     <Product>BHServe</Product>
