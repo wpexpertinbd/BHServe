@@ -96,6 +96,25 @@ C:\Users\<your-user>\AppData\Local\BHServe
 The first is the app + CLI; the second is BHServe's data dir (config, downloaded server
 binaries, your site vhosts, certs). Excluding both lets BHServe run and self-update normally.
 
+**🚫 "An Application Control policy has blocked this file" / "we can't confirm who published
+BHServe.App.exe"** — this is **Smart App Control** (a Windows 11 feature), not a virus. It blocks
+**unsigned** apps it doesn't recognize. Two cases:
+
+- **SmartScreen** (*"Windows protected your PC"*, blue dialog) — click **More info → Run anyway**.
+  You can also right-click the downloaded `BHServe-Setup-x.x.x.exe` → **Properties** → tick
+  **Unblock** → **OK**, then run it.
+- **Smart App Control** (the *"Application Control policy has blocked this file"* error) — unlike
+  SmartScreen, SAC has **no per-app "allow"**. To run an unsigned app you have to turn it off:
+  **Settings → Privacy & security → Windows Security → App & browser control → Smart App Control
+  settings → Off**.
+  > ⚠️ **This is a one-way change** — once Smart App Control is **Off**, it can only be turned back
+  > **On** by resetting/reinstalling Windows. It's a security trade-off; only do it if you understand
+  > that. If you'd rather not, wait for a signed build.
+
+> **Why this happens:** BHServe is currently **unsigned** (code-signing certificates are an ongoing
+> cost). Each new release is a fresh unsigned file with no reputation yet, so SmartScreen/Smart App
+> Control can flag it. A signed build (planned) removes this entirely.
+
 ### 🐧 Linux
 
 🚧 **Coming soon.** (The engine is largely portable; the GTK app + packaging are in
