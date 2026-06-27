@@ -81,6 +81,31 @@ public sealed partial class MainWindow : Window
             };
             if (await ask.ShowAsync() != ContentDialogResult.Primary) return true;   // chose Later — still a handled first run
 
+            // Offer to add Defender exclusions BEFORE anything downloads, so AV can't quarantine the
+            // server binaries BHServe fetches. Defender-only (other AVs have no API → manual, see README).
+            var avDlg = new ContentDialog
+            {
+                Title = "Protect BHServe from antivirus (recommended)",
+                Content = "BHServe downloads server programs (PHP, nginx, MariaDB, Redis…) that some antivirus engines wrongly flag and delete.\n\n" +
+                          "Add BHServe's two folders to Windows Defender's exclusions now? Windows will ask for your permission.\n\n" +
+                          "Using a different antivirus (ESET, Avast, Bitdefender…)? Add them manually — see the README's antivirus section.",
+                PrimaryButtonText = "Add exclusions", CloseButtonText = "Skip",
+                DefaultButton = ContentDialogButton.Primary, XamlRoot = xamlRoot,
+            };
+            if (await avDlg.ShowAsync() == ContentDialogResult.Primary)
+            {
+                var (exOk, exMsg) = await System.Threading.Tasks.Task.Run(
+                    () => BHServe.Core.WindowsDefender.AddExclusions(AppContext.BaseDirectory, BHServe.Core.Paths.Home));
+                if (!exOk)
+                    await new ContentDialog
+                    {
+                        Title = "Couldn't add the exclusions automatically",
+                        Content = $"BHServe couldn't add the Windows Defender exclusions ({exMsg}).\n\n" +
+                                  "Setup will continue. You can add them by hand anytime — see the README's antivirus section.",
+                        CloseButtonText = "OK", XamlRoot = xamlRoot,
+                    }.ShowAsync();
+            }
+
             var progress = new ContentDialog
             {
                 Title = "Setting up BHServe…",
