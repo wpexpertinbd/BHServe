@@ -511,7 +511,24 @@ final class AppState {
     /// `auto` = the silent launch check: don't surface a "checking…" spinner or a
     /// scary "check failed" (offline at login is normal) — only promote to
     /// `.available`, otherwise leave the status untouched.
+    /// Last time an automatic (launch / poll / window-open) check actually hit GitHub.
+    /// Persisted so app restarts during testing don't each fire a request.
+    private var lastAutoUpdateCheck: Date {
+        get { Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "lastUpdateCheckAt")) }
+        set { UserDefaults.standard.set(newValue.timeIntervalSince1970, forKey: "lastUpdateCheckAt") }
+    }
+    private let autoUpdateMinInterval: TimeInterval = 30 * 60   // ≤ 2 GitHub calls/hour
+
     func checkForUpdate(auto: Bool = false) async {
+        // GitHub's UNauthenticated API is only 60 requests/hour/IP, shared across the whole
+        // network. The dashboard's window-open `.task` + the launch check + the 6h poll all call
+        // this, so without a throttle, reopening the window N times burns N requests and rate-limits
+        // the IP. Throttle automatic checks to once per 30 min; a manual check (auto=false, the
+        // Settings button) always runs. Stamp the time up-front so a 403 also backs off.
+        if auto {
+            if Date().timeIntervalSince(lastAutoUpdateCheck) < autoUpdateMinInterval { return }
+            lastAutoUpdateCheck = Date()
+        }
         if !auto { updateStatus = .checking }
         guard let url = URL(string: "https://api.github.com/repos/\(AppState.repoSlug)/releases/latest") else {
             if !auto { updateStatus = .failed("bad URL") }; return
