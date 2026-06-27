@@ -12,8 +12,11 @@
 > `AppState.{siteRequirements,missingForSite,ensureSiteServices}`. First-run setup (part B) was already
 > covered by the existing **SetupView** (shown when Homebrew or the core stack is missing).
 >
-> 🔎 **#4 below is a CHECK** — Windows MySQL install hit a `dev.mysql.com` User-Agent 403 (win-v1.0.16).
-> Verify the Mac MySQL install path isn't affected (it probably uses Homebrew → fine) and fix if it is.
+> ✅ **#4 checked — macOS is NOT affected.** Mac installs MySQL/MariaDB via **Homebrew**
+> (`brew install mysql`/`mariadb`), which fetches bottles from its own infra (ghcr.io) and sets its
+> own headers — there is **no direct `dev.mysql.com` download** and **no custom User-Agent** anywhere
+> in `engine/bhserve`. The Mac's only direct `curl` fetches are WordPress / WP-salts / ionCube /
+> phpMyAdmin / Adminer (default `curl` UA, all accepted). No fix needed.
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
