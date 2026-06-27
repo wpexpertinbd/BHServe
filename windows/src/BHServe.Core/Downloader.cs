@@ -324,7 +324,10 @@ public static class Downloader
         var dir = Path.Combine(Paths.Bin, "mariadb");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);   // binaries only — data-mariadb is a separate dir
         ExtractZip(zip, dir);
-        return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
+        // Validate the engine we just installed (NOT the ambiguous MysqldExe(), which prefers MariaDB
+        // and would mask a failed extract when the other engine is present).
+        return Tools.MysqldExe("mariadb")
+            ?? throw new InvalidOperationException("MariaDB mysqld.exe not found after extract (download blocked by antivirus, or incomplete).");
     }
 
     /// <summary>Download Oracle MySQL (portable winx64 zip) into bin\mysql — latest GA, pin fallback.
@@ -346,7 +349,10 @@ public static class Downloader
         var dir = Path.Combine(Paths.Bin, "mysql");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);
-        return Tools.MysqldExe() ?? throw new InvalidOperationException("mysqld.exe not found after extract");
+        // Validate MySQL specifically (NOT the ambiguous MysqldExe(), which prefers MariaDB and would
+        // falsely report success — finding MariaDB's mysqld.exe — when the MySQL extract produced nothing).
+        return Tools.MysqldExe("mysql")
+            ?? throw new InvalidOperationException("MySQL mysqld.exe not found after extract (download blocked by antivirus, or incomplete).");
     }
 
     private const string PgPinned = "16.4-1";
