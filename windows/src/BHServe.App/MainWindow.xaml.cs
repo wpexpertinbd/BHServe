@@ -236,6 +236,7 @@ public sealed partial class MainWindow : Window
                 "sites"     => typeof(SitesPage),
                 "databases" => typeof(DatabasesPage),
                 "node"      => typeof(NodePage),
+                "python"    => typeof(PythonPage),
                 "services"  => typeof(ServicesPage),
                 "logs"      => typeof(LogsPage),
                 _           => typeof(DashboardPage),

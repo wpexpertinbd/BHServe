@@ -71,6 +71,7 @@ public sealed class Engine
                 "mkcert"     => Get("mkcert",    cfg, () => Downloader.InstallMkcert()),
                 "mailpit"    => Get("mailpit",   cfg, () => Downloader.InstallMailpit()),
                 "fnm" or "node" => Get("fnm",    cfg, () => Downloader.InstallFnm()),
+                "python" or "python3" => Get("python", cfg, () => Downloader.InstallPython()),
                 "cloudflared" => !_force && Tools.CloudflaredExe() is not null ? Done("cloudflared") : Run("cloudflared", () => Downloader.InstallCloudflared()),
                 _ when tool.StartsWith("php") => InstallPhp(tool, cfg),
                 _ => throw new BhException($"unknown tool: {tool}"),
@@ -90,6 +91,7 @@ public sealed class Engine
     {
         var cfg = Config.Load();
         if (type == "node") return new List<string> { "nginx", "fnm" };
+        if (type == "python") return new List<string> { "nginx", "python" };
         var req = new List<string> { server == "apache" ? "apache" : "nginx" };
         if (type is "php" or "wordpress") req.Add(Services.PhpKey(php, cfg));
         if (type == "wordpress")
@@ -104,6 +106,7 @@ public sealed class Engine
         "mariadb" => "MariaDB (database)",
         "mysql"   => "MySQL (database)",
         "fnm"     => "Node.js (fnm)",
+        "python"  => "Python (interpreter)",
         "mkcert"  => "mkcert (HTTPS certificates)",
         _ when key.StartsWith("php") => $"PHP {Services.PhpVersion(key, cfg)}",
         _ => key,
@@ -231,6 +234,7 @@ public sealed class Engine
             "mkcert"     => Path.Combine(Paths.Bin, "mkcert"),
             "mailpit"    => Path.Combine(Paths.Bin, "mailpit"),
             "fnm" or "node" => Path.Combine(Paths.Bin, "fnm"),
+            "python" or "python3" => Path.Combine(Paths.Bin, "python"),
             "cloudflared"   => Path.Combine(Paths.Bin, "cloudflared"),
             _ when tool.StartsWith("php") =>
                 Path.Combine(Paths.Bin, "php", Services.PhpVersion(Services.PhpKey(tool == "php" ? "default" : tool[(tool.IndexOf('@') + 1)..], cfg), cfg)),
@@ -268,6 +272,8 @@ public sealed class Engine
             if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null) { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
             return;
         }
+        // python (and fnm/node) are TOOLS, not daemons — "active once installed", nothing to start.
+        if (svc is "python" or "python3" or "fnm" or "node") { Ok($"{svc} ready (a tool — no daemon to start)"); return; }
         // Single-service start: THROW on failure (don't just print) so the GUI/notice bar reflects
         // the real result instead of a false "started", and the CLI exits non-zero.
         if (svc == "nginx") { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else throw new BhException(msg); return; }
@@ -302,6 +308,7 @@ public sealed class Engine
             if (Apache.Running()) { Apache.Stop(); Ok("apache stopped"); }
             return;
         }
+        if (svc is "python" or "python3" or "fnm" or "node") { Ok($"{svc} is a tool — nothing to stop"); return; }
         if (svc == "nginx") { Nginx.Stop(); Ok("nginx stopped"); return; }
         if (svc is "mariadb" or "mysql") { DbServer.Stop(); Ok("database stopped"); return; }
         if (svc is "postgresql" or "postgres") { PgServer.Stop(); Ok("PostgreSQL stopped"); return; }
@@ -1171,6 +1178,117 @@ $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES);
             any = true;
         }
         if (!any) Info("none — bhserve nodesite add <name> --fe-dir … --fe-cmd … --fe-port …");
+    }
+
+    // ── Python-app sites (one supervised process behind an nginx reverse proxy) ──
+    public void PySiteAdd(string name, string dir, string cmd, int port, bool venv)
+    {
+        NeedInit();
+        if (!Regex.IsMatch(name, "^[a-z0-9][a-z0-9-]*$")) throw new BhException($"invalid name '{name}'");
+        if (string.IsNullOrWhiteSpace(dir) || port <= 0) throw new BhException("a project folder and a port are required");
+        if (!Directory.Exists(dir)) throw new BhException($"folder not found: {dir}");
+        var cfg = Config.Load();
+        var domain = $"{name}.{cfg.Tld}";
+        var pc = new PySiteConfig
+        {
+            Name = name, Dir = dir, Port = port, Venv = venv,
+            Cmd = string.IsNullOrWhiteSpace(cmd) ? "python app.py" : cmd,
+            PyVer = Tools.PythonVersion() ?? "",
+        };
+        PySite.Save(pc);
+
+        if (venv)
+        {
+            Hdr("Creating virtualenv (.venv)");
+            var (vok, vout) = PySite.MakeVenv(dir);
+            if (vok) Ok("virtualenv ready (.venv) — run 'pip install' from the row menu for requirements.txt");
+            else Warn("virtualenv not created: " + vout);
+        }
+
+        TryIssueCert(domain);                  // best-effort HTTPS; RenderVhost picks up the cert
+        PySite.RenderVhost(pc, domain, cfg);
+        Ok($"python-app vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}");
+        var (ok, msg) = PySite.Start(name); if (ok) Ok(msg); else Warn(msg);
+        if (Nginx.Running()) Nginx.Reload(cfg); else { var (nok, nmsg) = Nginx.Start(cfg); if (!nok) Warn(nmsg); }
+        EnsureHosts(domain);
+        Hdr($"Python-app '{name}' added");
+        Info($"url : https://{domain}");
+        Info($"run : {pc.Cmd}  (dir {dir}, :{port})");
+        Info("tip : the PORT env var is set for your app — read os.environ['PORT'] in code, or use %PORT% in the command (e.g. \"gunicorn app:app -b 127.0.0.1:%PORT%\").");
+    }
+
+    public void PySiteStart(string name)   { NeedInit(); var (ok, msg) = PySite.Start(name); if (ok) Ok(msg); else No(msg); }
+    public void PySiteStop(string name)    { NeedInit(); PySite.Stop(name); Ok($"python-app {name} stopped"); }
+    public void PySiteRestart(string name) { PySiteStop(name); System.Threading.Thread.Sleep(400); PySiteStart(name); }
+
+    public (bool ok, string output) PySitePip(string name)
+    {
+        NeedInit();
+        var (ok, output) = PySite.Pip(name);
+        if (ok) Ok($"pip install complete for {name}"); else No($"pip install failed for {name}");
+        return (ok, output);
+    }
+
+    public string PySiteLog(string name)     { NeedInit(); return PySite.LogTail(name); }
+    public string PySiteEnvPath(string name) { NeedInit(); return PySite.EnvPath(name); }
+    public string PySiteDir(string name)     { NeedInit(); return PySite.DirOf(name); }
+    public PySiteConfig? PySiteConfig(string name) { NeedInit(); return PySite.Load(name); }
+
+    public void PySiteEdit(string name, string cmd, int port, bool? venv)
+    {
+        NeedInit();
+        var pc = PySite.Load(name) ?? throw new BhException($"no python-app '{name}'");
+        var appCfg = Config.Load();
+        var domain = $"{name}.{appCfg.Tld}";
+        PySite.Stop(name);
+        if (!string.IsNullOrWhiteSpace(cmd)) pc.Cmd = cmd;
+        if (port > 0) pc.Port = port;
+        if (venv is bool v) pc.Venv = v;
+        PySite.Save(pc);
+        PySite.RenderVhost(pc, domain, appCfg);
+        if (Nginx.Running()) Nginx.Reload(appCfg);
+        var (ok, msg) = PySite.Start(name); if (ok) Ok(msg); else Warn(msg);
+        Ok($"python-app {name} updated");
+    }
+
+    public void PySiteRemove(string name)
+    {
+        NeedInit();
+        PySite.Stop(name);
+        PySite.Delete(name);
+        try { File.Delete(Path.Combine(Paths.NginxSites, $"{name}.conf")); } catch { }
+        var cfg = Config.Load();
+        if (Nginx.Running()) Nginx.Reload(cfg);
+        Ok($"removed python-app {name}");
+    }
+
+    public void PySiteList()
+    {
+        NeedInit();
+        Hdr("Python-app sites");
+        var any = false;
+        foreach (var n in PySite.List())
+        {
+            var c = PySite.Load(n);
+            Ok($"{n,-16} {(PySite.Running(n) ? "running" : "stopped"),-8} :{c?.Port}  {c?.Cmd}");
+            any = true;
+        }
+        if (!any) Info("none — bhserve pysite add <name> --dir … --port … [--cmd …] [--venv yes]");
+    }
+
+    /// <summary>Best-effort: issue a trusted cert for the domain (mkcert) WITHOUT touching the vhost —
+    /// PySite/NodeSite RenderVhost picks it up. No-op if mkcert isn't installed.</summary>
+    private void TryIssueCert(string domain)
+    {
+        try
+        {
+            var mkc = Tools.MkcertExe();
+            if (mkc is null) return;
+            Directory.CreateDirectory(Paths.Certs);
+            EnsureMkcertCa(mkc);
+            RunCapture(mkc, $"-cert-file \"{domain}.pem\" -key-file \"{domain}-key.pem\" {domain}", Paths.Certs);
+        }
+        catch { }
     }
 
     /// <summary>Cloudflare quick tunnel — share a local site on a public https URL (no account).</summary>

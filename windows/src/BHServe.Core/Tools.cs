@@ -128,6 +128,19 @@ public static class Tools
 
     public static string? FnmExe() => Find("fnm", "fnm.exe");
 
+    // ── Python (portable CPython for Python-app sites) ────────────────────────────
+    public static string? PythonExe() => Find("python", "python.exe");
+    public static bool PythonInstalled => PythonExe() is not null;
+    /// <summary>Directory holding the managed python.exe (prepended to a Python app's PATH).</summary>
+    public static string? PythonBinDir() => PythonExe() is { } e ? Path.GetDirectoryName(e) : null;
+    /// <summary>Parsed CPython version from the extracted dir (…\cpython-3.13.1+…\…), or null.</summary>
+    public static string? PythonVersion()
+    {
+        if (PythonExe() is not { } exe) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(exe.Replace('\\', '/'), @"cpython-(\d+\.\d+(?:\.\d+)?)");
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
     /// <summary>Directory holding the fnm-managed default node.exe + npm (for Node-app sites).</summary>
     public static string? NodeBinDir()
     {

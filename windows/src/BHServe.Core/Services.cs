@@ -28,6 +28,7 @@ public static class Services
         list.Add(new("mkcert",    ServiceRole.Tool));
         list.Add(new("mailpit",   ServiceRole.Mail));
         list.Add(new("fnm",       ServiceRole.Node));
+        list.Add(new("python",    ServiceRole.Python));
         return list;
     }
 
@@ -48,6 +49,7 @@ public static class Services
         "mailpit"   => "Mailpit",
         "mkcert"    => "mkcert",
         "fnm"       => "fnm",
+        "python"    => Tools.PythonVersion() is { } pv ? $"Python {pv}" : "Python",
         _ when RoleOf(key) == ServiceRole.Php => "PHP " + PhpVersion(key, cfg),
         _ => "",
     };
@@ -80,6 +82,7 @@ public static class Services
         "mkcert"    => Tools.MkcertExe() is not null,
         "mailpit"   => Tools.MailpitExe() is not null,
         "fnm"       => Tools.FnmExe() is not null,
+        "python"    => Tools.PythonInstalled,
         _ when RoleOf(key) == ServiceRole.Php => Tools.PhpCgiExe(PhpVersion(key, cfg)) is not null,
         _ => false,
     };

@@ -7,7 +7,9 @@
 
 ---
 
-## 1. NEW — Python web apps (Flask / Django / FastAPI / Gunicorn / Uvicorn)  *(macOS: v1.7.0, engine `pysite` verb + app "Python app" type)*
+## 1. ✅ DONE (win-v1.0.25) — Python web apps (Flask / Django / FastAPI / Gunicorn / Uvicorn)
+
+> Windows: `PySite.cs` (single-process supervisor + venv + reverse-proxy vhost), `bhserve pysite add/start/stop/restart/rm/pip/list`, portable CPython via astral-sh/python-build-standalone (default UA), `python` tool-service + requirement guard, "Python app" Add-site type, and a Python sidebar tab (PythonPage). Engine/CLI/GUI build clean; runtime (download + venv + run a Flask app) to be verified on a real machine.
 
 Same model as the existing **Node app** support: a Python site is **one supervised process**
 listening on a port, with **nginx reverse-proxying** the domain to it (`location / → 127.0.0.1:<port>`),

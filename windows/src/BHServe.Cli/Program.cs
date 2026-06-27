@@ -97,6 +97,34 @@ try
                 default: Usage(); return 1;
             }
             break;
+        case "pysite":
+            switch (Arg(rest, 0))
+            {
+                case "add":
+                {
+                    var f = Flags(rest.Skip(2));
+                    var venv = f.GetValueOrDefault("venv", "yes");
+                    engine.PySiteAdd(Arg(rest, 1),
+                        f.GetValueOrDefault("dir", ""),
+                        f.GetValueOrDefault("cmd", ""),
+                        int.TryParse(f.GetValueOrDefault("port"), out var pp) ? pp : 0,
+                        venv is not ("no" or "false" or "0"));
+                    break;
+                }
+                case "start":          engine.PySiteStart(Arg(rest, 1)); break;
+                case "stop":           engine.PySiteStop(Arg(rest, 1)); break;
+                case "restart":        engine.PySiteRestart(Arg(rest, 1)); break;
+                case "rm" or "remove": engine.PySiteRemove(Arg(rest, 1)); break;
+                case "pip":
+                {
+                    var (_, o) = engine.PySitePip(Arg(rest, 1));
+                    if (o.Length > 0) Console.WriteLine(o);
+                    break;
+                }
+                case "list" or "":     engine.PySiteList(); break;
+                default: Usage(); return 1;
+            }
+            break;
         case "doctor":  engine.Doctor(); break;
         case "logs":    engine.Logs(Arg(rest, 0), int.TryParse(Arg(rest, 1), out var ln) ? ln : 200); break;
         case "config":

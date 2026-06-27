@@ -25,6 +25,7 @@
                     <ComboBoxItem Content="PHP"/>
                     <ComboBoxItem Content="Others (static)"/>
                     <ComboBoxItem Content="Node app"/>
+                    <ComboBoxItem Content="Python app"/>
                 </ComboBox>
                 <ComboBox x:Name="ServerBox" Width="100" SelectedIndex="0">
                     <ComboBoxItem Content="nginx"/>

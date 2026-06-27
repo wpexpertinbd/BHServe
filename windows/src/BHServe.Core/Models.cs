@@ -1,7 +1,7 @@
 namespace BHServe.Core;
 
 /// <summary>Role buckets, matching the mac engine's service registry.</summary>
-public enum ServiceRole { Php, Web, Db, Cache, Mail, Dns, Node, Tool, Other }
+public enum ServiceRole { Php, Web, Db, Cache, Mail, Dns, Node, Python, Tool, Other }
 
 /// <summary>A managed service (a PHP version, nginx, MariaDB, …).</summary>
 public record Service(

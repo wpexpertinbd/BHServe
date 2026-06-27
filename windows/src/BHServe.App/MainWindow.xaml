@@ -19,6 +19,9 @@
                 <muxc:NavigationViewItem Content="Sites"     Tag="sites"     Icon="World"/>
                 <muxc:NavigationViewItem Content="Databases" Tag="databases" Icon="Library"/>
                 <muxc:NavigationViewItem Content="Node"      Tag="node"      Icon="Repair"/>
+                <muxc:NavigationViewItem Content="Python"    Tag="python">
+                    <muxc:NavigationViewItem.Icon><FontIcon Glyph="&#xE943;"/></muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
                 <muxc:NavigationViewItem Content="Logs"      Tag="logs"      Icon="Document"/>
             </muxc:NavigationView.MenuItems>
 

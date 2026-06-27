@@ -471,6 +471,23 @@ public static class Downloader
         return dest;
     }
 
+    private const string PyVersionPrefix = "cpython-3.13";
+
+    /// <summary>Install a portable, relocatable CPython (astral-sh/python-build-standalone — the same
+    /// builds uv uses) into bin\python. The "install_only" archive includes pip + venv and needs no
+    /// installer/UAC. Download with curl's DEFAULT UA (no custom BHServe UA → avoids any CDN 403).</summary>
+    public static async Task<string> InstallPython()
+    {
+        var url = await GithubAsset("astral-sh/python-build-standalone",
+            n => n.StartsWith(PyVersionPrefix, StringComparison.OrdinalIgnoreCase)
+              && n.EndsWith("x86_64-pc-windows-msvc-install_only.tar.gz", StringComparison.OrdinalIgnoreCase));
+        var tgz = await DownloadToTmp(url, "python.tar.gz", ua: null);
+        var dir = Path.Combine(Paths.Bin, "python");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        ExtractZip(tgz, dir);   // tar.exe handles .tar.gz too
+        return Tools.PythonExe() ?? throw new InvalidOperationException("python.exe not found after extract");
+    }
+
     public static async Task<string> InstallFnm()
     {
         // fnm ships fnm-windows.zip (contains fnm.exe)

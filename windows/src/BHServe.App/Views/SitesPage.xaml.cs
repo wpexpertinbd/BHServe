@@ -47,21 +47,21 @@ public sealed partial class SitesPage : Page
     private string SelectedServer => (ServerBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "nginx";
     private string SelectedType => ((TypeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "") switch
     {
-        "WordPress" => "wordpress",
-        "PHP"       => "php",
-        "Node app"  => "node",
-        _           => "others",
+        "WordPress"  => "wordpress",
+        "PHP"        => "php",
+        "Node app"   => "node",
+        "Python app" => "python",
+        _            => "others",
     };
 
-    // PHP version + web server don't apply to a Node app — grey them out when it's selected.
+    // PHP version + web server + HTTPS toggle don't apply to a reverse-proxied app (Node/Python) —
+    // grey them out when one is selected (those types have their own add flow).
     private void Type_Changed(object s, SelectionChangedEventArgs e)
     {
-        var isNode = SelectedType == "node";
-        if (PhpBox != null)    PhpBox.IsEnabled = !isNode;
-        if (ServerBox != null) ServerBox.IsEnabled = !isNode;
-        // SSL-on-add re-renders a PHP vhost, which would clobber a Node app's proxy config — Node has
-        // its own add flow, so the HTTPS toggle doesn't apply there.
-        if (SslBox != null)    SslBox.IsEnabled = !isNode;
+        var isProc = SelectedType is "node" or "python";
+        if (PhpBox != null)    PhpBox.IsEnabled = !isProc;
+        if (ServerBox != null) ServerBox.IsEnabled = !isProc;
+        if (SslBox != null)    SslBox.IsEnabled = !isProc;
     }
 
     private async void Add_Click(object s, RoutedEventArgs e)
@@ -76,6 +76,7 @@ public sealed partial class SitesPage : Page
         if (!await EnsureRequirements(type, php, server)) return;
 
         if (type == "node") { await AddNodeApp(name); return; }
+        if (type == "python") { await AddPythonApp(name); return; }
 
         string? root = _customRoot;
         var wantSsl = SslBox.IsChecked == true;
@@ -183,6 +184,40 @@ public sealed partial class SitesPage : Page
         Busy.IsActive = true; AddBtn.IsEnabled = false;
         var (ok, output) = await EngineHost.Instance.RunCaptured(
             () => EngineHost.Instance.Engine.NodeSiteAdd(name, feD, feC, feP, beD, beC, bp, apiP));
+        Busy.IsActive = false; AddBtn.IsEnabled = true;
+        Refresh();
+        await ShowResult(name, ok, output);
+        if (ok) NameBox.Text = "";
+    }
+
+    /// <summary>Python-app setup sheet (Type = Python app), then create + show the result. nginx +
+    /// python were already ensured by EnsureRequirements before this is called.</summary>
+    private async Task AddPythonApp(string name)
+    {
+        var dir  = new TextBox   { Header = "Project folder", PlaceholderText = @"C:\path\to\app" };
+        var cmd  = new TextBox   { Header = "Run command", Text = "python app.py" };
+        var port = new NumberBox { Header = "Port", Value = 8000, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
+        var venv = new ToggleSwitch { Header = "Create a virtualenv (.venv)", IsOn = true };
+        var hint = new TextBlock { Text = "Your app gets a PORT env var — read os.environ['PORT'] in code, or use %PORT% in the command (e.g. gunicorn app:app -b 127.0.0.1:%PORT%).", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 };
+        var panel = new StackPanel { Spacing = 8 };
+        foreach (var c in new FrameworkElement[] { dir, cmd, port, venv, hint }) panel.Children.Add(c);
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Python app · {name}", Content = new ScrollViewer { Content = panel, MaxHeight = 480 },
+            PrimaryButtonText = "Create", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var d = dir.Text.Trim(); var cm = cmd.Text.Trim();
+        int p = double.IsNaN(port.Value) ? 0 : (int)port.Value;
+        if (d.Length == 0) { await Info("Python app", "A project folder is required."); return; }
+        if (p <= 0)        { await Info("Python app", "A valid port is required."); return; }
+
+        Busy.IsActive = true; AddBtn.IsEnabled = false;
+        var (ok, output) = await EngineHost.Instance.RunCaptured(
+            () => EngineHost.Instance.Engine.PySiteAdd(name, d, cm, p, venv.IsOn));
         Busy.IsActive = false; AddBtn.IsEnabled = true;
         Refresh();
         await ShowResult(name, ok, output);
