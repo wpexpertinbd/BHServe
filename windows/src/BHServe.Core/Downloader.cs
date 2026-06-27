@@ -46,7 +46,7 @@ public static class Downloader
 
     /// <summary>Download a file to <paramref name="dest"/> via the signed system curl.exe, reporting
     /// live progress (curl's --progress-bar on stderr is parsed for the percentage).</summary>
-    private static Task CurlTo(string url, string dest)
+    private static Task CurlTo(string url, string dest, string? ua = UA)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         var psi = new System.Diagnostics.ProcessStartInfo
@@ -54,10 +54,13 @@ public static class Downloader
             FileName = CurlExe, UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
         };
         // --progress-bar (instead of -s) gives a parseable "####  45.2%" on stderr.
-        foreach (var a in new[] { "-fL", "--progress-bar", "--show-error", "--retry", "5", "--retry-delay", "2",
-                                  "--speed-limit", "2048", "--speed-time", "20", "--connect-timeout", "30",
-                                  "-A", UA, "-o", dest, url })
-            psi.ArgumentList.Add(a);
+        var args = new List<string> { "-fL", "--progress-bar", "--show-error", "--retry", "5", "--retry-delay", "2",
+                                      "--speed-limit", "2048", "--speed-time", "20", "--connect-timeout", "30" };
+        // Some CDNs (notably dev.mysql.com) 403 our custom User-Agent but serve curl's default fine,
+        // so callers can pass ua: null to send no -A and let curl use its own UA.
+        if (!string.IsNullOrEmpty(ua)) { args.Add("-A"); args.Add(ua); }
+        args.Add("-o"); args.Add(dest); args.Add(url);
+        foreach (var a in args) psi.ArgumentList.Add(a);
 
         var p = System.Diagnostics.Process.Start(psi)!;
         var tail = new System.Text.StringBuilder();
@@ -79,10 +82,10 @@ public static class Downloader
         return Task.CompletedTask;
     }
 
-    private static async Task<string> DownloadToTmp(string url, string fileName)
+    private static async Task<string> DownloadToTmp(string url, string fileName, string? ua = UA)
     {
         var dest = Path.Combine(Paths.Tmp, fileName);
-        await CurlTo(url, dest);
+        await CurlTo(url, dest, ua);
         return dest;
     }
 
@@ -345,7 +348,8 @@ public static class Downloader
         // is derived from the version.
         var series = string.Join('.', ver.Split('.').Take(2));
         var url = $"https://dev.mysql.com/get/Downloads/MySQL-{series}/mysql-{ver}-winx64.zip";
-        var zip = DownloadToTmp(url, "mysql.zip").GetAwaiter().GetResult();
+        // dev.mysql.com's CDN 403s our custom User-Agent (but serves curl's default UA) — send no -A.
+        var zip = DownloadToTmp(url, "mysql.zip", ua: null).GetAwaiter().GetResult();
         var dir = Path.Combine(Paths.Bin, "mysql");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(zip, dir);
