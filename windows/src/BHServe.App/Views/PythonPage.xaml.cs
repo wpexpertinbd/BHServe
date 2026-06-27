@@ -53,9 +53,13 @@ public sealed partial class PythonPage : Page
     private async void InstallPy_Click(object s, RoutedEventArgs e)
     {
         Busy.IsActive = true; InstallPyBtn.IsEnabled = false;
-        await EngineHost.Instance.Run(() => EngineHost.Instance.Engine.Install("python"));
+        var (_, output) = await EngineHost.Instance.RunCaptured(() => EngineHost.Instance.Engine.Install("python"));
         Busy.IsActive = false; InstallPyBtn.IsEnabled = true;
         RefreshInterp();
+        if (!Tools.PythonInstalled)
+            await Info("Couldn't install Python", string.IsNullOrWhiteSpace(output)
+                ? "The download didn't complete. Check Logs and try again."
+                : output.Trim());
     }
 
     private void RefreshApps()

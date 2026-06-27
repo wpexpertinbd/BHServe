@@ -472,16 +472,30 @@ public static class Downloader
     }
 
     private const string PyVersionPrefix = "cpython-3.13";
+    // A pinned, known-good direct CDN URL (release download, NOT api.github.com) — so the common case
+    // never touches GitHub's 60/hr/IP rate-limited API. Falls back to the API-resolved latest if this 404s.
+    private const string PyPinnedUrl =
+        "https://github.com/astral-sh/python-build-standalone/releases/download/20250604/cpython-3.13.4+20250604-x86_64-pc-windows-msvc-install_only.tar.gz";
 
     /// <summary>Install a portable, relocatable CPython (astral-sh/python-build-standalone — the same
     /// builds uv uses) into bin\python. The "install_only" archive includes pip + venv and needs no
     /// installer/UAC. Download with curl's DEFAULT UA (no custom BHServe UA → avoids any CDN 403).</summary>
     public static async Task<string> InstallPython()
     {
-        var url = await GithubAsset("astral-sh/python-build-standalone",
-            n => n.StartsWith(PyVersionPrefix, StringComparison.OrdinalIgnoreCase)
-              && n.EndsWith("x86_64-pc-windows-msvc-install_only.tar.gz", StringComparison.OrdinalIgnoreCase));
-        var tgz = await DownloadToTmp(url, "python.tar.gz", ua: null);
+        try { return DoInstallPython(PyPinnedUrl); }                  // pinned direct URL — no API call
+        catch
+        {
+            // fallback: resolve the newest via the API (subject to GitHub's rate limit)
+            var url = await GithubAsset("astral-sh/python-build-standalone",
+                n => n.StartsWith(PyVersionPrefix, StringComparison.OrdinalIgnoreCase)
+                  && n.EndsWith("x86_64-pc-windows-msvc-install_only.tar.gz", StringComparison.OrdinalIgnoreCase));
+            return DoInstallPython(url);
+        }
+    }
+
+    private static string DoInstallPython(string url)
+    {
+        var tgz = DownloadToTmp(url, "python.tar.gz", ua: null).GetAwaiter().GetResult();
         var dir = Path.Combine(Paths.Bin, "python");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         ExtractZip(tgz, dir);   // tar.exe handles .tar.gz too
