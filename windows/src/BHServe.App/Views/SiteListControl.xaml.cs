@@ -132,6 +132,63 @@ public sealed partial class SiteListControl : UserControl
     // ── per-site actions ─────────────────────────────────────────────────────────
     private void Open_Click(object s, RoutedEventArgs e)   { if (Row(Tag(s)) is { } r) Launch(r.Url); }
     private void Folder_Click(object s, RoutedEventArgs e) { if (Row(Tag(s)) is { } r && r.Root.Length > 0) Launch(r.Root); }
+
+    /// <summary>Open the site folder in the first code editor we can find (VS Code → Cursor → Sublime →
+    /// Notepad++). Falls back to opening the folder in Explorer if none is installed.</summary>
+    private async void CodeEditor_Click(object s, RoutedEventArgs e)
+    {
+        if (Row(Tag(s)) is not { } r || r.Root.Length == 0) return;
+        var editor = FindEditor();
+        if (editor is null)
+        {
+            Launch(r.Root);   // no editor — at least open the folder
+            await Info("No code editor found", "Couldn't find VS Code, Cursor, Sublime Text or Notepad++. Opened the site folder instead — install one of those to use this.");
+            return;
+        }
+        try { Process.Start(new ProcessStartInfo { FileName = editor, Arguments = $"\"{r.Root}\"", UseShellExecute = true }); }
+        catch { Launch(r.Root); }
+    }
+
+    /// <summary>Open a terminal at the site folder — Windows Terminal if present, else PowerShell, else cmd.</summary>
+    private void Terminal_Click(object s, RoutedEventArgs e)
+    {
+        if (Row(Tag(s)) is not { } r || r.Root.Length == 0) return;
+        try { Process.Start(new ProcessStartInfo { FileName = "wt.exe", Arguments = $"-d \"{r.Root}\"", UseShellExecute = true }); return; } catch { }
+        try { Process.Start(new ProcessStartInfo { FileName = "powershell.exe", Arguments = $"-NoExit -Command \"Set-Location -LiteralPath '{r.Root.Replace("'", "''")}'\"", UseShellExecute = true }); return; } catch { }
+        try { Process.Start(new ProcessStartInfo { FileName = "cmd.exe", Arguments = $"/K cd /d \"{r.Root}\"", UseShellExecute = true }); } catch { }
+    }
+
+    private static string Env(string v) => Environment.GetEnvironmentVariable(v) ?? "";
+
+    /// <summary>Locate an installed code editor (known install paths first, then PATH).</summary>
+    private static string? FindEditor()
+    {
+        var candidates = new (string[] paths, string[] cmds)[]
+        {
+            (new[] { System.IO.Path.Combine(Env("LOCALAPPDATA"), "Programs", "Microsoft VS Code", "Code.exe"),
+                     System.IO.Path.Combine(Env("ProgramFiles"),  "Microsoft VS Code", "Code.exe") },          new[] { "code.cmd", "code.exe" }),
+            (new[] { System.IO.Path.Combine(Env("LOCALAPPDATA"), "Programs", "cursor", "Cursor.exe") },         new[] { "cursor.cmd", "cursor.exe" }),
+            (new[] { System.IO.Path.Combine(Env("ProgramFiles"), "Sublime Text", "sublime_text.exe"),
+                     System.IO.Path.Combine(Env("ProgramFiles"), "Sublime Text 3", "sublime_text.exe") },      new[] { "subl.exe" }),
+            (new[] { System.IO.Path.Combine(Env("ProgramFiles"),      "Notepad++", "notepad++.exe"),
+                     System.IO.Path.Combine(Env("ProgramFiles(x86)"), "Notepad++", "notepad++.exe") },         new[] { "notepad++.exe" }),
+        };
+        foreach (var (paths, cmds) in candidates)
+        {
+            foreach (var p in paths) if (p.Length > 0 && System.IO.File.Exists(p)) return p;
+            foreach (var c in cmds) if (OnPath(c) is { } hit) return hit;
+        }
+        return null;
+    }
+
+    private static string? OnPath(string exe)
+    {
+        foreach (var dir in Env("PATH").Split(System.IO.Path.PathSeparator))
+        {
+            try { var p = System.IO.Path.Combine(dir.Trim(), exe); if (System.IO.File.Exists(p)) return p; } catch { }
+        }
+        return null;
+    }
     private void Logs_Click(object s, RoutedEventArgs e)
     {
         var p = System.IO.Path.Combine(Paths.Logs, $"{Tag(s)}-error.log");

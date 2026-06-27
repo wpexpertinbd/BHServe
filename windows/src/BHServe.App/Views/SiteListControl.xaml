@@ -73,6 +73,9 @@
                                                 <MenuFlyoutItem Text="Switch to nginx" Tag="{x:Bind Name}" Click="Nginx_Click"/>
                                                 <MenuFlyoutItem Text="Switch to apache" Tag="{x:Bind Name}" Click="Apache_Click"/>
                                                 <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem Text="Open in code editor" Tag="{x:Bind Name}" Click="CodeEditor_Click"/>
+                                                <MenuFlyoutItem Text="Open terminal here" Tag="{x:Bind Name}" Click="Terminal_Click"/>
+                                                <MenuFlyoutSeparator/>
                                                 <MenuFlyoutItem Text="Delete" Tag="{x:Bind Name}" Click="Remove_Click"/>
                                             </MenuFlyout>
                                         </Button.Flyout>
