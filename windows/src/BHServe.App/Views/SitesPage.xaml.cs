@@ -70,6 +70,11 @@ public sealed partial class SitesPage : Page
         if (name.Length == 0) { await Info("Add site", "Enter a site name first (lowercase letters, digits, hyphens)."); return; }
 
         string php = SelectedPhp, server = SelectedServer, type = SelectedType;
+
+        // Most users skip the readme and try to add a site with no servers installed -> a dead site.
+        // Make sure the required stack (web server + PHP + DB) is installed AND running first.
+        if (!await EnsureRequirements(type, php, server)) return;
+
         if (type == "node") { await AddNodeApp(name); return; }
 
         string? root = _customRoot;
@@ -89,6 +94,47 @@ public sealed partial class SitesPage : Page
         Refresh();
         await ShowResult(name, ok, output);
         if (ok) { NameBox.Text = ""; ClearCustomRoot(); }
+    }
+
+    /// <summary>Block "Add site" until the servers this site needs are installed + running. If any are
+    /// missing, ask once to install them (one-time download), then start them. Returns false if the
+    /// user cancels or a required component couldn't be installed.</summary>
+    private async Task<bool> EnsureRequirements(string type, string php, string server)
+    {
+        var missing = EngineHost.Instance.Engine.MissingForSite(type, php, server);
+        if (missing.Count > 0)
+        {
+            var list = string.Join("\n", missing.Select(m => "        •  " + m.label));
+            var ask = new ContentDialog
+            {
+                Title = "Install required components first",
+                Content = $"To create this site, BHServe needs to install:\n\n{list}\n\nInstall them now? This is a one-time download.",
+                PrimaryButtonText = "Install & continue", CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary, XamlRoot = this.XamlRoot,
+            };
+            if (await ask.ShowAsync() != ContentDialogResult.Primary) return false;
+        }
+
+        // Install anything missing + start the services this site needs (also covers an installed-but-
+        // stopped stack — a site won't serve if nginx/PHP/DB aren't running).
+        Busy.IsActive = true; AddBtn.IsEnabled = false;
+        var (_, output) = await EngineHost.Instance.RunCaptured(
+            () => EngineHost.Instance.Engine.EnsureSiteServices(type, php, server));
+        Busy.IsActive = false; AddBtn.IsEnabled = true;
+
+        var still = EngineHost.Instance.Engine.MissingForSite(type, php, server);
+        if (still.Count > 0)
+        {
+            await new ContentDialog
+            {
+                Title = "Setup didn't finish",
+                Content = "These couldn't be installed:\n\n" + string.Join("\n", still.Select(m => "        •  " + m.label)) +
+                          "\n\n" + (string.IsNullOrWhiteSpace(output) ? "Check the Services tab and try again." : output.Trim()),
+                CloseButtonText = "OK", XamlRoot = this.XamlRoot,
+            }.ShowAsync();
+            return false;
+        }
+        return true;
     }
 
     /// <summary>Pick an optional custom root folder for the next Add (defaults to the Sites root).</summary>

@@ -81,6 +81,58 @@ public sealed class Engine
         catch (Exception ex) { No($"install {tool} failed: {ex.Message}"); }
     }
 
+    // ── site requirements ────────────────────────────────────────────────────────
+    // Most users skip the readme and try to add a site with NOTHING installed (no nginx/PHP/DB),
+    // which produces a dead site. The GUI uses these to install + start the core stack first.
+
+    /// <summary>The service keys a site of this type needs to actually serve.</summary>
+    private List<string> RequiredServices(string type, string php, string server)
+    {
+        var cfg = Config.Load();
+        if (type == "node") return new List<string> { "nginx", "fnm" };
+        var req = new List<string> { server == "apache" ? "apache" : "nginx" };
+        if (type is "php" or "wordpress") req.Add(Services.PhpKey(php, cfg));
+        if (type == "wordpress")
+            req.Add(Services.Installed("mysql", cfg) && !Services.Installed("mariadb", cfg) ? "mysql" : "mariadb");
+        return req;
+    }
+
+    private static string ServiceLabel(string key, Config cfg) => key switch
+    {
+        "nginx"   => "nginx (web server)",
+        "apache"  => "Apache (web server)",
+        "mariadb" => "MariaDB (database)",
+        "mysql"   => "MySQL (database)",
+        "fnm"     => "Node.js (fnm)",
+        _ when key.StartsWith("php") => $"PHP {Services.PhpVersion(key, cfg)}",
+        _ => key,
+    };
+
+    /// <summary>Required services for this site type that aren't installed yet (key + friendly label).
+    /// The GUI shows these and blocks "Add site" until they're installed.</summary>
+    public List<(string key, string label)> MissingForSite(string type, string php, string server)
+    {
+        var cfg = Config.Load();
+        return RequiredServices(type, php, server)
+            .Where(k => !Services.Installed(k, cfg))
+            .Select(k => (k, ServiceLabel(k, cfg)))
+            .ToList();
+    }
+
+    /// <summary>Install any missing required services for this site and start the ones it needs, so a
+    /// freshly-added site actually serves. Best-effort + idempotent; writes progress via Out.</summary>
+    public void EnsureSiteServices(string type, string php, string server)
+    {
+        var cfg = Config.Load();
+        var required = RequiredServices(type, php, server);
+        foreach (var key in required)
+            if (!Services.Installed(key, cfg)) Install(key);
+        foreach (var key in required)
+        {
+            try { if (Services.Installed(key, cfg)) Start(key); } catch { /* fnm isn't startable; start failures surface elsewhere */ }
+        }
+    }
+
     // Set during Update so the "already installed" guards are bypassed and the latest is re-fetched.
     private bool _force;
 
