@@ -530,10 +530,15 @@ public static class Downloader
             try
             {
                 var salts = await Http.GetStringAsync("https://api.wordpress.org/secret-key/1.1/salt/");
-                if (salts.Trim().Length > 0)
+                var saltBlock = salts.Trim();
+                if (saltBlock.Length > 0)
+                    // MatchEvaluator → the replacement is inserted LITERALLY. A plain string replacement
+                    // would treat $ in the salts (WP salts include $, and sequences like $', $`, $&) as
+                    // .NET substitution patterns and inject parts of the file → broken wp-config.php
+                    // ("Parse error: syntax error … in wp-config.php").
                     txt = System.Text.RegularExpressions.Regex.Replace(
                         txt, @"define\(\s*'AUTH_KEY'.*?'NONCE_SALT'[^;]*\);",
-                        salts.Trim(), System.Text.RegularExpressions.RegexOptions.Singleline);
+                        _ => saltBlock, System.Text.RegularExpressions.RegexOptions.Singleline);
             }
             catch { /* keep sample salts if the API is unreachable */ }
             await File.WriteAllTextAsync(cfg, txt);
