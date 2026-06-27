@@ -124,7 +124,9 @@ Windows Databases page if it shows a long DB list, using whatever paging helper 
 
 ---
 
-## 4. NEW — search + per-page + pagination on the Node & Python tabs  *(macOS: v1.7.4)*
+## 4. ✅ DONE (win-v1.0.26) — search + per-page + pagination on the Node & Python tabs  *(macOS: v1.7.4)*
+
+> Windows: same search + Show 10/15/20/50/100/All + prev/next on both the Node apps and Python apps lists; shared persisted `apps_page_size` (default 15). Inline RenderApps in NodePage/PythonPage.
 
 Same search/Show/pagination as the Sites + Databases lists, now on the **Node apps** and **Python
 apps** lists. macOS extracted a reusable `ManagedAppsSection` (header: title + count + Show menu +

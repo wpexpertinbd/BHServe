@@ -36,7 +36,20 @@ public sealed class NodeVerRow
 
 public sealed partial class NodePage : Page
 {
-    public NodePage() => InitializeComponent();
+    private static readonly string[] PageSizes = { "10", "15", "20", "50", "100", "All" };
+    private List<NodeAppRow> _allApps = new();
+    private int _appPage;
+    private bool _pagingReady;
+
+    public NodePage()
+    {
+        InitializeComponent();
+        foreach (var p in PageSizes) AppPageSizeBox.Items.Add(new ComboBoxItem { Content = p });
+        var saved = Config.Load().AppsPageSize;
+        var idx = Array.IndexOf(PageSizes, saved >= 100000 ? "All" : saved.ToString());
+        AppPageSizeBox.SelectedIndex = idx >= 0 ? idx : 1;   // default 15
+        _pagingReady = true;
+    }
 
     protected override void OnNavigatedTo(NavigationEventArgs e) { RefreshVersions(); RefreshApps(); }
 
@@ -71,14 +84,54 @@ public sealed partial class NodePage : Page
     private void RefreshApps()
     {
         var tld = Config.Load().Tld;
-        AppsList.ItemsSource = NodeSite.List().Select(n =>
+        _allApps = NodeSite.List().Select(n =>
         {
             var c = NodeSite.Load(n);
             var detail = c is null ? "" :
                 $"frontend :{c.Frontend.Port}" + (c.Backend is not null ? $"  ·  backend :{c.Backend.Port} ({c.ApiPath})" : "");
             return new NodeAppRow { Name = n, Detail = detail, Running = NodeSite.Running(n), HasBackend = c?.Backend is not null, Url = $"http://{n}.{tld}" };
         }).ToList();
+        RenderApps();
     }
+
+    // ── search + pagination (shared pattern with Sites/Databases) ─────────────────
+    private int AppPageSize()
+    {
+        var v = (AppPageSizeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "15";
+        return v == "All" ? int.MaxValue : (int.TryParse(v, out var n) ? n : 15);
+    }
+
+    private void RenderApps()
+    {
+        var q = (AppSearchBox.Text ?? "").Trim();
+        var filtered = q.Length == 0 ? _allApps
+            : _allApps.Where(r => r.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                               || r.Detail.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        var size = AppPageSize();
+        var pages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)size));
+        _appPage = Math.Clamp(_appPage, 0, pages - 1);
+        var page = filtered.Skip(_appPage * size).Take(size).ToList();
+        AppsList.ItemsSource = page;
+        EmptyApps.Text = _allApps.Count == 0 ? "No Node apps yet." : "No matches.";
+        EmptyApps.Visibility = page.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        AppPager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
+        AppPageLabel.Text = $"Page {_appPage + 1} of {pages}";
+        AppPrevBtn.IsEnabled = _appPage > 0;
+        AppNextBtn.IsEnabled = _appPage < pages - 1;
+    }
+
+    private void AppSearch_Changed(object s, TextChangedEventArgs e) { _appPage = 0; if (_pagingReady) RenderApps(); }
+    private void AppPageSize_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_pagingReady) return;
+        var cfg = Config.Load();
+        var v = (AppPageSizeBox.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        cfg.AppsPageSize = v == "All" ? 100000 : (int.TryParse(v, out var n) ? n : 15);
+        cfg.Save();
+        _appPage = 0; RenderApps();
+    }
+    private void AppPrev_Click(object s, RoutedEventArgs e) { _appPage--; RenderApps(); }
+    private void AppNext_Click(object s, RoutedEventArgs e) { _appPage++; RenderApps(); }
 
     private void OpenApp_Click(object s, RoutedEventArgs e)
     {

@@ -22,6 +22,7 @@ public sealed class Config
     [JsonPropertyName("dashboard_page_size")] public int DashboardPageSize { get; set; } = 10;
     [JsonPropertyName("sites_page_size")]     public int SitesPageSize { get; set; } = 15;
     [JsonPropertyName("databases_page_size")] public int DatabasesPageSize { get; set; } = 15;
+    [JsonPropertyName("apps_page_size")]      public int AppsPageSize { get; set; } = 15;
     [JsonPropertyName("auto_update")]              public bool AutoUpdate { get; set; } = true;
     [JsonPropertyName("start_services_on_launch")] public bool StartServicesOnLaunch { get; set; } = false;
     [JsonPropertyName("root_password")]            public string RootPassword { get; set; } = "";   // "" = passwordless root

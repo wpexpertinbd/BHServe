@@ -63,6 +63,18 @@
         <Border BorderThickness="1" CornerRadius="8" Padding="4"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel>
+            <Grid Padding="8,6" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="Show" VerticalAlignment="Center" Opacity="0.7"/>
+                    <ComboBox x:Name="AppPageSizeBox" Width="80" SelectionChanged="AppPageSize_Changed"/>
+                </StackPanel>
+                <TextBox Grid.Column="2" x:Name="AppSearchBox" PlaceholderText="search…" Width="200" TextChanged="AppSearch_Changed"/>
+            </Grid>
+            <TextBlock x:Name="EmptyApps" Text="No Node apps yet." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
             <ListView x:Name="AppsList" SelectionMode="None">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:NodeAppRow">
@@ -103,6 +115,17 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+            <Grid x:Name="AppPager" Padding="8,8" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button x:Name="AppPrevBtn" Click="AppPrev_Click"><FontIcon Glyph="&#xE76B;" FontSize="12"/></Button>
+                    <TextBlock x:Name="AppPageLabel" VerticalAlignment="Center" Opacity="0.8"/>
+                    <Button x:Name="AppNextBtn" Click="AppNext_Click"><FontIcon Glyph="&#xE76C;" FontSize="12"/></Button>
+                </StackPanel>
+            </Grid>
+            </StackPanel>
         </Border>
     </StackPanel>
     </ScrollViewer>
