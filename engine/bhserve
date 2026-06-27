@@ -998,8 +998,15 @@ site_install_wordpress(){
     sed -i '' "s/database_name_here/$db/; s/username_here/root/; s/'password_here'/''/" "$root/wp-config.php"
     local salts; salts="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ 2>/dev/null || true)"
     if [ -n "$salts" ]; then
-      awk -v s="$salts" '/put your unique phrase here/{ if(!d){printf "%s", s; d=1} next } {print}' \
+      # Inject the salt block by reading it from a FILE via getline — NOT `awk -v s=...`.
+      # BSD awk chokes on a multi-line `-v` value ("newline in string") and silently drops
+      # the salts; getline also avoids any backslash/`$`/`&` escape processing, so the salts
+      # (which contain every special char) land verbatim and wp-config.php stays valid PHP.
+      local saltfile="$root/.bhserve-salts.tmp"
+      printf '%s\n' "$salts" > "$saltfile"
+      awk -v sf="$saltfile" '/put your unique phrase here/{ if(!d){ while((getline line < sf) > 0) print line; close(sf); d=1 } next } {print}' \
         "$root/wp-config.php" > "$root/wp-config.php.tmp" && mv "$root/wp-config.php.tmp" "$root/wp-config.php"
+      rm -f "$saltfile"
     fi
     ok "wrote wp-config.php — visit the site and just set the title + admin user"
   fi
