@@ -93,3 +93,15 @@ bhserve pysite {list|start|stop|restart|status|rm|pip} <name>
   + the refactored `siteRequirements/missingForSite/ensureSiteServices` (key off `type`);
   `WebsitesPanel.swift` `pyActions`; `NodeSiteUI.swift` `PyLogsSheet`; `SitesView.swift` "Python app"
   type + fields.
+
+---
+
+## 2. CHECK — throttle the auto update-check (GitHub 60/hr/IP)  *(macOS fix: v1.7.2)*
+
+The update checker hits `api.github.com/repos/.../releases/latest` **unauthenticated** — GitHub's
+limit there is **60 requests/hour/IP, shared across the whole network**. If your updater fires on
+window-open / launch / a periodic timer with **no throttle**, a user reopening the app during testing
+burns one request each time and **rate-limits their IP** (you'll see HTTP 403). macOS fix: automatic
+checks run **at most once per 30 min** via a persisted `lastUpdateCheckAt` timestamp (stamped up-front
+so a 403 also backs off); a **manual** "Check for updates" always runs. Verify the Windows
+`Updater.Check()` has the same throttle (and a `User-Agent` header — GitHub requires one).
