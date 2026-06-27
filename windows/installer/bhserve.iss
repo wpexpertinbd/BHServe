@@ -1,4 +1,4 @@
--; BHServe (Windows) installer - Inno Setup. Produces a branded BHServe-Setup.exe
+; BHServe (Windows) installer - Inno Setup. Produces a branded BHServe-Setup.exe
 ; that installs the unpackaged WinUI app to Program Files. Build with: iscc bhserve.iss
 ; (after `dotnet publish` puts the app under ..\publish\). Unsigned for now - users
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
