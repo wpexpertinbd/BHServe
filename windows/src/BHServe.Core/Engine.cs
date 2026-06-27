@@ -627,8 +627,18 @@ public sealed class Engine
         }
         if (Hosts.Add(domain)) { Ok($"hosts: {domain} → 127.0.0.1"); return; }
         Info("requesting admin to update the hosts file (UAC)…");
-        if (Elevation.Run("hosts-add", domain)) Ok($"hosts: {domain} → 127.0.0.1 (elevated)");
-        else Warn($"hosts not updated — add manually: 127.0.0.1 {domain}");
+        Elevation.Run("hosts-add", domain);
+        // Judge success by READING THE HOSTS FILE BACK, not the elevated child's exit code: the exit
+        // code of a runas child launched from a non-elevated process is unreliable (it can throw/misreport
+        // on some Windows builds → a false "not updated" even when the write succeeded). Re-check briefly
+        // in case the helper's handle returned before the write flushed.
+        var added = false;
+        for (var i = 0; i < 6 && !(added = Hosts.Has(domain)); i++) System.Threading.Thread.Sleep(300);
+        if (added)
+            Ok($"hosts: {domain} → 127.0.0.1 (elevated)");
+        else
+            Warn($"hosts not updated — add manually: 127.0.0.1 {domain}  " +
+                 "(some antivirus/security tools block edits to the hosts file — allow hosts changes there, or add the line by hand)");
     }
 
     /// <summary>Ensure mkcert's local CA exists + is trusted (first run needs admin/UAC).</summary>
