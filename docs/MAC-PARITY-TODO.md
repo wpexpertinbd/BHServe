@@ -1,14 +1,51 @@
 # Mac parity TODO — port these Windows features to the macOS build
 
-> ✅ **DONE — both ported to macOS in `v1.6.9`.** (1) HTTPS checkbox (default ON) on the
+> ✅ **#1 + #2 ported to macOS in `v1.6.9`.** (1) HTTPS checkbox (default ON) on the
 > Add-site sheet → best-effort `secure` after add, engine prints `secured: https://<domain>`,
 > Node uses its own flow. (2) Proactive update: an "Update now / Later" alert on auto-checks
 > (launch + 6h poll + window-open) when a window is up, a system notification when launched
 > hidden; once per session, gated by the "Automatically check for updates" setting.
+>
+> 🆕 **#3 below is NEW (pending on macOS)** — Add-site requirement guard + first-run setup
+> (win-v1.0.14), so users who skip the readme can't create a dead site with no servers installed.
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
 = `win-v1.0.x` tags**.
+
+---
+
+## 3. NEW — make users install the core stack before/at site creation *(Windows: win-v1.0.14 Add-site guard, first-run setup)*
+
+**Problem:** users skip the readme, install BHServe, and immediately add a site with **nothing
+installed** (no nginx/PHP/DB) → a dead site. Fix it in the app, two layers:
+
+**A. Add-site requirement guard (the enforcement).** When the user clicks **Add site**, compute
+what that site type needs and, if anything is missing, block with a prompt to install it:
+- **WordPress** → web server + chosen PHP version + a database (mariadb, or mysql if that's the one installed).
+- **PHP / static** → web server (+ PHP for php type).
+- **Node** → nginx + Node (fnm).
+- On confirm: **install the missing pieces AND start them** (also covers an installed-but-stopped
+  stack — a site won't serve if nginx/PHP/DB aren't running). On cancel: don't create the site.
+
+**B. First-run setup prompt (proactive).** On first launch, if the **core stack** (web server +
+default PHP + database + mkcert) isn't installed, show a one-time **"Welcome — quick setup / Install
+now"** dialog that installs + starts the core stack (a fresh install is on the latest version, so
+this never collides with the update prompt). If launched hidden (autostart), skip it.
+
+**Windows source to diff against**
+- `windows/src/BHServe.Core/Engine.cs`:
+  - `MissingForSite(type, php, server)` → required-but-not-installed services (key + friendly label),
+    via private `RequiredServices()` + `ServiceLabel()`.
+  - `EnsureSiteServices(type, php, server)` → `Install(key)` any missing required + `Start(key)` each
+    (idempotent; `Start` no-ops if already running).
+  - `MissingCore()` → core stack (`nginx`, `php@default`, `mariadb`, `mkcert`) not installed.
+- `windows/src/BHServe.App/Views/SitesPage.xaml.cs` → `Add_Click` calls `EnsureRequirements(...)` before
+  creating the site (returns false to abort); the dialog lists missing pieces, installs on confirm.
+- `windows/src/BHServe.App/MainWindow.xaml.cs` → `FirstRunThenUpdateCheck()` (waits for XamlRoot, then
+  `OfferFirstRunSetup()` else the update check) + `OfferFirstRunSetup()` (prompt → progress dialog →
+  `Install("all")` + `Start("all")` → done/partial result).
+- Engine already has `Install("all")` = core stack (nginx + php@default + mariadb + mkcert) on both platforms.
 
 ---
 

@@ -104,9 +104,21 @@ public sealed class Engine
         "mariadb" => "MariaDB (database)",
         "mysql"   => "MySQL (database)",
         "fnm"     => "Node.js (fnm)",
+        "mkcert"  => "mkcert (HTTPS certificates)",
         _ when key.StartsWith("php") => $"PHP {Services.PhpVersion(key, cfg)}",
         _ => key,
     };
+
+    /// <summary>The core stack BHServe needs before any site works (used by the first-run setup prompt):
+    /// web server, the default PHP, a database, and mkcert for HTTPS. Returns the ones not installed.</summary>
+    public List<(string key, string label)> MissingCore()
+    {
+        var cfg = Config.Load();
+        var core = new[] { "nginx", Services.PhpKey("default", cfg), "mariadb", "mkcert" };
+        return core.Where(k => !Services.Installed(k, cfg))
+                   .Select(k => (k, ServiceLabel(k, cfg)))
+                   .ToList();
+    }
 
     /// <summary>Required services for this site type that aren't installed yet (key + friendly label).
     /// The GUI shows these and blocks "Add site" until they're installed.</summary>

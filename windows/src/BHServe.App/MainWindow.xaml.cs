@@ -42,11 +42,80 @@ public sealed partial class MainWindow : Window
             }
         };
 
-        _ = CheckForUpdateOnLaunch();
+        _ = FirstRunThenUpdateCheck();
         // Re-check once a day so an instance that stays open (tray/autostart) still notices updates
         // without needing a restart. Same gating + prompt as the launch check.
         _updateTimer.Tick += (_, _) => _ = CheckForUpdateOnLaunch();
         _updateTimer.Start();
+    }
+
+    /// <summary>On launch: if it's a fresh install with no core stack, offer one-click setup; otherwise
+    /// run the normal update check. (A fresh install is on the latest version, so the two never collide.)</summary>
+    private async System.Threading.Tasks.Task FirstRunThenUpdateCheck()
+    {
+        // Wait for the XAML tree to be ready (XamlRoot set) so dialogs can show.
+        for (int i = 0; i < 50 && (Content as FrameworkElement)?.XamlRoot is null; i++)
+            await System.Threading.Tasks.Task.Delay(100);
+        if (await OfferFirstRunSetup()) return;
+        await CheckForUpdateOnLaunch();
+    }
+
+    /// <summary>First-run welcome: if the core stack (nginx + PHP + database + mkcert) isn't installed,
+    /// offer to install + start it in one click — so users who skip the readme are ready to add sites.
+    /// Returns true if this was a fresh install we handled (so we skip the update check).</summary>
+    private async System.Threading.Tasks.Task<bool> OfferFirstRunSetup()
+    {
+        try
+        {
+            if (!AppWindow.IsVisible || (Content as FrameworkElement)?.XamlRoot is not { } xamlRoot) return false;
+            var missing = EngineHost.Instance.Engine.MissingCore();
+            if (missing.Count == 0) return false;
+
+            var list = string.Join("\n", missing.Select(m => "        •  " + m.label));
+            var ask = new ContentDialog
+            {
+                Title = "Welcome to BHServe — quick setup",
+                Content = $"Before you can create sites, BHServe needs to install:\n\n{list}\n\nInstall them now? (one-time download, about a minute)",
+                PrimaryButtonText = "Install now", CloseButtonText = "Later",
+                DefaultButton = ContentDialogButton.Primary, XamlRoot = xamlRoot,
+            };
+            if (await ask.ShowAsync() != ContentDialogResult.Primary) return true;   // chose Later — still a handled first run
+
+            var progress = new ContentDialog
+            {
+                Title = "Setting up BHServe…",
+                Content = new StackPanel
+                {
+                    Spacing = 14,
+                    Children =
+                    {
+                        new ProgressRing { IsActive = true, Width = 36, Height = 36, HorizontalAlignment = HorizontalAlignment.Center },
+                        new TextBlock { Text = "Installing nginx, PHP and the database. This takes about a minute…", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center },
+                    },
+                },
+                XamlRoot = xamlRoot,
+            };
+            _ = progress.ShowAsync();
+            await EngineHost.Instance.RunCaptured(() =>
+            {
+                EngineHost.Instance.Engine.Install("all");
+                EngineHost.Instance.Engine.Start("all");
+            });
+            progress.Hide();
+
+            var still = EngineHost.Instance.Engine.MissingCore();
+            await new ContentDialog
+            {
+                Title = still.Count == 0 ? "BHServe is ready 🎉" : "Setup didn't fully finish",
+                Content = still.Count == 0
+                    ? "All set! Head to the Sites tab and add your first site."
+                    : "These couldn't be installed:\n\n" + string.Join("\n", still.Select(m => "        •  " + m.label)) +
+                      "\n\nYou can retry from the Services tab (check your antivirus if a download was blocked).",
+                CloseButtonText = "OK", XamlRoot = xamlRoot,
+            }.ShowAsync();
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>On launch (auto-update on), check GitHub for a newer build and PROACTIVELY tell the user —
