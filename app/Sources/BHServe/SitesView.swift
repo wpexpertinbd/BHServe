@@ -167,6 +167,8 @@ struct AddSiteSheet: View {
     @State private var rootMode = "default"   // "default" | "custom"
     @State private var customRoot = ""
     @State private var enableHttps = true     // issue a trusted cert right after adding
+    @State private var missingReqs: [AppState.SiteRequirement] = []
+    @State private var showReqPrompt = false
     // Node app fields
     @State private var feDir = ""; @State private var feCmd = "npm run dev"; @State private var fePort = ""
     @State private var beDir = ""; @State private var beCmd = ""; @State private var bePort = ""
@@ -249,18 +251,9 @@ struct AddSiteSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Add") {
-                    if isNode {
-                        let n = cleanName
-                        Task {
-                            await state.addNodeSite(name: n, feDir: feDir, feCmd: feCmd, fePort: fePort,
-                                                    beDir: beDir, beCmd: beCmd, bePort: bePort, apiPaths: apiPaths)
-                        }
-                    } else {
-                        let n = cleanName, p = php, s = server, t = type, h = enableHttps
-                        let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
-                        Task { await state.addSite(name: n, php: p, server: s, type: t, root: r, https: h) }
-                    }
-                    dismiss()
+                    // Guard: don't create a dead site if its required services aren't installed/running.
+                    let m = state.missingForSite(type: type, php: php, server: server, isNode: isNode)
+                    if m.isEmpty { performAdd() } else { missingReqs = m; showReqPrompt = true }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(cleanName.isEmpty
@@ -274,6 +267,29 @@ struct AddSiteSheet: View {
         .onAppear { if php.isEmpty { php = state.snapshot?.config.defaultPhp.hasPrefix("php") == true
             ? state.snapshot!.config.defaultPhp
             : (state.phpChoices.first ?? "php@8.4") } }
+        .confirmationDialog("Install required services?", isPresented: $showReqPrompt, titleVisibility: .visible) {
+            Button("Install & continue") { performAdd(ensureFirst: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("‘\(cleanName)’ needs these installed and running: \(missingReqs.map(\.label).joined(separator: ", ")). Install & start them, then create the site?")
+        }
+    }
+
+    /// Create the site (Node or PHP), optionally installing+starting its required services first.
+    private func performAdd(ensureFirst: Bool = false) {
+        let n = cleanName, p = php, s = server, t = type, h = enableHttps, node = isNode
+        let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
+        let fed = feDir, fec = feCmd, fep = fePort, bed = beDir, bec = beCmd, bep = bePort, api = apiPaths
+        Task {
+            if ensureFirst { await state.ensureSiteServices(type: t, php: p, server: s, isNode: node) }
+            if node {
+                await state.addNodeSite(name: n, feDir: fed, feCmd: fec, fePort: fep,
+                                        beDir: bed, beCmd: bec, bePort: bep, apiPaths: api)
+            } else {
+                await state.addSite(name: n, php: p, server: s, type: t, root: r, https: h)
+            }
+        }
+        dismiss()
     }
 
     private var cleanName: String {
