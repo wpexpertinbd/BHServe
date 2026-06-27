@@ -1,8 +1,8 @@
-<Project>
+﻿<Project>
   <!-- Shared properties for all BHServe Windows projects. Keep Version in sync
        with the GitHub release tag (the in-app updater compares against it). -->
   <PropertyGroup>
-    <Version>1.0.18</Version>
+    <Version>1.0.19</Version>
     <Company>BiswasHost</Company>
     <Authors>Benjamin Biswas</Authors>
     <Product>BHServe</Product>

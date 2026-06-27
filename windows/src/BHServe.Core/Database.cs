@@ -39,13 +39,22 @@ public static class Database
 
     private static (int code, string output) Mysql(string sqlArgs)
     {
-        var cli = Tools.MysqlClientExe() ?? throw new BhException("mysql client not found");
+        // Use the client that MATCHES the running engine (a MariaDB client can't load MySQL's
+        // caching_sha2_password plugin, and vice-versa) and tell it where its auth-plugin DLLs live —
+        // the client can't find lib\plugin by default, so loading caching_sha2_password / mysql_native_password
+        // fails with ERROR 1156/2059. --plugin-dir fixes it.
+        var engine = DbServer.ActiveEngine();
+        var cli = (engine is not null ? Tools.MysqlClientFor(engine) : Tools.MysqlClientExe())
+                  ?? throw new BhException("mysql client not found");
+        var bin = Path.GetDirectoryName(cli)!;
+        var pdir = Path.GetFullPath(Path.Combine(bin, "..", "lib", "plugin"));
+        var pdArg = Directory.Exists(pdir) ? $"--plugin-dir=\"{pdir}\" " : "";
         var psi = new ProcessStartInfo
         {
-            FileName = cli, Arguments = $"{BaseArgs} {sqlArgs}",
+            FileName = cli, Arguments = $"{BaseArgs} {pdArg}{sqlArgs}",
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
-            WorkingDirectory = Path.GetDirectoryName(cli)!,
+            WorkingDirectory = bin,
         };
         var p = Process.Start(psi)!;
         var outp = p.StandardOutput.ReadToEnd();

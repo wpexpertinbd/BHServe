@@ -80,6 +80,12 @@ public static class Tools
         return m.Success ? m.Groups[1].Value : null;
     }
     public static string? MysqlClientExe() => Find("mariadb", "mysql.exe")  ?? Find("mysql", "mysql.exe");
+    /// <summary>The command-line client for a SPECIFIC engine (falls back to the other). Critical when
+    /// both are installed: a MariaDB client against a MySQL server can't load MySQL's caching_sha2_password
+    /// auth plugin (ERROR 1156/2059), so the running engine must be talked to by its own client.</summary>
+    public static string? MysqlClientFor(string engine) => engine == "mariadb"
+        ? (Find("mariadb", "mariadb.exe") ?? Find("mariadb", "mysql.exe") ?? Find("mysql", "mysql.exe"))
+        : (Find("mysql", "mysql.exe") ?? Find("mariadb", "mariadb.exe") ?? Find("mariadb", "mysql.exe"));
     public static bool MysqlInstalled   => Find("mysql", "mysqld.exe") is not null;
     public static bool MariadbInstalled => Find("mariadb", "mysqld.exe") is not null;
     public static string? MariadbInstallDbExe() => Find("mariadb", "mariadb-install-db.exe") ?? Find("mariadb", "mysql_install_db.exe");
