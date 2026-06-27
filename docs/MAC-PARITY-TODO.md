@@ -16,7 +16,16 @@
 > (`brew install mysql`/`mariadb`), which fetches bottles from its own infra (ghcr.io) and sets its
 > own headers — there is **no direct `dev.mysql.com` download** and **no custom User-Agent** anywhere
 > in `engine/bhserve`. The Mac's only direct `curl` fetches are WordPress / WP-salts / ionCube /
-> phpMyAdmin / Adminer (default `curl` UA, all accepted). No fix needed.
+> phpMyAdmin / Adminer (default `curl` UA, all accepted). Probe paths are distinct
+> (`opt/mariadb/bin/mariadb` vs `opt/mysql/bin/mysql`) so a failed install can't false-succeed off the
+> other engine. No fix needed.
+>
+> ✅ **#5 FIXED in `v1.6.12`** — but the Mac had a *different* (worse) bug than Windows: the salt block
+> was injected with `awk -v s="$salts"`, and **BSD awk chokes on the multi-line `-v` value
+> ("newline in string") → the salts were silently dropped entirely** (no `AUTH_KEY`/`*_SALT` defines in
+> `wp-config.php` at all). Fixed by writing the salts to a temp file and reading them with `getline`
+> (no `-v`, no newline/backslash/`$`/`&` escape processing) → all 8 salts land verbatim, `php -l` clean.
+> The .NET-specific `$`/`Regex.Replace` corruption never applied to the Mac.
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
