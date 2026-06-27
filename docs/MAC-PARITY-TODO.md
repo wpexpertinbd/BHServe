@@ -163,3 +163,32 @@ injected parts of the file. Fixed by a `MatchEvaluator` (literal replacement) in
 - The only residual risk: `awk -v s=…` processes **backslash escapes** in the value. WP salts don't
   normally contain `\`, but if you want to be bulletproof, read the salts via `getline`/a file or an
   env var instead of `-v` so no escape processing happens.
+
+---
+
+## 6. NEW — per-site "Open in code editor" + "Open terminal" + nicer default page  *(Windows: win-v1.0.21 editor/terminal, win-v1.0.22 default page)*
+
+Three small UX features from user feedback. Port to the macOS app.
+
+**A. Per-site "Open in code editor".** Add to each site's row/context menu. Auto-detect an installed
+editor and open the **site folder** (don't ask which editor). On macOS, detect in order:
+- VS Code (`/Applications/Visual Studio Code.app`, or `code` on PATH) → `open -a "Visual Studio Code" <dir>` or `code <dir>`
+- Cursor (`/Applications/Cursor.app`) → `open -a Cursor <dir>`
+- Sublime Text (`/Applications/Sublime Text.app`, or `subl`) → `open -a "Sublime Text" <dir>`
+- JetBrains (PhpStorm) if easy; else fall back to `open <dir>` (Finder) + a note if none found.
+
+**B. Per-site "Open terminal here".** Open a terminal at the site folder. macOS: prefer **iTerm** if
+installed, else **Terminal** — `open -a iTerm <dir>` / `open -a Terminal <dir>` (or a small AppleScript
+to cd into the dir).
+
+**C. Nicer default landing page for non-WordPress sites.** Replace the bare "heading + phpinfo()"
+placeholder `index.php` with the **branded landing page** (gradient hero + site host + PHP version +
+server + document root + "replace this file" hint + biswashost.com link; `phpinfo()` behind
+`?phpinfo=1`). **The PHP/HTML file is identical cross-platform — copy it verbatim from Windows.**
+
+**Windows source to diff against**
+- Editor/Terminal: `windows/src/BHServe.App/Views/SiteListControl.xaml` (two `MenuFlyoutItem`s) +
+  `SiteListControl.xaml.cs` → `CodeEditor_Click` / `Terminal_Click` + `FindEditor()` / `OnPath()`.
+- Default page: `windows/src/BHServe.Core/Engine.cs` → `const string DefaultIndexPhp` (the whole page)
+  + its write in `SiteAdd` (`File.WriteAllText(.../index.php, DefaultIndexPhp)` when no index exists).
+  Linted valid PHP 7.4 → 8.6.
