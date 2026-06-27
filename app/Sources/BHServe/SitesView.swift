@@ -173,10 +173,16 @@ struct AddSiteSheet: View {
     @State private var feDir = ""; @State private var feCmd = "npm run dev"; @State private var fePort = ""
     @State private var beDir = ""; @State private var beCmd = ""; @State private var bePort = ""
     @State private var apiPaths = "api|storage|sanctum|admin|livewire|vendor|build|up"
+    // Python app fields
+    @State private var pyDir = ""; @State private var pyPort = ""
+    @State private var pyCmd = "python app.py"; @State private var pyVenv = true
 
     private var isNode: Bool { type == "node" }
+    private var isPython: Bool { type == "python" }
+    private var isApp: Bool { isNode || isPython }
     private var nodeReady: Bool { !feDir.isEmpty && !fePort.isEmpty
         && (beDir.trimmingCharacters(in: .whitespaces).isEmpty || !bePort.isEmpty) }
+    private var pyReady: Bool { !pyDir.isEmpty && !pyPort.isEmpty }
 
     private var defaultRoot: String {
         (state.snapshot?.config.sitesRoot ?? "~/BHServe/www") + "/" + (cleanName.isEmpty ? "<name>" : cleanName)
@@ -196,6 +202,7 @@ struct AddSiteSheet: View {
                 Text("PHP").tag("php")
                 Text("Others (static)").tag("others")
                 Text("Node app").tag("node")
+                Text("Python app").tag("python")
             }
             if isNode {
                 Text("A managed Node app: a frontend (e.g. Next.js) plus an optional backend/API (e.g. Laravel). BHServe runs both and reverse-proxies them at the domain.")
@@ -207,6 +214,23 @@ struct AddSiteSheet: View {
                         TextField("api|storage|…", text: $apiPaths).font(.caption.monospaced())
                     }
                 }
+            } else if isPython {
+                Text("A managed Python web app (Flask / Django / FastAPI / Gunicorn / Uvicorn). BHServe supervises the process on a port and reverse-proxies it at the domain. Your run command can use $PORT.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    TextField("/path/to/app", text: $pyDir).textFieldStyle(.roundedBorder)
+                    Button("Choose…") { if let p = bhChooseFolder(start: state.snapshot?.config.sitesRoot) { pyDir = p } }
+                }
+                LabeledContent("Run command") {
+                    TextField("uvicorn main:app --port $PORT", text: $pyCmd).font(.caption.monospaced())
+                }
+                LabeledContent("Port") {
+                    TextField("8001", text: $pyPort).font(.caption.monospaced()).frame(width: 90)
+                }
+                Toggle("Create a virtualenv (.venv) for this app", isOn: $pyVenv)
+                Text(pyVenv ? "Run “pip install (requirements.txt)” from the app’s ••• menu after adding."
+                            : "No virtualenv — the app runs with the system/Homebrew Python.")
+                    .font(.caption2).foregroundStyle(.secondary)
             } else {
                 Group {
                     switch type {
@@ -243,7 +267,7 @@ struct AddSiteSheet: View {
                 Toggle("Enable HTTPS (trusted local certificate)", isOn: $enableHttps)
             }
             if !name.isEmpty {
-                Label("Will be served at \((isNode || enableHttps) ? "https" : scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
+                Label("Will be served at \((isApp || enableHttps) ? "https" : scheme)://\(cleanName).\(state.snapshot?.config.tld ?? "test")",
                       systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -252,18 +276,19 @@ struct AddSiteSheet: View {
                 Button("Cancel") { dismiss() }
                 Button("Add") {
                     // Guard: don't create a dead site if its required services aren't installed/running.
-                    let m = state.missingForSite(type: type, php: php, server: server, isNode: isNode)
+                    let m = state.missingForSite(type: type, php: php, server: server)
                     if m.isEmpty { performAdd() } else { missingReqs = m; showReqPrompt = true }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(cleanName.isEmpty
                           || (isNode ? !nodeReady
+                              : isPython ? !pyReady
                                      : (php.isEmpty || (server == "apache" && !state.httpdInstalled)
                                         || (rootMode == "custom" && !customRoot.hasPrefix("/")))))
             }
         }
         .padding(20)
-        .frame(width: isNode ? 460 : 380)
+        .frame(width: isApp ? 460 : 380)
         .onAppear { if php.isEmpty { php = state.snapshot?.config.defaultPhp.hasPrefix("php") == true
             ? state.snapshot!.config.defaultPhp
             : (state.phpChoices.first ?? "php@8.4") } }
@@ -275,16 +300,19 @@ struct AddSiteSheet: View {
         }
     }
 
-    /// Create the site (Node or PHP), optionally installing+starting its required services first.
+    /// Create the site (Node / Python / PHP), optionally installing+starting its required services first.
     private func performAdd(ensureFirst: Bool = false) {
-        let n = cleanName, p = php, s = server, t = type, h = enableHttps, node = isNode
+        let n = cleanName, p = php, s = server, t = type, h = enableHttps, node = isNode, py = isPython
         let r = rootMode == "custom" ? customRoot.trimmingCharacters(in: .whitespaces) : nil
         let fed = feDir, fec = feCmd, fep = fePort, bed = beDir, bec = beCmd, bep = bePort, api = apiPaths
+        let pyd = pyDir, pyp = pyPort, pyc = pyCmd, pyv = pyVenv
         Task {
-            if ensureFirst { await state.ensureSiteServices(type: t, php: p, server: s, isNode: node) }
+            if ensureFirst { await state.ensureSiteServices(type: t, php: p, server: s) }
             if node {
                 await state.addNodeSite(name: n, feDir: fed, feCmd: fec, fePort: fep,
                                         beDir: bed, beCmd: bec, bePort: bep, apiPaths: api)
+            } else if py {
+                await state.addPySite(name: n, dir: pyd, port: pyp, cmd: pyc, venv: pyv)
             } else {
                 await state.addSite(name: n, php: p, server: s, type: t, root: r, https: h)
             }

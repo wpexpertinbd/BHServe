@@ -574,36 +574,38 @@ final class AppState {
     struct SiteRequirement: Identifiable, Equatable { let key: String; let label: String; var id: String { key } }
 
     /// Services a site of this type needs installed AND running (else it 502s / won't serve).
-    func siteRequirements(type: String, php: String, server: String, isNode: Bool) -> [SiteRequirement] {
+    func siteRequirements(type: String, php: String, server: String) -> [SiteRequirement] {
         var reqs: [SiteRequirement] = []
-        if isNode {
+        switch type {
+        case "node":
             reqs.append(.init(key: "nginx", label: "nginx"))
             reqs.append(.init(key: "fnm", label: "Node (fnm)"))
-        } else {
+        case "python":
+            reqs.append(.init(key: "nginx", label: "nginx"))
+            reqs.append(.init(key: "python", label: "Python"))
+        default:
             if server == "apache" { reqs.append(.init(key: "httpd", label: "Apache")) }
             else { reqs.append(.init(key: "nginx", label: "nginx")) }
             if type == "php" || type == "wordpress" {
                 reqs.append(.init(key: php, label: "PHP \(php.replacingOccurrences(of: "php@", with: ""))"))
-            }
-            if type == "php" || type == "wordpress" {
                 reqs.append(.init(key: mysqlServiceKey, label: mysqlLabel))
             }
         }
         return reqs
     }
     /// Required services that are not installed OR not running.
-    func missingForSite(type: String, php: String, server: String, isNode: Bool) -> [SiteRequirement] {
-        siteRequirements(type: type, php: php, server: server, isNode: isNode)
+    func missingForSite(type: String, php: String, server: String) -> [SiteRequirement] {
+        siteRequirements(type: type, php: php, server: server)
             .filter { !serviceInstalled($0.key) || !serviceRunning($0.key) }
     }
     /// Install any missing required services, then start any that aren't running (idempotent).
-    func ensureSiteServices(type: String, php: String, server: String, isNode: Bool) async {
-        let reqs = siteRequirements(type: type, php: php, server: server, isNode: isNode)
+    func ensureSiteServices(type: String, php: String, server: String) async {
+        let reqs = siteRequirements(type: type, php: php, server: server)
         for r in reqs where !serviceInstalled(r.key) {
             await runUser(["install", r.key], note: "installing \(r.label)…")
         }
-        // fnm is a tool (active once installed) and not a startable target — skip starting it.
-        for r in reqs where r.key != "fnm" && !serviceRunning(r.key) {
+        // fnm + python are tools (active once installed), not startable daemons — skip starting them.
+        for r in reqs where r.key != "fnm" && r.key != "python" && !serviceRunning(r.key) {
             await control("start", r.key)
         }
     }
@@ -701,6 +703,31 @@ final class AppState {
     /// Run `npm install` for a site's frontend or backend (output goes to the action log).
     func nodeNpmInstall(_ name: String, _ part: String) async {
         await runUser(["nodesite", "npm", name, part], note: "npm install — \(name)/\(part)… (can take a minute)")
+    }
+
+    // ── Python apps (Flask / Django / FastAPI / …) ───────────────────────────
+    func addPySite(name: String, dir: String, port: String, cmd: String,
+                   venv: Bool, python: String = "3.13", start: Bool = true) async {
+        let clean = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !clean.isEmpty, !dir.isEmpty, !port.isEmpty else { return }
+        let runCmd = cmd.trimmingCharacters(in: .whitespaces).isEmpty ? "python app.py" : cmd
+        let args = ["pysite", "add", clean,
+                    "--dir", dir, "--port", port, "--cmd", runCmd,
+                    "--venv", venv ? "yes" : "no", "--python", python]
+        await runUser(args, note: "adding Python app \(clean)…")
+        if start { await pyStart(clean) }
+    }
+
+    func pyStart(_ name: String)   async { await runUser(["pysite", "start", name],   note: "starting \(name)…") }
+    func pyStop(_ name: String)    async { await runUser(["pysite", "stop", name],    note: "stopping \(name)…") }
+    func pyRestart(_ name: String) async { await runUser(["pysite", "restart", name], note: "restarting \(name)…") }
+    func removePySite(_ name: String) async {
+        await runUser(["pysite", "rm", name], note: "removing \(name)…")
+        await control("restart", "nginx")
+    }
+    /// Install requirements.txt into the app's virtualenv (output goes to the action log).
+    func pyPip(_ name: String) async {
+        await runUser(["pysite", "pip", name], note: "pip install — \(name)… (can take a minute)")
     }
 
     /// Path to a Node app's `.env` (or null if the dir is empty).

@@ -69,9 +69,17 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     var feCmd: String?
     var beCmd: String?
     var apiPaths: String?
+    // ── Python-site fields (present only when server == "python") ─────────────
+    var python: Bool = false
+    var pyRunning: Bool = false
+    var pyPort: String?
+    var pyDir: String?
+    var pyCmd: String?
+    var pyVenv: String?
+    var pyVer: String?
     var id: String { name }
 
-    var serverKind: String { node ? "node" : (server ?? "nginx") }
+    var serverKind: String { node ? "node" : (python ? "python" : (server ?? "nginx")) }
     var hasBackend: Bool { !(beDir ?? "").isEmpty }
     /// Node site is "up" when the frontend (and backend, if any) processes run.
     var nodeRunning: Bool { node && feRunning && (!hasBackend || beRunning) }
@@ -80,6 +88,7 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     enum CodingKeys: String, CodingKey {
         case name, domain, php, root, secure, enabled, server, tunnel
         case node, feRunning, beRunning, fePort, bePort, feDir, beDir, feCmd, beCmd, apiPaths
+        case python, pyRunning, pyPort, pyDir, pyCmd, pyVenv, pyVer
     }
     // Custom decode so site rows without the Node fields (every PHP/WordPress site)
     // still decode — synthesized Decodable would throw keyNotFound and drop the whole list.
@@ -103,6 +112,13 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
         feCmd     = try c.decodeIfPresent(String.self, forKey: .feCmd)
         beCmd     = try c.decodeIfPresent(String.self, forKey: .beCmd)
         apiPaths  = try c.decodeIfPresent(String.self, forKey: .apiPaths)
+        python    = try c.decodeIfPresent(Bool.self, forKey: .python) ?? false
+        pyRunning = try c.decodeIfPresent(Bool.self, forKey: .pyRunning) ?? false
+        pyPort    = try c.decodeIfPresent(String.self, forKey: .pyPort)
+        pyDir     = try c.decodeIfPresent(String.self, forKey: .pyDir)
+        pyCmd     = try c.decodeIfPresent(String.self, forKey: .pyCmd)
+        pyVenv    = try c.decodeIfPresent(String.self, forKey: .pyVenv)
+        pyVer     = try c.decodeIfPresent(String.self, forKey: .pyVer)
     }
 }
 
@@ -132,7 +148,7 @@ enum PasswordGen {
 
 // Roles grouped for display, in the order ServBay-style apps show them.
 enum ServiceRole: String, CaseIterable {
-    case php, web, db, cache, dns, tls, mail, node
+    case php, web, db, cache, dns, tls, mail, node, python
 
     var title: String {
         switch self {
@@ -144,6 +160,7 @@ enum ServiceRole: String, CaseIterable {
         case .tls: "TLS / Certificates"
         case .mail: "Mail"
         case .node: "Node"
+        case .python: "Python"
         }
     }
 }

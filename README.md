@@ -39,8 +39,11 @@ Cloudflare Tunnel. 100% open-source.
   - **Node app** — run a **frontend (e.g. Next.js) + optional backend/API (e.g. Laravel)**;
     BHServe supervises both and reverse-proxies them at your domain. Manage start/stop/restart,
     edit `.env`, run `npm install`, all from the app.
+  - **Python app** — run a **Flask / Django / FastAPI / Gunicorn / Uvicorn** app; BHServe creates a
+    virtualenv, supervises the process, and reverse-proxies it at your domain. Start/stop/restart and
+    `pip install` from the app. *(macOS first; Windows coming.)*
 - **Per-site custom root folder** — default folder, or point a site at any folder on disk.
-- **Node.js** — multiple versions via `fnm`.
+- **Node.js** — multiple versions via `fnm`. **Python** — managed interpreter for Python apps.
 - **Share a site publicly** — one-click **Cloudflare Tunnel** gives a temporary public
   `https://…trycloudflare.com` URL. No account, no port-forwarding.
 - **Live dashboard** — CPU / RAM / disk / network + per-service status cards.

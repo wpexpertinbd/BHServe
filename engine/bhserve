@@ -43,6 +43,7 @@ dnsmasq|dnsmasq|sbin/dnsmasq|dns
 mkcert|mkcert|bin/mkcert|tls
 mailpit|mailpit|bin/mailpit|mail
 fnm|fnm|bin/fnm|node
+python|python@3.13|opt/python@3.13/bin/python3.13|python
 EOF
 }
 
@@ -476,8 +477,8 @@ node_stop_proc(){ # name part
   kill_tree "$(cat "$pidf")"; rm -f "$pidf"
 }
 
-render_nginx_node_vhost(){ # name domain feport beport apipaths
-  local name="$1" domain="$2" feport="$3" beport="$4" apipaths="$5" conf="$BH_HOME/nginx/sites/$name.conf"
+render_nginx_node_vhost(){ # name domain feport beport apipaths [serverlabel=node]
+  local name="$1" domain="$2" feport="$3" beport="$4" apipaths="$5" srvlabel="${6:-node}" conf="$BH_HOME/nginx/sites/$name.conf"
   local apiblock=""
   if [ -n "$beport" ]; then
     apiblock="$(cat <<NG
@@ -494,7 +495,7 @@ NG
 )"
   fi
   cat > "$conf" <<NGINX
-# BHServe site: $name  ($domain)  php=- server=node
+# BHServe site: $name  ($domain)  php=- server=$srvlabel
 server {
 $(nginx_listen_block "$domain")
     server_name $domain;
@@ -649,6 +650,177 @@ cmd_nodesite(){
     status)  nodesite_status "$@" ;;
     npm)     nodesite_npm "$@" ;;
     *) die "usage: bhserve nodesite {add|list|rm|start|stop|restart|status|npm} ..." ;;
+  esac
+}
+
+# ── Python web apps ──────────────────────────────────────────────────────────
+# A Python site = one supervised process (gunicorn/uvicorn/flask/django/…) on a
+# port, with nginx reverse-proxying the domain to it. Same supervision model as
+# node sites (pid file + log), plus optional per-project virtualenv (.venv).
+# Config stored as JSON at $BH_HOME/py-sites/<name>.json (one field per line).
+
+py_proc_running(){ local pidf="$BH_HOME/run/py-$1.pid"; [ -f "$pidf" ] && pid_alive "$(cat "$pidf")"; }
+
+# Resolve a python3 interpreter for venv creation: prefer the BHServe-installed
+# python@<ver> keg, then any brew python3, then the system one.
+py_python(){
+  local ver="${1:-3.13}" c
+  for c in "$BREW_PREFIX/opt/python@$ver/bin/python3.$ver" "$BREW_PREFIX/opt/python@$ver/bin/python3" "$BREW_PREFIX/bin/python3"; do
+    [ -x "$c" ] && { echo "$c"; return; }
+  done
+  command -v python3 >/dev/null 2>&1 && { command -v python3; return; }
+  echo /usr/bin/python3
+}
+
+# PATH for a python-site process: the project venv (if any) first so `python`,
+# `gunicorn`, `uvicorn`, `flask`, … resolve to it; then the python keg + brew + system.
+py_runpath(){ # dir venv pyver
+  local dir="$1" venv="$2" ver="${3:-3.13}" p=""
+  [ "$venv" = yes ] && [ -d "$dir/.venv/bin" ] && p="$dir/.venv/bin:"
+  echo "${p}$BREW_PREFIX/opt/python@$ver/bin:$BREW_PREFIX/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+py_start_proc(){ # name dir cmd port venv pyver
+  local name="$1" dir="$2" cmd="$3" port="$4" venv="$5" ver="$6"
+  [ -n "$cmd" ] && [ -n "$dir" ] || return 0
+  [ -d "$dir" ] || { warn "$name: dir not found ($dir)"; return 1; }
+  py_proc_running "$name" && { ok "$name already running"; return 0; }
+  local pidf="$BH_HOME/run/py-$name.pid" logf="$BH_HOME/logs/py-$name.log"
+  ( cd "$dir" && exec env PATH="$(py_runpath "$dir" "$venv" "$ver")" PORT="$port" \
+       PYTHONUNBUFFERED=1 bash -c "$cmd" ) >>"$logf" 2>&1 &
+  echo $! > "$pidf"
+  ok "$name started (pid $(cat "$pidf"), port $port)  → logs/py-$name.log"
+}
+
+py_stop_proc(){ local pidf="$BH_HOME/run/py-$1.pid"; [ -f "$pidf" ] || return 0; kill_tree "$(cat "$pidf")"; rm -f "$pidf"; }
+
+# Create/refresh a project virtualenv (idempotent).
+py_make_venv(){ # dir pyver
+  local dir="$1" ver="$2"
+  [ -d "$dir/.venv" ] && return 0
+  local py; py="$(py_python "$ver")"
+  hdr "Creating virtualenv (.venv) with $("$py" --version 2>&1)"
+  ( cd "$dir" && "$py" -m venv .venv ) || { warn "venv creation failed — the app will run with the system python"; return 1; }
+  ok "virtualenv ready: $dir/.venv"
+}
+
+# JSON fragment appended to a python site's api row.
+py_api_fields(){
+  local name="$1" j="$BH_HOME/py-sites/$1.json"
+  [ -f "$j" ] || { printf ',"python":false'; return; }
+  local r=false; py_proc_running "$name" && r=true
+  printf ',"python":true,"pyRunning":%s,"pyPort":"%s","pyDir":"%s","pyCmd":"%s","pyVenv":"%s","pyVer":"%s"' \
+    "$r" "$(njson "$j" port)" "$(json_esc "$(njson "$j" dir)")" \
+    "$(json_esc "$(njson "$j" cmd)")" "$(njson "$j" venv)" "$(njson "$j" pyver)"
+}
+
+pysite_add(){
+  local name="$1" dir="" cmd="python app.py" port="" venv="yes" pyver="3.13"
+  shift || true
+  while [ $# -gt 0 ]; do case "$1" in
+    --dir) dir="$2"; shift 2;;  --cmd) cmd="$2"; shift 2;;  --port) port="$2"; shift 2;;
+    --venv) venv="$2"; shift 2;;  --python) pyver="$2"; shift 2;;
+    *) die "unknown flag: $1";;
+  esac; done
+  [ -n "$name" ] || die "usage: bhserve pysite add <name> --dir <path> --port <n> [--cmd \"<run command>\"] [--venv yes|no] [--python 3.13]"
+  printf '%s' "$name" | grep -qE '^[a-z0-9][a-z0-9-]*$' || die "invalid name (lowercase letters, digits, hyphens)"
+  [ -n "$dir" ] && [ -n "$port" ] || die "a python site needs --dir and --port"
+  case "$venv" in yes|no) ;; *) die "--venv must be yes or no" ;; esac
+  pyver="${pyver#python@}"; pyver="${pyver#3.}"; pyver="3.${pyver}"   # accept 3.13 / python@3.13 / 13
+  local tld; tld="$(jget tld test)"; local domain="$name.$tld"
+  mkdir -p "$BH_HOME/py-sites" "$dir"
+  [ "$venv" = yes ] && py_make_venv "$dir" "$pyver" || true
+  cat > "$BH_HOME/py-sites/$name.json" <<JSON
+{
+"name": "$name",
+"domain": "$domain",
+"dir": "$(json_esc "$dir")",
+"cmd": "$(json_esc "$cmd")",
+"port": "$port",
+"venv": "$venv",
+"pyver": "$pyver"
+}
+JSON
+  node_secure "$domain"
+  render_nginx_node_vhost "$name" "$domain" "$port" "" "" python
+  nginx_running && nginx_reload >/dev/null 2>&1 || true
+  hdr "Python site '$name' added"
+  info "url    : https://$domain"
+  info "app    : :$port  ($dir)"
+  info "run    : $cmd"
+  [ "$venv" = yes ] && info "deps   : bhserve pysite pip $name   (installs requirements.txt into .venv)"
+  info "start  : bhserve pysite start $name"
+}
+
+pysite_start(){
+  local name="$1" j="$BH_HOME/py-sites/$1.json"
+  [ -f "$j" ] || die "no python site: ${1:-<name>}"
+  hdr "Starting python site $name"
+  py_start_proc "$name" "$(njson "$j" dir)" "$(njson "$j" cmd)" "$(njson "$j" port)" "$(njson "$j" venv)" "$(njson "$j" pyver)"
+  nginx_running && nginx_reload >/dev/null 2>&1 || nginx_start >/dev/null 2>&1 || true
+  ok "python site $name → https://$(njson "$j" domain)"
+}
+
+pysite_stop(){ local name="$1"; [ -n "$name" ] || die "usage: bhserve pysite stop <name>"; py_stop_proc "$name"; ok "python site $name stopped"; }
+
+pysite_status(){
+  local name="$1" j="$BH_HOME/py-sites/$1.json"
+  [ -f "$j" ] || die "no python site: ${1:-<name>}"
+  local r=stopped; py_proc_running "$name" && r=running
+  ok "$name  app: $r   ($(njson "$j" domain))"
+}
+
+pysite_list(){
+  shopt -s nullglob
+  local f found=0
+  for f in "$BH_HOME"/py-sites/*.json; do
+    found=1; local n; n="$(njson "$f" name)"
+    local r=stopped; py_proc_running "$n" && r=running
+    ok "$(printf '%-16s' "$n") https://$(njson "$f" domain)  app:$r"
+  done
+  [ "$found" = 0 ] && info "no python sites — bhserve pysite add <name> --dir <path> --port <n>"
+}
+
+pysite_rm(){
+  local name="$1"; [ -n "$name" ] || die "usage: bhserve pysite rm <name>"
+  pysite_stop "$name" >/dev/null 2>&1 || true
+  rm -f "$BH_HOME/py-sites/$name.json" "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled"
+  nginx_running && nginx_reload >/dev/null 2>&1 || true
+  ok "removed python site $name (project files on disk kept)"
+}
+
+# pip install -r requirements.txt into the project venv.
+pysite_pip(){
+  local name="$1" j="$BH_HOME/py-sites/$1.json"
+  [ -f "$j" ] || die "no python site: ${1:-<name>}"
+  local dir; dir="$(njson "$j" dir)"; local venv; venv="$(njson "$j" venv)"; local ver; ver="$(njson "$j" pyver)"
+  [ -d "$dir" ] || die "dir not found: $dir"
+  [ "$venv" = yes ] || die "this site has no virtualenv (--venv no); install deps yourself"
+  py_make_venv "$dir" "$ver"
+  local pip="$dir/.venv/bin/pip"
+  [ -x "$pip" ] || die "pip not found in .venv — venv may be broken; remove $dir/.venv and re-add"
+  hdr "pip install — $name  ($dir)"
+  if [ -f "$dir/requirements.txt" ]; then
+    ( cd "$dir" && "$pip" install --upgrade pip >/dev/null 2>&1; "$pip" install -r requirements.txt ) || die "pip install failed"
+    ok "dependencies installed for $name"
+  else
+    warn "no requirements.txt in $dir — nothing to install"
+  fi
+}
+
+cmd_pysite(){
+  need_init
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    add)       pysite_add "$@" ;;
+    list)      pysite_list ;;
+    rm|remove) pysite_rm "$@" ;;
+    start)     pysite_start "$@" ;;
+    stop)      pysite_stop "$@" ;;
+    restart)   pysite_stop "$1" >/dev/null 2>&1; pysite_start "$@" ;;
+    status)    pysite_status "$@" ;;
+    pip)       pysite_pip "$@" ;;
+    *) die "usage: bhserve pysite {add|list|rm|start|stop|restart|status|pip} ..." ;;
   esac
 }
 
@@ -2088,8 +2260,8 @@ cmd_api() {
       web) [ "$key" = nginx ] && nginx_running && running=true ;;
       php) fpm_running "$key" && running=true ;;
       dns) dnsmasq_running && running=true ;;
-      # mkcert (tls) + fnm (node) aren't daemons — once installed they're ready, so "active".
-      tls|node) [ "$installed" = true ] && running=true ;;
+      # mkcert (tls) + fnm (node) + python aren't daemons — once installed they're ready, so "active".
+      tls|node|python) [ "$installed" = true ] && running=true ;;
       *)   printf '%s\n' "$brewlist" | awk -v f="$formula" '$1==f && $2=="started"{x=1} END{exit !x}' && running=true ;;
     esac
     local en=false; svc_enabled "$key" && en=true
@@ -2111,6 +2283,7 @@ cmd_api() {
     local srv; srv="$(vhost_server "$f")"
     local tun=""; tunnel_running "$n" && tun="$(tunnel_url "$n")"
     local nx=""; [ "$srv" = node ] && nx="$(node_api_fields "$n")"
+    [ "$srv" = python ] && nx="$(py_api_fields "$n")"
     local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s"%s}' \
       "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$nx")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
@@ -2186,6 +2359,8 @@ BHServe — usage:
   bhserve node {list|remote|install|use|uninstall} [version]   (multi-version via fnm)
   bhserve nodesite add <name> --fe-dir <path> --fe-port <n> [--fe-cmd <cmd>] [--be-dir <path> --be-port <n> --be-cmd <cmd>]
   bhserve nodesite {list|start|stop|restart|status|rm|npm} <name>   (managed Node frontend + optional backend)
+  bhserve pysite add <name> --dir <path> --port <n> [--cmd "<run command>"] [--venv yes|no] [--python 3.13]
+  bhserve pysite {list|start|stop|restart|status|rm|pip} <name>   (managed Python web app: Flask/Django/FastAPI/…)
   bhserve php {ioncube [version|all]|status|ini {path|reload} <ver>}   (ionCube + status + edit php.ini)
   bhserve site server <name> <nginx|apache>                   (switch a site's web server)
   bhserve pma install                                          (phpMyAdmin at phpmyadmin.test, 2GB uploads)
@@ -2215,6 +2390,7 @@ case "${1:-doctor}" in
   db)      shift; cmd_db "$@" ;;
   node)    shift; cmd_node "$@" ;;
   nodesite) shift; cmd_nodesite "$@" ;;
+  pysite) shift; cmd_pysite "$@" ;;
   php)     shift; cmd_php "$@" ;;
   pma)     shift; cmd_pma "$@" ;;
   adminer) shift; cmd_adminer "$@" ;;

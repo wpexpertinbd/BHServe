@@ -99,6 +99,36 @@ struct NodeLogsSheet: View {
     private func load() async { content = await state.readLog("node-\(site.name)-\(part).log") }
 }
 
+/// Process log for a Python app (`py-<name>.log`).
+struct PyLogsSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    let site: Site
+    @State private var content = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Logs — \(site.name)").font(.headline)
+                Spacer()
+                Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
+                Button("Done") { dismiss() }
+            }
+            ScrollView {
+                Text(content.isEmpty ? "(no log yet)" : content)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(8)
+            }
+            .frame(minWidth: 640, minHeight: 380)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(16).frame(width: 720, height: 480)
+        .task { await load() }
+    }
+
+    private func load() async { content = await state.readLog("py-\(site.name).log") }
+}
+
 /// Edit a Node site's config (folders / commands / ports / api paths). Saving
 /// overwrites the definition + re-renders the vhost and restarts the site.
 struct EditNodeSheet: View {

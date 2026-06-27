@@ -123,9 +123,10 @@ struct WebsiteRow: View {
     @State private var editingNode = false
     @State private var envPart: String?       // "fe" | "be" when editing .env
     @State private var showingNodeLogs = false
+    @State private var showingPyLogs = false
     @State private var removing = false        // php-site Remove sheet (with purge option)
 
-    private var runDot: Bool { site.node ? site.nodeRunning : site.enabled }
+    private var runDot: Bool { site.node ? site.nodeRunning : (site.python ? site.pyRunning : site.enabled) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -146,12 +147,15 @@ struct WebsiteRow: View {
                     .compactMap { $0 }.joined(separator: "  ")
                 Text(ports).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule())
+            } else if site.python {
+                Text(site.pyPort.map { ":\($0)" } ?? "python").font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule())
             } else {
                 Text(site.php).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     .padding(.horizontal, 6).padding(.vertical, 2).background(.quaternary, in: Capsule())
             }
 
-            HStack(spacing: 5) { site.node ? AnyView(nodeActions) : AnyView(phpActions) }
+            HStack(spacing: 5) { site.node ? AnyView(nodeActions) : (site.python ? AnyView(pyActions) : AnyView(phpActions)) }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 12) }
@@ -160,6 +164,7 @@ struct WebsiteRow: View {
         .sheet(isPresented: $editingNode) { EditNodeSheet(site: site) }
         .sheet(isPresented: $showingLogs) { SiteLogsSheet(site: site) }
         .sheet(isPresented: $showingNodeLogs) { NodeLogsSheet(site: site) }
+        .sheet(isPresented: $showingPyLogs) { PyLogsSheet(site: site) }
         .sheet(isPresented: $sharing) { ShareSheet(site: site) }
         .sheet(isPresented: $removing) { RemoveSiteSheet(site: site) }
         .sheet(item: Binding(get: { envPart.map { EnvTarget(part: $0) } },
@@ -169,17 +174,25 @@ struct WebsiteRow: View {
         .confirmationDialog("Remove “\(site.name)”? (project files are kept on disk)",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Remove \(site.name)", role: .destructive) {
-                Task { site.node ? await state.removeNodeSite(site.name) : await state.removeSite(site.name) }
+                Task {
+                    if site.node { await state.removeNodeSite(site.name) }
+                    else if site.python { await state.removePySite(site.name) }
+                    else { await state.removeSite(site.name) }
+                }
             }
             Button("Cancel", role: .cancel) {}
         }
     }
 
     private var badgeBg: Color {
-        site.node ? Color.green.opacity(0.15) : (site.serverKind == "apache" ? Color.orange.opacity(0.2) : Color.blue.opacity(0.15))
+        if site.node { return Color.green.opacity(0.15) }
+        if site.python { return Color.teal.opacity(0.18) }
+        return site.serverKind == "apache" ? Color.orange.opacity(0.2) : Color.blue.opacity(0.15)
     }
     private var badgeFg: Color {
-        site.node ? .green : (site.serverKind == "apache" ? .orange : .blue)
+        if site.node { return .green }
+        if site.python { return .teal }
+        return site.serverKind == "apache" ? .orange : .blue
     }
 
     @ViewBuilder private var phpActions: some View {
@@ -254,6 +267,32 @@ struct WebsiteRow: View {
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         CircleAction("trash", .red, "Delete") { confirmDelete = true }
+    }
+
+    @ViewBuilder private var pyActions: some View {
+        CircleAction("safari", .blue, "Open in browser") { if let u = site.url { NSWorkspace.shared.open(u) } }
+        CircleAction("folder", .gray, "Open app folder") { state.openInFinder(site.pyDir ?? "") }
+        if site.pyRunning {
+            CircleAction("pause.fill", .orange, "Stop") { Task { await state.pyStop(site.name) } }
+        } else {
+            CircleAction("play.fill", .green, "Start") { Task { await state.pyStart(site.name) } }
+        }
+        CircleAction("arrow.clockwise", .blue, "Restart") { Task { await state.pyRestart(site.name) } }
+        CircleAction("doc.text.magnifyingglass", .gray, "Process log") { showingPyLogs = true }
+        Menu {
+            Button { state.openInEditor(site.pyDir ?? "") } label: { Label("Open in code editor", systemImage: "chevron.left.forwardslash.chevron.right") }
+            Button { state.openTerminal(site.pyDir ?? "") } label: { Label("Open terminal here", systemImage: "terminal") }
+            Divider()
+            if (site.pyVenv ?? "yes") == "yes" {
+                Button { Task { await state.pyPip(site.name) } } label: { Label("pip install (requirements.txt)", systemImage: "shippingbox") }
+                Divider()
+            }
+            Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white).frame(width: 26, height: 26).background(Color.gray, in: Circle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 }
 
