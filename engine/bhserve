@@ -1543,6 +1543,7 @@ cmd_start() {
     php*) fpm_start "$(php_key "${what#php}")" ;;
     dnsmasq) cmd_dns ;;
     mariadb|mysql|postgresql@17|redis|memcached|mailpit) brew_svc start "$what" ;;
+    python|fnm) ok "$what is a tool, not a daemon — it's ready once installed" ;;
     *) die "start: unknown target $what" ;;
   esac
 }
@@ -1557,6 +1558,7 @@ cmd_stop() {
     php*) fpm_stop "$(php_key "${what#php}")" ;;
     dnsmasq) dnsmasq_stop ;;
     mariadb|mysql|postgresql@17|redis|memcached|mailpit) brew_svc stop "$what" ;;
+    python|fnm) ok "$what is a tool, not a daemon — nothing to stop" ;;
     *) die "stop: unknown target $what" ;;
   esac
 }

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case dashboard, services, sites, databases, node, logs, settings
+    case dashboard, services, sites, databases, node, python, logs, settings
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,6 +11,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .sites: "Sites"
         case .databases: "Databases"
         case .node: "Node"
+        case .python: "Python"
         case .logs: "Logs"
         case .settings: "Settings"
         }
@@ -22,6 +23,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .sites: "globe"
         case .databases: "cylinder.split.1x2"
         case .node: "hexagon"
+        case .python: "chevron.left.forwardslash.chevron.right"
         case .logs: "doc.plaintext"
         case .settings: "gearshape"
         }
@@ -67,6 +69,7 @@ struct ContentView: View {
                 case .sites: SitesView()
                 case .databases: DatabasesView()
                 case .node: NodeView()
+                case .python: PythonView()
                 case .logs: LogsView()
                 case .settings: SettingsView()
                 }
