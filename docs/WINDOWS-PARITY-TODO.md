@@ -96,7 +96,9 @@ bhserve pysite {list|start|stop|restart|status|rm|pip} <name>
 
 ---
 
-## 2. CHECK — throttle the auto update-check (GitHub 60/hr/IP)  *(macOS fix: v1.7.2)*
+## 2. ✅ DONE (win-v1.0.24) — throttle the auto update-check (GitHub 60/hr/IP)  *(macOS fix: v1.7.2)*
+
+> Windows: automatic checks now run at most once per 30 min (persisted `run/update-check.txt`, stamped up-front so a 403 backs off); manual check always runs. UA + `win-v*` filtering were already present.
 
 The update checker hits `api.github.com/repos/.../releases/latest` **unauthenticated** — GitHub's
 limit there is **60 requests/hour/IP, shared across the whole network**. If your updater fires on
@@ -108,7 +110,9 @@ so a 403 also backs off); a **manual** "Check for updates" always runs. Verify t
 
 ---
 
-## 3. NEW — search + per-page + pagination on the Databases tab  *(macOS: v1.7.3)*
+## 3. ✅ DONE (win-v1.0.24) — search + per-page + pagination on the Databases tab  *(macOS: v1.7.3)*
+
+> Windows: search (name/engine) + Show 10/15/20/50/100/All + prev/next on the Databases page; persisted `databases_page_size` (default 15). Inline in DatabasesPage (RenderDbs).
 
 The Databases list got the same **search box + "Show 10/15/20/50/100/All" menu + prev/next +
 jump-to-page** footer the Sites tab already has, plus a persisted **"Databases per page" setting**
