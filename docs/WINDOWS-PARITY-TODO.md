@@ -105,3 +105,13 @@ burns one request each time and **rate-limits their IP** (you'll see HTTP 403). 
 checks run **at most once per 30 min** via a persisted `lastUpdateCheckAt` timestamp (stamped up-front
 so a 403 also backs off); a **manual** "Check for updates" always runs. Verify the Windows
 `Updater.Check()` has the same throttle (and a `User-Agent` header — GitHub requires one).
+
+---
+
+## 3. NEW — search + per-page + pagination on the Databases tab  *(macOS: v1.7.3)*
+
+The Databases list got the same **search box + "Show 10/15/20/50/100/All" menu + prev/next +
+jump-to-page** footer the Sites tab already has, plus a persisted **"Databases per page" setting**
+(default 15) alongside the existing site-list page-size settings. macOS reused its shared
+`SitePaging`/`PerPagePicker`/`PageBar`; search filters by **database name or user**. Mirror it on the
+Windows Databases page if it shows a long DB list, using whatever paging helper your Sites list uses.
