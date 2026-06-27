@@ -119,17 +119,17 @@ struct MenuBarView: View {
                     .disabled(state.busy || !state.anyDaemonRunning)
             }
 
-            if !state.realSites.isEmpty {
+            if !state.activeSites.isEmpty {
                 Divider()
                 HStack {
-                    Text("Sites").font(.caption).foregroundStyle(.secondary)
+                    Text("Active sites").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if state.realSites.count > 5 {
-                        Text("\(state.realSites.count) total — Open BHServe for all")
+                    if state.activeSites.count > 5 {
+                        Text("\(state.activeSites.count) running — Open BHServe for all")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                ForEach(state.realSites.prefix(5)) { site in
+                ForEach(state.activeSites.prefix(5)) { site in
                     MenuLinkRow(title: site.domain, systemImage: site.secure ? "lock.fill" : "globe") {
                         if let url = site.url { NSWorkspace.shared.open(url) }
                     }

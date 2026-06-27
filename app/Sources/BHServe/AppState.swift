@@ -125,6 +125,9 @@ final class AppState {
     /// BHServe-managed tool sites — not real websites, hidden from the site lists.
     static let systemSites: Set<String> = ["phpmyadmin", "adminer", "mailpit"]
     var realSites: [Site] { (snapshot?.sites ?? []).filter { !AppState.systemSites.contains($0.name) } }
+    /// Sites that are actually serving right now — Node apps running, PHP/others enabled
+    /// (the green-dot ones). Used for the menu-bar quick-open list.
+    var activeSites: [Site] { realSites.filter { $0.node ? $0.nodeRunning : $0.enabled } }
 
     var nginxRunning: Bool { snapshot?.services.contains { $0.key == "nginx" && $0.running } ?? false }
     func serviceRunning(_ key: String) -> Bool { snapshot?.services.contains { $0.key == key && $0.running } ?? false }
