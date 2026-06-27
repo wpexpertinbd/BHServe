@@ -152,6 +152,8 @@ public sealed partial class MainWindow : Window
         try
         {
             if (!Config.Load().AutoUpdate) return;
+            if (!Updater.AutomaticCheckDue()) return;   // throttle: GitHub allows 60 API req/hr/IP
+            Updater.StampAutomaticCheck();              // stamp up-front so a 403/failure also backs off
             var r = await Updater.Check();
             if (!r.UpdateAvailable || r.AssetUrl is null) return;
 

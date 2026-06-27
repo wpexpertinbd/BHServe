@@ -23,6 +23,39 @@ public static class Updater
 
     public sealed record Result(bool UpdateAvailable, string Latest, string? AssetUrl, string? Notes, string? Error);
 
+    // ── automatic-check throttle ──────────────────────────────────────────────────
+    // GitHub's unauthenticated API allows only 60 requests/hour/IP (shared across the network).
+    // Automatic checks (launch + 24h timer) must back off so a user relaunching during testing can't
+    // rate-limit their own IP (HTTP 403). Manual "Check for updates" ignores this.
+    private static string StampFile => System.IO.Path.Combine(BHServe.Core.Paths.Home, "run", "update-check.txt");
+    private static readonly TimeSpan MinAutoInterval = TimeSpan.FromMinutes(30);
+
+    /// <summary>True if an automatic update check is allowed now (>= 30 min since the last one).</summary>
+    public static bool AutomaticCheckDue()
+    {
+        try
+        {
+            if (File.Exists(StampFile) &&
+                DateTime.TryParse(File.ReadAllText(StampFile).Trim(), null,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var last) &&
+                DateTime.UtcNow - last < MinAutoInterval)
+                return false;
+        }
+        catch { }
+        return true;
+    }
+
+    /// <summary>Record "an automatic check happened now" — call BEFORE Check() so a failure/403 also backs off.</summary>
+    public static void StampAutomaticCheck()
+    {
+        try
+        {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(StampFile)!);
+            File.WriteAllText(StampFile, DateTime.UtcNow.ToString("o"));
+        }
+        catch { }
+    }
+
     public static async Task<Result> Check()
     {
         try

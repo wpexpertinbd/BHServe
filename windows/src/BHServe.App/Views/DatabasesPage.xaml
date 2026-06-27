@@ -47,6 +47,16 @@
         <Border BorderThickness="1" CornerRadius="8" Padding="4"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel>
+                <Grid Padding="8,6" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="Show" VerticalAlignment="Center" Opacity="0.7"/>
+                        <ComboBox x:Name="DbPageSizeBox" Width="80" SelectionChanged="DbPageSize_Changed"/>
+                    </StackPanel>
+                    <TextBox Grid.Column="2" x:Name="DbSearchBox" PlaceholderText="search…" Width="220" TextChanged="DbSearch_Changed"/>
+                </Grid>
                 <TextBlock x:Name="EmptyDbs" Text="No databases yet." Opacity="0.6" Padding="10" Visibility="Collapsed"/>
                 <ItemsControl x:Name="DbList">
                     <ItemsControl.ItemTemplate>
@@ -68,6 +78,16 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <Grid x:Name="DbPager" Padding="8,8" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Button x:Name="DbPrevBtn" Click="DbPrev_Click"><FontIcon Glyph="&#xE76B;" FontSize="12"/></Button>
+                        <TextBlock x:Name="DbPageLabel" VerticalAlignment="Center" Opacity="0.8"/>
+                        <Button x:Name="DbNextBtn" Click="DbNext_Click"><FontIcon Glyph="&#xE76C;" FontSize="12"/></Button>
+                    </StackPanel>
+                </Grid>
             </StackPanel>
         </Border>
 

@@ -1,10 +1,10 @@
-﻿; BHServe (Windows) installer â€” Inno Setup. Produces a branded BHServe-Setup.exe
+-; BHServe (Windows) installer - Inno Setup. Produces a branded BHServe-Setup.exe
 ; that installs the unpackaged WinUI app to Program Files. Build with: iscc bhserve.iss
-; (after `dotnet publish` puts the app under ..\publish\). Unsigned for now â€” users
+; (after `dotnet publish` puts the app under ..\publish\). Unsigned for now - users
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.23"
+#define MyAppVersion "1.0.24"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -20,7 +20,7 @@ AppUpdatesURL=https://github.com/wpexpertinbd/BHServe/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-; Inno 6 hides the Welcome page by default â€” show it so the branded intro + website link appear.
+; Inno 6 hides the Welcome page by default - show it so the branded intro + website link appear.
 DisableWelcomePage=no
 OutputDir=dist
 OutputBaseFilename=BHServe-Setup-{#MyAppVersion}
@@ -50,12 +50,12 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "addtopath"; Description: "Add the bhserve CLI to PATH"; GroupDescription: "Command line:"
 
 [Files]
-; dotnet publish output (self-contained) goes to ..\publish\ â€” copy it all.
+; dotnet publish output (self-contained) goes to ..\publish\ - copy it all.
 ; This includes BHServe.App.exe (GUI), bhserve.exe (CLI), bhserve-elevate.exe (UAC helper).
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 #ifdef Bundle
 ; Bundled server binaries (nginx/php/mysql/redis/...) so the install needs NO runtime
-; downloads â€” which is what stops antivirus flagging bhserve.exe as a downloader.
+; downloads - which is what stops antivirus flagging bhserve.exe as a downloader.
 Source: "..\payload\bin\*"; DestDir: "{app}\bin"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 

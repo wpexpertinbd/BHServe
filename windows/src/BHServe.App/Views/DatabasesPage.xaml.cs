@@ -22,11 +22,67 @@ public sealed class DbRow
 
 public sealed partial class DatabasesPage : Page
 {
-    public DatabasesPage() => InitializeComponent();
+    private static readonly string[] PageSizes = { "10", "15", "20", "50", "100", "All" };
+    private List<DbRow> _allRows = new();   // unfiltered, unpaged
+    private int _dbPage;                     // current page (0-based)
+    private bool _pagingReady;
+
+    public DatabasesPage()
+    {
+        InitializeComponent();
+        foreach (var p in PageSizes) DbPageSizeBox.Items.Add(new ComboBoxItem { Content = p });
+        var saved = Config.Load().DatabasesPageSize;
+        var idx = Array.IndexOf(PageSizes, saved >= 100000 ? "All" : saved.ToString());
+        DbPageSizeBox.SelectedIndex = idx >= 0 ? idx : 1;   // default 15
+        _pagingReady = true;
+    }
 
     protected override void OnNavigatedTo(NavigationEventArgs e) => Refresh();
 
     private string _startEngine = "mariadb";
+
+    // ── search + pagination (mirrors the Sites list) ──────────────────────────────
+    private int DbPageSize()
+    {
+        var v = (DbPageSizeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "15";
+        return v == "All" ? int.MaxValue : (int.TryParse(v, out var n) ? n : 15);
+    }
+
+    private void RenderDbs()
+    {
+        var q = (DbSearchBox.Text ?? "").Trim();
+        var filtered = q.Length == 0
+            ? _allRows
+            : _allRows.Where(r => r.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                               || r.Engine.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var size = DbPageSize();
+        var pages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)size));
+        _dbPage = Math.Clamp(_dbPage, 0, pages - 1);
+        var page = filtered.Skip(_dbPage * size).Take(size).ToList();
+
+        DbList.ItemsSource = page;
+        EmptyDbs.Text = _allRows.Count == 0 ? "No databases yet." : "No matches.";
+        EmptyDbs.Visibility = page.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        DbPager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
+        DbPageLabel.Text = $"Page {_dbPage + 1} of {pages}";
+        DbPrevBtn.IsEnabled = _dbPage > 0;
+        DbNextBtn.IsEnabled = _dbPage < pages - 1;
+    }
+
+    private void DbSearch_Changed(object s, TextChangedEventArgs e) { _dbPage = 0; if (_pagingReady) RenderDbs(); }
+    private void DbPageSize_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (!_pagingReady) return;
+        var cfg = Config.Load();
+        var v = (DbPageSizeBox.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        cfg.DatabasesPageSize = v == "All" ? 100000 : (int.TryParse(v, out var n) ? n : 15);
+        cfg.Save();
+        _dbPage = 0; RenderDbs();
+    }
+    private void DbPrev_Click(object s, RoutedEventArgs e) { _dbPage--; RenderDbs(); }
+    private void DbNext_Click(object s, RoutedEventArgs e) { _dbPage++; RenderDbs(); }
 
     private async void Refresh()
     {
@@ -80,8 +136,8 @@ public sealed partial class DatabasesPage : Page
 
         var rows = snap.myDbs.Select(d => new DbRow { Name = d, IsMysql = true, Engine = sqlEngineName })
             .Concat(snap.pgDbs.Select(d => new DbRow { Name = d, IsMysql = false, Engine = "PostgreSQL" })).ToList();
-        DbList.ItemsSource = rows;
-        EmptyDbs.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _allRows = rows;
+        RenderDbs();
     }
 
     private void UpdatePassVis()
