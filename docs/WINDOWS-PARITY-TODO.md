@@ -54,6 +54,12 @@ bhserve pysite {list|start|stop|restart|status|rm|pip} <name>
   pip install / Delete**. Teal badge to distinguish from node (green) / php (blue).
 - **Requirement guard**: a Python site needs **nginx + python**; the helper now keys off the `type`
   string (`node`/`python`/php/wordpress) instead of a bool.
+- **Dedicated "Python" sidebar tab** (parallel to the Node tab) — `PythonView`: an Interpreter
+  section (install / show version / update-to-latest of the managed python) + a "Python apps" section
+  (Add Python app button → `AddPythonAppSheet` + the list of Python sites). Python sites also show in
+  the main Sites list + Dashboard (they're in `realSites`). `activeSites` (menu-bar list) keys Python
+  on `pyRunning` (not `enabled`). Engine `start/stop python` are no-ops ("tool, not a daemon"),
+  matching `fnm`.
 
 ### ⚠️ Windows-specific gotchas (these DIFFER from macOS — handle them)
 
