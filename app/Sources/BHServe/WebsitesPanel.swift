@@ -195,6 +195,9 @@ struct WebsiteRow: View {
             CircleAction("play.fill", .green, "Start") { Task { await state.setSiteEnabled(site.name, true) } }
         }
         Menu {
+            Button { state.openInEditor(site.root) } label: { Label("Open in code editor", systemImage: "chevron.left.forwardslash.chevron.right") }
+            Button { state.openTerminal(site.root) } label: { Label("Open terminal here", systemImage: "terminal") }
+            Divider()
             Menu("Change PHP…") {
                 ForEach(state.phpChoices, id: \.self) { p in
                     Button { Task { await state.setSitePhp(site.name, p) } } label: {
@@ -233,6 +236,9 @@ struct WebsiteRow: View {
         CircleAction("arrow.clockwise", .blue, "Restart") { Task { await state.nodeRestart(site.name) } }
         CircleAction("doc.text.magnifyingglass", .gray, "Process logs") { showingNodeLogs = true }
         Menu {
+            Button { state.openInEditor(site.feDir ?? "") } label: { Label("Open in code editor", systemImage: "chevron.left.forwardslash.chevron.right") }
+            Button { state.openTerminal(site.feDir ?? "") } label: { Label("Open terminal here", systemImage: "terminal") }
+            Divider()
             Button { editingNode = true } label: { Label("Edit config (ports/commands)", systemImage: "slider.horizontal.3") }
             Divider()
             Button { envPart = "fe" } label: { Label("Edit frontend .env", systemImage: "doc.text") }

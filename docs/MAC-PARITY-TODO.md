@@ -26,6 +26,15 @@
 > `wp-config.php` at all). Fixed by writing the salts to a temp file and reading them with `getline`
 > (no `-v`, no newline/backslash/`$`/`&` escape processing) → all 8 salts land verbatim, `php -l` clean.
 > The .NET-specific `$`/`Regex.Replace` corruption never applied to the Mac.
+>
+> ✅ **#6 ported to macOS in `v1.6.13`** — three UX features. (A) Per-site **"Open in code editor"** →
+> `AppState.openInEditor` auto-detects VS Code → Cursor → Sublime Text → PhpStorm (via bundle-id /
+> `/Applications` / `~/Applications`), `open -a <app> <dir>`, Finder fallback. (B) Per-site
+> **"Open terminal here"** → `openTerminal` prefers iTerm else Terminal.app. Both added to the php
+> **and** node row `…` menus (`WebsitesPanel.swift`; node uses `feDir`). (C) **Branded default landing
+> page** for non-WordPress sites — the engine's `site add` now writes the *same* gradient-hero
+> `index.php` as Windows (host/PHP/server/root + "replace this file" hint + `?phpinfo=1`), copied
+> verbatim into a quoted heredoc; `php -l` clean.
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows

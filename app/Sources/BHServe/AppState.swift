@@ -725,6 +725,56 @@ final class AppState {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
     }
 
+    /// Auto-detect an installed code editor and open the site folder in it.
+    /// Order: VS Code → Cursor → Sublime Text → PhpStorm; falls back to Finder.
+    /// Returns the name of the editor used (nil = none found, opened in Finder).
+    @discardableResult
+    func openInEditor(_ path: String) -> String? {
+        let candidates: [(app: String, label: String)] = [
+            ("Visual Studio Code", "VS Code"),
+            ("Cursor",             "Cursor"),
+            ("Sublime Text",       "Sublime Text"),
+            ("PhpStorm",           "PhpStorm"),
+        ]
+        let fm = FileManager.default
+        for c in candidates {
+            // NSWorkspace finds the app whether it's in /Applications or ~/Applications.
+            if NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId(for: c.app)) != nil
+                || fm.fileExists(atPath: "/Applications/\(c.app).app")
+                || fm.fileExists(atPath: "\(NSHomeDirectory())/Applications/\(c.app).app") {
+                _ = runOpen(["-a", c.app, path])
+                return c.label
+            }
+        }
+        // No known editor — reveal in Finder so the user can drag it into theirs.
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        return nil
+    }
+
+    /// Open a terminal at the site folder — iTerm if installed, else Terminal.app.
+    func openTerminal(_ path: String) {
+        let term = FileManager.default.fileExists(atPath: "/Applications/iTerm.app") ? "iTerm" : "Terminal"
+        _ = runOpen(["-a", term, path])
+    }
+
+    private func bundleId(for app: String) -> String {
+        switch app {
+        case "Visual Studio Code": return "com.microsoft.VSCode"
+        case "Cursor":             return "com.todesktop.230313mzl4w4u92"  // Cursor
+        case "Sublime Text":       return "com.sublimetext.4"
+        case "PhpStorm":           return "com.jetbrains.PhpStorm"
+        default:                   return ""
+        }
+    }
+
+    @discardableResult
+    private func runOpen(_ args: [String]) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = args
+        do { try p.run(); return true } catch { return false }
+    }
+
     func setSitePHP(_ name: String, php: String) async {
         await runUser(["site", "php", name, php], note: "switching \(name) → \(php)…")
         await control("restart", "nginx")  // re-rendered vhost needs a reload
