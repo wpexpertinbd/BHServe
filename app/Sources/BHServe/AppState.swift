@@ -570,6 +570,44 @@ final class AppState {
         }
     }
 
+    // ── Add-site requirement guard (don't let users create a dead site) ──────
+    struct SiteRequirement: Identifiable, Equatable { let key: String; let label: String; var id: String { key } }
+
+    /// Services a site of this type needs installed AND running (else it 502s / won't serve).
+    func siteRequirements(type: String, php: String, server: String, isNode: Bool) -> [SiteRequirement] {
+        var reqs: [SiteRequirement] = []
+        if isNode {
+            reqs.append(.init(key: "nginx", label: "nginx"))
+            reqs.append(.init(key: "fnm", label: "Node (fnm)"))
+        } else {
+            if server == "apache" { reqs.append(.init(key: "httpd", label: "Apache")) }
+            else { reqs.append(.init(key: "nginx", label: "nginx")) }
+            if type == "php" || type == "wordpress" {
+                reqs.append(.init(key: php, label: "PHP \(php.replacingOccurrences(of: "php@", with: ""))"))
+            }
+            if type == "php" || type == "wordpress" {
+                reqs.append(.init(key: mysqlServiceKey, label: mysqlLabel))
+            }
+        }
+        return reqs
+    }
+    /// Required services that are not installed OR not running.
+    func missingForSite(type: String, php: String, server: String, isNode: Bool) -> [SiteRequirement] {
+        siteRequirements(type: type, php: php, server: server, isNode: isNode)
+            .filter { !serviceInstalled($0.key) || !serviceRunning($0.key) }
+    }
+    /// Install any missing required services, then start any that aren't running (idempotent).
+    func ensureSiteServices(type: String, php: String, server: String, isNode: Bool) async {
+        let reqs = siteRequirements(type: type, php: php, server: server, isNode: isNode)
+        for r in reqs where !serviceInstalled(r.key) {
+            await runUser(["install", r.key], note: "installing \(r.label)…")
+        }
+        // fnm is a tool (active once installed) and not a startable target — skip starting it.
+        for r in reqs where r.key != "fnm" && !serviceRunning(r.key) {
+            await control("start", r.key)
+        }
+    }
+
     func installService(_ key: String) async {
         let (ok, steps) = await runCapturing(["install", key], note: "installing \(key)…")
         actionResult = ActionResult(title: ok ? "\(key) installed" : "Couldn't install \(key)",

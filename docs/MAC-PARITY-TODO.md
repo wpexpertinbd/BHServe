@@ -6,8 +6,11 @@
 > (launch + 6h poll + window-open) when a window is up, a system notification when launched
 > hidden; once per session, gated by the "Automatically check for updates" setting.
 >
-> 🆕 **#3 below is NEW (pending on macOS)** — Add-site requirement guard + first-run setup
-> (win-v1.0.14), so users who skip the readme can't create a dead site with no servers installed.
+> ✅ **#3 ported to macOS in `v1.6.11`** — Add-site **requirement guard**: clicking Add computes the
+> site type's required services (nginx/Apache + chosen PHP + MariaDB for WP/PHP; nginx + fnm for Node)
+> and, if any are **not installed or not running**, prompts "Install & start them, then create?" →
+> `AppState.{siteRequirements,missingForSite,ensureSiteServices}`. First-run setup (part B) was already
+> covered by the existing **SetupView** (shown when Homebrew or the core stack is missing).
 
 Two features landed on the Windows build that the macOS build (engine `engine/bhserve` + the
 Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` tags**, **Windows
