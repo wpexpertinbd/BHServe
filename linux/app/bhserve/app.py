@@ -43,4 +43,10 @@ class BHServeApp(Adw.Application):
 
 def main() -> int:
     app = BHServeApp()
+    # Ensure the data dir exists BEFORE any GTK/window/api machinery — a fresh install is otherwise
+    # "not initialized" (blank Services, nothing installable). Plain Python, idempotent, no root.
+    try:
+        app.engine.run("init", timeout=20)
+    except Exception:  # noqa: BLE001
+        pass
     return app.run(None)

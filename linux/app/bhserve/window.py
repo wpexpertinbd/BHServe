@@ -141,7 +141,7 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     # ── verb runner ──
-    def run_verb(self, args, msg, refresh=True) -> None:
+    def run_verb(self, args, msg, refresh=True, then=None) -> None:
         if msg:
             self.toast(msg)
             self._applog(msg)
@@ -156,7 +156,9 @@ class MainWindow(Adw.ApplicationWindow):
             elif msg:
                 self.toast(msg.replace("…", " — done"))
                 self._applog(msg.replace("…", " — done"))
-            if refresh:
+            if rc == 0 and then:   # chain a follow-up verb on success (e.g. install → use)
+                self.run_verb(then[0], then[1], refresh=refresh)
+            elif refresh:
                 self.refresh()
 
         self.engine.run_async(list(args), done)

@@ -535,6 +535,9 @@ class _AppsPage(Gtk.Box):
         self.win = win
         self.runtime = Adw.PreferencesGroup(title="Runtime")
         self.rt_row = Adw.ActionRow(title="…")
+        self.rt_btn = Gtk.Button(valign=Gtk.Align.CENTER, visible=False, css_classes=["suggested-action"])
+        self._rt_handler_id = None
+        self.rt_row.add_suffix(self.rt_btn)
         self.runtime.add(self.rt_row)
         self.append(self.runtime)
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -576,6 +579,17 @@ class _AppsPage(Gtk.Box):
         row.add_suffix(box)
         return row
 
+    def _set_runtime_btn(self, label, handler):
+        if self._rt_handler_id:
+            self.rt_btn.disconnect(self._rt_handler_id)
+            self._rt_handler_id = None
+        if not label:
+            self.rt_btn.set_visible(False)
+            return
+        self.rt_btn.set_label(label)
+        self._rt_handler_id = self.rt_btn.connect("clicked", lambda *_: handler())
+        self.rt_btn.set_visible(True)
+
     def refresh(self, data: dict) -> None:
         self.list.set_items(self._apps())
 
@@ -584,24 +598,33 @@ class NodePage(_AppsPage):
     KIND, TITLE = "node", "Node apps"
 
     def refresh(self, data):
-        rc, out = self.win.engine.run("node", "list")
-        cur = next((l.strip() for l in out.splitlines() if l.strip()), "no versions")
         installed = any(s["key"] == "fnm" and s["installed"] for s in data.get("services", []))
-        self.rt_row.set_title("Node (fnm)" if installed else "Node (fnm) — not installed")
-        self.rt_row.set_subtitle(out.strip()[:80] if installed else "Install fnm from Services to manage Node versions")
+        out = self.win.engine.run("node", "list")[1].strip() if installed else ""
+        self.rt_row.set_title("Node (fnm)" if installed else "Node — fnm not installed")
+        self.rt_row.set_subtitle((out[:80] if out else "Install a Node version to run Node apps")
+                                 if installed else "Install fnm, then a Node version, to run Node apps")
+        if installed:
+            self._set_runtime_btn("Install Node version…", self._install_node)
+        else:
+            self._set_runtime_btn("Install fnm", lambda: self.win.run_verb(["install", "fnm"], "Installing fnm…"))
         super().refresh(data)
+
+    def _install_node(self):
+        self.win.choose("Install Node", "Pick a version to install and set as default:", ["22", "20", "18"],
+                        lambda v: self.win.run_verb(["node", "install", v], f"Installing Node {v}…",
+                                                    then=(["node", "use", v], f"Setting Node {v} as default…")))
 
 
 class PythonPage(_AppsPage):
     KIND, TITLE = "py", "Python apps"
 
-    def __init__(self, win):
-        super().__init__(win)
-
     def refresh(self, data):
         py = next((s for s in data.get("services", []) if s["key"] == "python"), {})
-        self.rt_row.set_title("Python" + (f" {clean_version(py.get('version',''))}" if py.get("installed") else " — not installed"))
-        self.rt_row.set_subtitle("Ready for venv-backed apps" if py.get("installed") else "Install from Services")
+        inst = py.get("installed")
+        self.rt_row.set_title("Python" + (f" {clean_version(py.get('version',''))}" if inst else " — not installed"))
+        self.rt_row.set_subtitle("Ready for venv-backed apps" if inst else "Install Python to run Python apps")
+        self._set_runtime_btn(None if inst else "Install Python",
+                              lambda: self.win.run_verb(["install", "python"], "Installing Python…"))
         super().refresh(data)
 
 
