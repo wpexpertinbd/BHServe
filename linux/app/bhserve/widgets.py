@@ -91,7 +91,14 @@ class PagedList(Gtk.Box):
 
     # ── public API ──
     def set_items(self, items: list) -> None:
-        self._all = items or []
+        items = items or []
+        # Skip the rebuild when the data is identical — otherwise the 4s auto-refresh re-renders
+        # the whole list and resets the scroll position. (Search/page changes call _render directly.)
+        sig = repr(items)
+        if sig == getattr(self, "_items_sig", None):
+            return
+        self._items_sig = sig
+        self._all = items
         self._render()
 
     def page_size(self) -> int:

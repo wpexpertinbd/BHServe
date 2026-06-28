@@ -435,6 +435,15 @@ class ServicesPage(Gtk.Box):
 
     def refresh(self, data: dict) -> None:
         services = data.get("services", [])
+        # Only rebuild when something actually changed — otherwise the 4s auto-refresh would
+        # tear down + re-add every row and snap your scroll position back to the top.
+        sig = tuple((s["key"], s["installed"], s.get("running"), s.get("enabled"), s.get("version", ""))
+                    for s in services)
+        if sig == getattr(self, "_sig", None):
+            return
+        self._sig = sig
+        adj = self.scroller.get_vadjustment()
+        pos = adj.get_value() if adj else 0.0
         child = self.body.get_first_child()
         while child:
             nxt = child.get_next_sibling()
@@ -448,6 +457,8 @@ class ServicesPage(Gtk.Box):
             for s in group_svcs:
                 grp.add(self._row(s))
             self.body.append(grp)
+        if adj and pos:   # restore scroll after the new content is laid out
+            GLib.idle_add(lambda a=adj, p=pos: (a.set_value(p), False)[1])
 
     def _row(self, s: dict) -> Adw.ActionRow:
         installed, running = s["installed"], s.get("running")
