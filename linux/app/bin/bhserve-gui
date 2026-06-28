@@ -1,0 +1,11 @@
+#!/bin/bash
+# BHServe GUI launcher — runs the PyGObject app from whichever layout it's installed in
+# (repo: linux/app/bhserve; .deb: /usr/lib/bhserve/app/bhserve; AppImage: /opt/bhserve/app).
+set -e
+DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+APPDIR=""
+for d in "$DIR/.." "/usr/lib/bhserve/app" "/opt/bhserve/app" "$DIR"; do
+  if [ -d "$d/bhserve" ]; then APPDIR="$(cd "$d" && pwd)"; break; fi
+done
+[ -n "$APPDIR" ] || { echo "BHServe: app package not found" >&2; exit 1; }
+exec python3 -B -c "import sys; sys.path.insert(0, '$APPDIR'); from bhserve.app import main; sys.exit(main())" "$@"

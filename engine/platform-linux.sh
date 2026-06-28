@@ -313,3 +313,41 @@ cmd_dns() {
     *) die "usage: bhserve dns [hosts|wildcard]" ;;
   esac
 }
+
+# ── Start-at-login = a systemd --user service (the LaunchAgent analog) ────────
+# Runs `bhserve start all` at login so sites are up before/at session start. The api's
+# loginitem flag maps to `systemctl --user is-enabled`.
+_loginitem_unit(){ echo "$HOME/.config/systemd/user/bhserve.service"; }
+loginitem_enabled(){ systemctl --user is-enabled bhserve.service >/dev/null 2>&1; }
+cmd_loginitem(){
+  local sub="${1:-status}" unit; unit="$(_loginitem_unit)"
+  local engine="${_bh_engine_dir:-$(dirname "$(readlink -f "$0")")}/bhserve"
+  case "$sub" in
+    enable)
+      mkdir -p "$(dirname "$unit")"
+      cat > "$unit" <<UNIT
+[Unit]
+Description=BHServe — start local web services at login
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash $engine start all
+ExecStop=/bin/bash $engine stop all
+
+[Install]
+WantedBy=default.target
+UNIT
+      systemctl --user daemon-reload >/dev/null 2>&1 || true
+      systemctl --user enable bhserve.service >/dev/null 2>&1 && ok "start-at-login enabled (systemd --user)" || warn "couldn't enable the user service"
+      loginctl enable-linger "$USER_NAME" >/dev/null 2>&1 || true   # allow pre-login start
+      ;;
+    disable)
+      systemctl --user disable bhserve.service >/dev/null 2>&1 || true
+      rm -f "$unit"; systemctl --user daemon-reload >/dev/null 2>&1 || true
+      ok "start-at-login disabled" ;;
+    status) loginitem_enabled && echo enabled || echo disabled ;;
+    *) die "usage: bhserve loginitem {enable|disable|status}" ;;
+  esac
+}
