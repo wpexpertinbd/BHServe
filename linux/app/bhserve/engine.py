@@ -7,10 +7,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 from typing import Callable
+
+# Strip terminal colour/escape sequences from engine output before it's shown in toasts /
+# the activity log / parsed (the bash engine emits ANSI for its ✓/✗/headers).
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 import gi
 from gi.repository import GLib
@@ -98,7 +103,7 @@ class EngineClient:
             # pkexec exit 126 = user dismissed the auth dialog; 127 = not authorized.
             if p.returncode in (126, 127) and _needs_root(args):
                 return p.returncode, "Cancelled — administrator approval is required for this action."
-            return p.returncode, (p.stdout or "") + (p.stderr or "")
+            return p.returncode, _ANSI.sub("", (p.stdout or "") + (p.stderr or ""))
         except subprocess.TimeoutExpired:
             return 1, f"timed out after {timeout}s"
         except Exception as e:  # noqa: BLE001

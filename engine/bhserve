@@ -2091,6 +2091,7 @@ PHP
   ok "wrote config.inc.php (socket: $sock)"
   local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
+  fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost "phpmyadmin" "phpmyadmin.$tld" "$dir" "$phpkey"
   hdr "phpMyAdmin ready"
   info "URL  : http://phpmyadmin.$tld   (HTTPS: bhserve secure phpmyadmin.$tld)"
@@ -2110,6 +2111,7 @@ adminer_install(){
   else ok "Adminer already present ($dir)"; fi
   local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
+  fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost adminer "adminer.$tld" "$dir" "$phpkey" nginx
   hdr "Adminer ready"
   info "URL  : http://adminer.$tld"

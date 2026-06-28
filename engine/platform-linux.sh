@@ -46,13 +46,15 @@ else
 fi
 # Hand ownership of anything we created as root back to the invoking user.
 _bh_fix_ownership(){
-  [ "$(id -u)" = 0 ] && [ -n "${USER_NAME:-}" ] && [ "$USER_NAME" != root ] || return 0
+  local _rc=$?   # preserve the real exit code — the GUI relies on it to detect failures
+  { [ "$(id -u)" = 0 ] && [ -n "${USER_NAME:-}" ] && [ "$USER_NAME" != root ]; } || return $_rc
   [ -d "$BH_HOME" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$BH_HOME" 2>/dev/null || true
   case "$_BH_VERB:$_BH_SUB" in
     site:add|pysite:add|nodesite:add)
       local sr; sr="$(jget sites_root "$HOME/BHServe/www" 2>/dev/null)"
       case "$sr" in "$HOME"/*) [ -d "$sr" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$sr" 2>/dev/null || true ;; esac ;;
   esac
+  return $_rc
 }
 trap _bh_fix_ownership EXIT
 
