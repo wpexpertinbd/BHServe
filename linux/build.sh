@@ -82,7 +82,7 @@ Version: $VERSION
 Section: web
 Priority: optional
 Architecture: all
-Depends: bash, python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, curl, unzip, libglib2.0-bin
+Depends: bash, python3, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, curl, unzip, libglib2.0-bin
 Recommends: libnss3-tools, policykit-1, software-properties-common
 Maintainer: BiswasHost <support@biswashost.com>
 Homepage: https://www.biswashost.com

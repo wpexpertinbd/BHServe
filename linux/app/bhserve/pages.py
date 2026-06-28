@@ -21,6 +21,15 @@ from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 from .metrics import CpuSampler, NetSampler, disk, memory, rate_str  # noqa: E402
 from .widgets import PAGE_SIZES, PagedList, page_size_to_int, pill, status_dot  # noqa: E402
 
+# The CPU sparkline uses a Cairo draw callback, which needs the cairo↔Python foreign-struct
+# converter (the python3-gi-cairo package). If it's missing, drawing throws in the marshaller
+# *before* our code runs — so detect it up front and skip the sparkline rather than flood errors.
+try:
+    gi.require_foreign("cairo")
+    _HAVE_CAIRO = True
+except Exception:
+    _HAVE_CAIRO = False
+
 PHP_KEYS = ["php@8.4", "php@8.3", "php@8.2", "php@8.1", "php@7.4"]
 SERVICE_GROUPS = [
     ("PHP", "php"),
@@ -155,6 +164,14 @@ def _set_dot(img: Gtk.Image, on: bool) -> None:
     img.add_css_class("dot-on" if on else "dot-off")
 
 
+def _card_flow() -> Gtk.FlowBox:
+    """A responsive row of equal-width cards that wraps to fewer-per-line as the window
+    narrows (instead of overflowing off the right edge)."""
+    return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                       min_children_per_line=1, max_children_per_line=4,
+                       column_spacing=12, row_spacing=12)
+
+
 class DashboardPage(Gtk.Box):
     """Parity with the macOS/Windows dashboard: Start/Stop/Restart-all, status cards
     (Web/PHP/DB/Cache), CPU sparkline + Memory/Disk/Network, the websites panel, the
@@ -192,7 +209,7 @@ class DashboardPage(Gtk.Box):
         body.append(head)
 
         # ── status cards ──
-        row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        row1 = _card_flow()
         self.c_web = self._status_card("Web Server")
         self.c_php = self._status_card("PHP")
         self.c_db = self._status_card("Database")
@@ -202,7 +219,7 @@ class DashboardPage(Gtk.Box):
         body.append(row1)
 
         # ── metrics: CPU(+spark) / Memory / Storage / Network ──
-        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        row2 = _card_flow()
         self.cpu_val, cpu_card = self._cpu_card()
         self.mem = self._bar_card("Memory")
         self.disk = self._bar_card("Storage")
@@ -222,7 +239,7 @@ class DashboardPage(Gtk.Box):
 
         # ── web tools ──
         body.append(Gtk.Label(label="Web tools", xalign=0, css_classes=["title-4"]))
-        tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        tools = _card_flow()
         self.t_pma = self._tool_card("phpMyAdmin", "phpmyadmin", ["pma", "install"])
         self.t_adm = self._tool_card("Adminer", "adminer", ["adminer", "install"])
         self.t_mail = self._tool_card("Mailpit", "mailpit", ["mailpit", "setup"])
@@ -258,7 +275,8 @@ class DashboardPage(Gtk.Box):
         val = Gtk.Label(label="0%", xalign=0, css_classes=["bh-metric-val"])
         card.append(val)
         self.spark = Gtk.DrawingArea(content_height=34, hexpand=True)
-        self.spark.set_draw_func(self._draw_spark)
+        if _HAVE_CAIRO:
+            self.spark.set_draw_func(self._draw_spark)
         card.append(self.spark)
         return val, card
 
@@ -359,7 +377,8 @@ class DashboardPage(Gtk.Box):
         cpu = self.cpu.percent()
         self.cpu_val.set_label(f"{cpu:.0f}%")
         self.cpu_hist.append(cpu)
-        self.spark.queue_draw()
+        if _HAVE_CAIRO:
+            self.spark.queue_draw()
         mu, mt, mp = memory()
         self.mem["val"].set_label(f"{mu:.1f} / {mt:.1f} GB")
         self.mem["bar"].set_fraction(min(1.0, mp / 100))
