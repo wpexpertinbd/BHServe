@@ -21,6 +21,8 @@ warn(){ printf "  ${c_y}!${c_reset} %s\n" "$*"; }
 hdr(){ printf "\n${c_b}%s${c_reset}\n" "$*"; }
 die(){ no "$*"; exit 1; }
 info(){ printf "  ${c_dim}%s${c_reset}\n" "$*"; }
+# Portable in-place sed — GNU (Linux) is `sed -i`; BSD (macOS) needs `sed -i ''`.
+sedi(){ if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
 
 # Service registry:  key | brew formula | version-probe binary (relative to brew prefix) | role
 services() {
@@ -1228,7 +1230,7 @@ site_install_wordpress(){
   # wp-config.php from the sample: DB=root/none/localhost + fresh salts
   if [ -f "$root/wp-config-sample.php" ] && [ ! -f "$root/wp-config.php" ]; then
     cp "$root/wp-config-sample.php" "$root/wp-config.php"
-    sed -i '' "s/database_name_here/$db/; s/username_here/root/; s/'password_here'/''/" "$root/wp-config.php"
+    sedi "s/database_name_here/$db/; s/username_here/root/; s/'password_here'/''/" "$root/wp-config.php"
     local salts; salts="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ 2>/dev/null || true)"
     if [ -n "$salts" ]; then
       # Inject the salt block by reading it from a FILE via getline — NOT `awk -v s=...`.
@@ -1396,7 +1398,7 @@ migrate_vhost_binds(){
   shopt -s nullglob
   local f
   for f in "$BH_HOME"/nginx/sites/*.conf; do
-    sed -i '' -E 's/^([[:space:]]*)listen ([0-9]+)( ssl)?;/\1listen 127.0.0.1:\2\3;/' "$f" 2>/dev/null || true
+    sedi -E 's/^([[:space:]]*)listen ([0-9]+)( ssl)?;/\1listen 127.0.0.1:\2\3;/' "$f" 2>/dev/null || true
   done
 }
 NGINX_BIN(){ echo "$BREW_PREFIX/bin/nginx"; }

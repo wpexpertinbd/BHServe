@@ -130,7 +130,24 @@ cmd_install() {
         if _apt install -y apache2 libapache2-mod-fcgid; then _disable_system_unit apache2; ok "apache2 installed"; else no "install apache2 failed"; fi ;;
       mariadb|mysql)
         hdr "Installing $pkg  (apt)"
-        if _apt install -y "$pkg"; then _disable_system_unit "$key"; ok "$key installed"; else no "install $key failed"; fi ;;
+        if _apt install -y "$pkg"; then
+          $SUDO systemctl start "$key" >/dev/null 2>&1 || true
+          _db_open_root "$key"
+          $SUDO systemctl disable "$key" >/dev/null 2>&1 || true   # no autostart; BHServe starts it on demand
+          ok "$key installed"
+        else no "install $key failed"; fi ;;
+      fnm)
+        hdr "Installing fnm (Node version manager)"
+        _apt install -y unzip curl >/dev/null 2>&1 || true
+        if curl -fsSL https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip -o /tmp/bh-fnm.zip \
+           && unzip -o /tmp/bh-fnm.zip -d /tmp/bh-fnm >/dev/null 2>&1 \
+           && $SUDO install -m 0755 /tmp/bh-fnm/fnm /usr/local/bin/fnm; then
+          rm -rf /tmp/bh-fnm.zip /tmp/bh-fnm; ok "fnm installed"
+        else no "install fnm failed"; fi ;;
+      mailpit)
+        hdr "Installing Mailpit"
+        if curl -fsSL https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh | $SUDO bash >/dev/null 2>&1 \
+           && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; else no "install mailpit failed (download blocked?)"; fi ;;
       postgresql@*)
         hdr "Installing $pkg  (apt)"
         if _apt install -y "$pkg"; then _disable_system_unit postgresql; ok "$key installed"; else no "install $key failed"; fi ;;
@@ -275,12 +292,23 @@ hosts_sync_all(){
   rm -f "$tmp" "$tmp.2" 2>/dev/null || true
 }
 
-# Override: keep /etc/hosts in lock-step, then do the normal reload. This is the single
-# choke point every site mutation passes through, so node/py/secure are covered for free.
+# Override: keep /etc/hosts in lock-step, then do the normal reload. Regular site_add/rm
+# go through here; in non-tty (GUI) mode it still syncs hosts before deferring the reload.
 maybe_reload_nginx(){
   hosts_sync_all
   nginx_running || return 0
   if [ -t 1 ]; then nginx_reload; else info "reload nginx to serve changes (bhserve restart nginx)"; fi
+}
+
+# nodesite/pysite add + `secure` call nginx_reload DIRECTLY (not via maybe_reload_nginx),
+# so sync /etc/hosts here too — this is the real choke point every reload passes through.
+# hosts_sync_all is idempotent (no-op + no sudo when nothing changed), so double calls are free.
+nginx_reload(){
+  hosts_sync_all
+  nginx_running || return 0
+  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+  $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
+    && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
 }
 
 # `bhserve dns` — default: (re)sync /etc/hosts for all sites. `bhserve dns wildcard` —
@@ -350,4 +378,45 @@ UNIT
     status) loginitem_enabled && echo enabled || echo disabled ;;
     *) die "usage: bhserve loginitem {enable|disable|status}" ;;
   esac
+}
+
+# ── Databases (Ubuntu client / auth / path deltas) ───────────────────────────
+MYSQL_CLI(){ local c; for c in /usr/bin/mariadb /usr/bin/mysql; do [ -x "$c" ] && { echo "$c"; return; }; done; echo /usr/bin/mariadb; }
+PSQL_CLI(){ echo /usr/bin/psql; }
+PG_BIN(){ local v; for v in 17 16 15; do [ -x "/usr/lib/postgresql/$v/bin/$1" ] && { echo "/usr/lib/postgresql/$v/bin/$1"; return; }; done; echo "/usr/lib/postgresql/16/bin/$1"; }
+
+# Ubuntu MariaDB root@localhost defaults to unix_socket auth → only the OS root user
+# connects password-less. Try the user's own socket, then `sudo <client>` (root socket),
+# then -u root, so db verbs work however the server is configured.
+mysql_run(){
+  local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
+  if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
+  elif $SUDO "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" "$@"
+  elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
+  else return 1; fi
+}
+
+# Make root@localhost a BLANK-password native account — same posture as the Mac (root has
+# no password; the server is bound to loopback only) so the engine + WordPress connect over
+# TCP as root. Tries MariaDB then MySQL syntax.
+_db_open_root(){
+  local cli i; cli="$(MYSQL_CLI)"
+  for i in 1 2 3 4 5 6; do $SUDO "$cli" -e "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done
+  $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
+    || $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
+    || $SUDO "$cli" -e "SET PASSWORD FOR 'root'@'localhost' = ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
+  db_secure_bind
+}
+
+# Ubuntu MariaDB already binds 127.0.0.1 by default; write an idempotent drop-in in the
+# distro's conf.d (path differs from brew's etc/my.cnf.d) to guarantee it.
+db_secure_bind(){
+  local d f
+  if   [ -d /etc/mysql/mariadb.conf.d ]; then d=/etc/mysql/mariadb.conf.d
+  elif [ -d /etc/mysql/mysql.conf.d ];   then d=/etc/mysql/mysql.conf.d
+  else return 0; fi
+  f="$d/99-bhserve.cnf"
+  $SUDO grep -q '127\.0\.0\.1' "$f" 2>/dev/null && return 0
+  printf '# BHServe — keep the DB on localhost only (root has no password)\n[mysqld]\nbind-address = 127.0.0.1\n' \
+    | $SUDO tee "$f" >/dev/null 2>&1 || true
 }
