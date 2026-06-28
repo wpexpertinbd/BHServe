@@ -30,7 +30,7 @@ try:
 except Exception:
     _HAVE_CAIRO = False
 
-PHP_KEYS = ["php@8.4", "php@8.3", "php@8.2", "php@8.1", "php@7.4"]
+PHP_KEYS = ["php@8.6", "php@8.5", "php@8.4", "php@8.3", "php@8.2", "php@8.1", "php@7.4"]
 SERVICE_GROUPS = [
     ("PHP", "php"),
     ("Web servers", "web"),

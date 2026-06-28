@@ -251,7 +251,12 @@ class MainWindow(Adw.ApplicationWindow):
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         name = Gtk.Entry(placeholder_text="site name (e.g. myshop)")
         typ = Gtk.DropDown.new_from_strings(["wordpress", "php", "others"])
-        php = Gtk.DropDown.new_from_strings([k.replace("php@", "") for k in P.PHP_KEYS])
+        # Offer only the PHP versions actually installed (so you can't pick one that isn't there);
+        # fall back to the full list if none installed yet.
+        installed_php = [s["key"].replace("php@", "") for s in self.last_data.get("services", [])
+                         if s["role"] == "php" and s["installed"]]
+        php_choices = installed_php or [k.replace("php@", "") for k in P.PHP_KEYS]
+        php = Gtk.DropDown.new_from_strings(php_choices)
         srv = Gtk.DropDown.new_from_strings(["nginx", "apache"])
         ssl = Gtk.CheckButton(label="Enable trusted HTTPS (mkcert)", active=True)
         for w, lab in ((name, "Name"), (typ, "Type"), (php, "PHP"), (srv, "Web server")):
@@ -275,7 +280,7 @@ class MainWindow(Adw.ApplicationWindow):
                 return
             args = ["site", "add", nm,
                     "--type", ["wordpress", "php", "others"][typ.get_selected()],
-                    "--php", [k.replace("php@", "") for k in P.PHP_KEYS][php.get_selected()],
+                    "--php", php_choices[php.get_selected()],
                     "--server", ["nginx", "apache"][srv.get_selected()]]
             self.run_verb(args, f"Creating {nm}…")
             if ssl.get_active():

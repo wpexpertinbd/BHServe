@@ -65,6 +65,8 @@ trap _bh_fix_ownership EXIT
 # default_php (e.g. 8.4) already resolves to the "php@8.4" key, never bare "php".
 services() {
   cat <<'EOF'
+php@8.6|php8.6-fpm|usr/sbin/php-fpm8.6|php
+php@8.5|php8.5-fpm|usr/sbin/php-fpm8.5|php
 php@8.4|php8.4-fpm|usr/sbin/php-fpm8.4|php
 php@8.3|php8.3-fpm|usr/sbin/php-fpm8.3|php
 php@8.2|php8.2-fpm|usr/sbin/php-fpm8.2|php
@@ -197,7 +199,11 @@ cmd_install() {
             _apt install -y "php$v-$_e" >/dev/null 2>&1 || true
           done
           _disable_system_unit "php$v-fpm"; ok "$key installed"
-        else no "install $key failed — PHP $v may not be packaged for Ubuntu $(_codename) yet (Ondřej hasn't built for this release)"; failed=1; fi ;;
+        else
+          local _av; _av="$($SUDO apt-cache search --names-only 'php[0-9.]*-fpm' 2>/dev/null | grep -oE 'php[0-9]+\.[0-9]+' | sort -uV | sed 's/php/php@/' | tr '\n' ' ')"
+          no "install $key failed — PHP $v isn't packaged for Ubuntu $(_codename). Available here: ${_av:-none}"
+          failed=1
+        fi ;;
       nginx)
         hdr "Installing nginx  (apt)"
         if _apt install -y nginx; then _disable_system_unit nginx; ok "nginx installed"; else no "install nginx failed"; failed=1; fi ;;
