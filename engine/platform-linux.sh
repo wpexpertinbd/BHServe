@@ -115,42 +115,49 @@ _codename(){ ( . /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-stable}"
 
 # Ondřej Surý's repo provides php7.4–8.4 (+ -fpm) — the PPA on Ubuntu, deb.sury.org on Debian.
 _ensure_php_repo(){
-  if ! ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qiE 'ondrej|sury'; then
-    hdr "Adding the Ondřej PHP repository (php7.4–8.4)…"
-    if _is_ubuntu; then
-      _apt install -y software-properties-common ca-certificates >/dev/null 2>&1 || true
-      $SUDO add-apt-repository -y ppa:ondrej/php >/dev/null 2>&1 || $SUDO add-apt-repository -y ppa:ondrej/php
-    else
-      _apt install -y ca-certificates curl >/dev/null 2>&1 || true
-      $SUDO install -d -m 0755 /usr/share/keyrings
-      curl -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
-      echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(_codename) main" \
-        | $SUDO tee /etc/apt/sources.list.d/sury-php.list >/dev/null
-    fi
+  if _is_ubuntu; then
+    _php_repo_prepare
+  else
+    ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qi sury && { _APT_UPDATED=false; return 0; }
+    hdr "Adding the Sury PHP repository…"
+    _apt install -y ca-certificates curl >/dev/null 2>&1 || true
+    $SUDO install -d -m 0755 /usr/share/keyrings
+    curl -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(_codename) main" \
+      | $SUDO tee /etc/apt/sources.list.d/sury-php.list >/dev/null
   fi
-  _php_repo_codename_fallback   # run even if the repo was added before (fixes a broken codename)
-  _APT_UPDATED=false; _apt_update_once
+  _APT_UPDATED=false
 }
 
-# Ondřej/Sury may not build for a brand-new Ubuntu yet (e.g. 26.04 'resolute' → 404 on the Release
-# file, which breaks ALL apt installs). If so, repoint the repo at the newest LTS codename it does
-# serve (noble = 24.04 LTS) — those PHP builds run fine on newer Ubuntu.
-_php_repo_codename_fallback(){
-  _is_ubuntu || return 0
-  local fb=noble out f
-  [ "$(_codename)" = "$fb" ] && return 0
-  out="$($SUDO apt-get update 2>&1 || true)"
-  echo "$out" | grep -qiE "ondrej.*(404|does not have a Release|no Release file)" || return 0
-  warn "Ondřej PHP has no build for '$(_codename)' yet — using its '$fb' (24.04 LTS) build instead"
+# Ondřej's PPA gives multi-version PHP, but only for Ubuntu releases he's built for. A brand-new
+# release (e.g. 26.04 'resolute') has NO build (404) AND his older builds need older libs that the
+# new release replaced — so a codename-fallback produces unmet deps. Strategy: normalise the repo to
+# THIS release; if it 404s, DISABLE it and fall back to Ubuntu's own PHP (built against this release's
+# libs). The default PHP version Ubuntu ships then installs cleanly; older versions need Ondřej and
+# will simply report unavailable until he builds for the release.
+_php_repo_prepare(){
+  local cur out f; cur="$(_codename)"
+  if ! ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qiE 'ondrej'; then
+    hdr "Adding the Ondřej PHP repository (php7.4–8.4)…"
+    _apt install -y software-properties-common ca-certificates >/dev/null 2>&1 || true
+    $SUDO add-apt-repository -y ppa:ondrej/php >/dev/null 2>&1 || true
+  fi
   shopt -s nullglob
-  for f in /etc/apt/sources.list.d/*ondrej*php*.sources; do
-    $SUDO sed -i -E "s/^([[:space:]]*Suites:).*/\1 $fb/I" "$f" 2>/dev/null || true
-  done
-  for f in /etc/apt/sources.list.d/*ondrej*php*.list /etc/apt/sources.list.d/*sury*.list; do
-    $SUDO sed -i -E "s#(/ubuntu|/php/)[[:space:]]+[a-z]+[[:space:]]+main#\1 $fb main#" "$f" 2>/dev/null || true
-  done
+  # re-enable any repo we disabled before + normalise its codename to this release (undo old rewrites)
+  for f in /etc/apt/sources.list.d/*ondrej*php*.bhdisabled; do $SUDO mv "$f" "${f%.bhdisabled}" 2>/dev/null || true; done
+  for f in /etc/apt/sources.list.d/*ondrej*php*.sources; do $SUDO sed -i -E "s/^([[:space:]]*Suites:).*/\1 $cur/I" "$f" 2>/dev/null || true; done
+  for f in /etc/apt/sources.list.d/*ondrej*php*.list;    do $SUDO sed -i -E "s#(/ubuntu)[[:space:]]+[a-z]+[[:space:]]+main#\1 $cur main#" "$f" 2>/dev/null || true; done
   shopt -u nullglob
-  $SUDO apt-get update >/dev/null 2>&1 || true
+  out="$($SUDO apt-get update 2>&1 || true)"
+  if echo "$out" | grep -qiE "ondrej.*(404|does not have a Release|no Release file)"; then
+    warn "Ondřej PHP has no build for '$cur' yet — using Ubuntu's own PHP packages instead"
+    shopt -s nullglob
+    for f in /etc/apt/sources.list.d/*ondrej*php*.sources /etc/apt/sources.list.d/*ondrej*php*.list; do
+      $SUDO mv "$f" "$f.bhdisabled" 2>/dev/null || true
+    done
+    shopt -u nullglob
+    $SUDO apt-get update >/dev/null 2>&1 || true
+  fi
 }
 
 # Common PHP extension set per version (mirrors the Mac/Windows default kit).
@@ -181,9 +188,16 @@ cmd_install() {
       php@*)
         v="${key#php@}"; _ensure_php_repo
         hdr "Installing $key  (apt)"
-        # shellcheck disable=SC2046
-        if _apt install -y $(_php_pkgs "$v"); then _disable_system_unit "php$v-fpm"; ok "$key installed"
-        else no "install $key failed"; failed=1; fi ;;
+        # Core + WordPress-essential extensions are required; the rest are best-effort (installed one
+        # at a time) so a package that isn't built for this release doesn't fail the whole install.
+        if _apt install -y "php$v-fpm" "php$v-cli" "php$v-common" "php$v-mysql" "php$v-curl" \
+                           "php$v-mbstring" "php$v-xml" "php$v-zip" "php$v-gd" "php$v-intl"; then
+          local _e
+          for _e in pgsql sqlite3 bcmath soap readline opcache imagick gmp; do
+            _apt install -y "php$v-$_e" >/dev/null 2>&1 || true
+          done
+          _disable_system_unit "php$v-fpm"; ok "$key installed"
+        else no "install $key failed — PHP $v may not be packaged for Ubuntu $(_codename) yet (Ondřej hasn't built for this release)"; failed=1; fi ;;
       nginx)
         hdr "Installing nginx  (apt)"
         if _apt install -y nginx; then _disable_system_unit nginx; ok "nginx installed"; else no "install nginx failed"; failed=1; fi ;;
