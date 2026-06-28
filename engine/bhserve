@@ -1642,7 +1642,7 @@ db_root_status(){
 db_root_passwd(){
   local epw; epw="$(mysql_esc "$DB_PASSWORD")"
   mysql_run -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;" \
-    && ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo cleared (blank))" \
+    && ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")" \
     || die "failed (server running? do you have privilege?)"
 }
 
@@ -2378,6 +2378,13 @@ BHServe — usage:
   bhserve status
 U
 }
+
+# ── Platform delta layer ──────────────────────────────────────────────────────
+# On Linux, source apt/systemd overrides (BHServe for Linux). macOS is untouched.
+if [ "$(uname)" = "Linux" ]; then
+  _bh_engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  [ -f "$_bh_engine_dir/platform-linux.sh" ] && . "$_bh_engine_dir/platform-linux.sh"
+fi
 
 case "${1:-doctor}" in
   init)    cmd_init ;;

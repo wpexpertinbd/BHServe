@@ -1,0 +1,5 @@
+# The engine + all shell scripts run on macOS/Linux — they MUST stay LF, or a CRLF
+# checkout on Windows breaks the shebang/parsing when run under WSL or on a Linux box.
+engine/bhserve   text eol=lf
+*.sh             text eol=lf
+linux/build.sh   text eol=lf
