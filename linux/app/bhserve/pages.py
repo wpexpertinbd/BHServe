@@ -9,14 +9,16 @@ import re
 import shlex
 import shutil
 import subprocess
+from collections import deque
 from typing import Callable
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
+from .metrics import CpuSampler, NetSampler, disk, memory, rate_str  # noqa: E402
 from .widgets import PAGE_SIZES, PagedList, page_size_to_int, pill, status_dot  # noqa: E402
 
 PHP_KEYS = ["php@8.4", "php@8.3", "php@8.2", "php@8.1", "php@7.4"]
@@ -73,95 +75,332 @@ def _open_terminal(folder: str) -> None:
             return
 
 
+# ── shared site row (used by both the Sites pane and the Dashboard websites panel) ──
+TOOL_NAMES = {"phpmyadmin", "adminer", "mailpit"}
+
+
+def is_tool(name: str) -> bool:
+    return name in TOOL_NAMES
+
+
+def site_match(s: dict, q: str) -> bool:
+    q = q.lower()
+    return q in s["name"].lower() or q in s.get("php", "").lower()
+
+
+def site_change_php(win, s: dict) -> None:
+    installed = [x["key"].replace("php@", "") for x in win.last_data.get("services", [])
+                 if x["role"] == "php" and x["installed"]]
+    win.choose("Change PHP version", f"Pick a PHP version for {s['name']}", installed,
+               lambda v: win.run_verb(["site", "php", s["name"], v], f"Switching {s['name']} → PHP {v}…"))
+
+
+def site_change_server(win, s: dict) -> None:
+    win.choose("Switch web server", f"Serve {s['name']} via:", ["nginx", "apache"],
+               lambda v: win.run_verb(["site", "server", s["name"], v], f"Switching {s['name']} → {v}…"))
+
+
+def _site_menu(win, s: dict) -> Gtk.Popover:
+    pop = Gtk.Popover()
+    v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6,
+                margin_start=6, margin_end=6)
+
+    def item(label, icon, cb, destructive=False):
+        b = Gtk.Button(css_classes=["flat"] + (["destructive-action"] if destructive else []))
+        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        inner.append(Gtk.Image.new_from_icon_name(icon))
+        inner.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+        b.set_child(inner)
+        b.connect("clicked", lambda *_: (pop.popdown(), cb()))
+        v.append(b)
+
+    name = s["name"]
+    item("Change PHP version…", "application-x-php-symbolic", lambda: site_change_php(win, s))
+    item("Switch web server…", "network-server-symbolic", lambda: site_change_server(win, s))
+    if not s.get("secure"):
+        item("Enable HTTPS", "security-high-symbolic",
+             lambda: win.run_verb(["secure", s["domain"]], f"Securing {s['domain']}…"))
+    item("Open folder", "folder-symbolic", lambda: _open(s["root"]))
+    item("Open in editor", "text-editor-symbolic", lambda: _open_editor(s["root"]))
+    item("Open terminal", "utilities-terminal-symbolic", lambda: _open_terminal(s["root"]))
+    item("Delete site…", "user-trash-symbolic", lambda: win.confirm(
+        f"Delete site “{name}”?", "Removes the vhost. Tick purge in the next step to also drop files + DB.",
+        lambda: win.run_verb(["site", "rm", name], f"Removing {name}…")), destructive=True)
+    pop.set_child(v)
+    return pop
+
+
+def build_site_row(win, s: dict) -> Adw.ActionRow:
+    scheme = "https" if s.get("secure") else "http"
+    row = Adw.ActionRow(title=s["domain"],
+                        subtitle=f"{s.get('php','')} · {s.get('server','nginx')} · {scheme}")
+    row.add_prefix(status_dot(s.get("enabled", True)))
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, valign=Gtk.Align.CENTER)
+    if s.get("secure"):
+        box.append(pill("HTTPS", "bh-pill-blue"))
+    openb = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in browser")
+    openb.connect("clicked", lambda *_: _open(f"{scheme}://{s['domain']}"))
+    box.append(openb)
+    menu = Gtk.MenuButton(icon_name="view-more-symbolic", tooltip_text="More")
+    menu.set_popover(_site_menu(win, s))
+    box.append(menu)
+    row.add_suffix(box)
+    return row
+
+
 # ─────────────────────────────────────────────────────────────────────────────
+def _set_dot(img: Gtk.Image, on: bool) -> None:
+    img.remove_css_class("dot-on")
+    img.remove_css_class("dot-off")
+    img.add_css_class("dot-on" if on else "dot-off")
+
+
 class DashboardPage(Gtk.Box):
+    """Parity with the macOS/Windows dashboard: Start/Stop/Restart-all, status cards
+    (Web/PHP/DB/Cache), CPU sparkline + Memory/Disk/Network, the websites panel, the
+    web-tools toggles, and an activity log."""
+
     def __init__(self, win) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16,
-                         margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.win = win
+        self.cpu = CpuSampler()
+        self.net = NetSampler()
+        self.cpu_hist: deque = deque(maxlen=40)
+        self._loading_tools = False
 
-        self.hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, css_classes=["bh-hero"])
-        self.hero_title = Gtk.Label(label="BHServe", xalign=0, css_classes=["title"])
-        self.hero_sub = Gtk.Label(label="", xalign=0)
-        self.hero.append(self.hero_title)
-        self.hero.append(self.hero_sub)
-        self.append(self.hero)
+        scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
+                       margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
+        scroller.set_child(body)
+        self.append(scroller)
 
-        self.metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
-        self.m_sites = self._metric("Websites", "0")
-        self.m_running = self._metric("Services running", "0")
-        self.m_php = self._metric("PHP versions", "0")
-        self.m_mem = self._metric("Memory used", "—")
-        self.m_disk = self._metric("Disk used", "—")
-        for m in (self.m_sites, self.m_running, self.m_php, self.m_mem, self.m_disk):
-            self.metrics.append(m["card"])
-        self.append(self.metrics)
+        # ── header: title + subtitle + global buttons ──
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        tb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        tb.append(Gtk.Label(label="Dashboard", xalign=0, css_classes=["title-1"]))
+        self.subtitle = Gtk.Label(label="", xalign=0, css_classes=["dim-label"])
+        tb.append(self.subtitle)
+        head.append(tb)
+        self.start_btn = Gtk.Button(label="Start all", icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER)
+        self.start_btn.connect("clicked", lambda *_: self.win.run_verb(["start", "all"], "Starting all services…"))
+        self.stop_btn = Gtk.Button(label="Stop all", icon_name="media-playback-stop-symbolic", valign=Gtk.Align.CENTER)
+        self.stop_btn.connect("clicked", lambda *_: self.win.run_verb(["stop", "all"], "Stopping all services…"))
+        self.restart_btn = Gtk.Button(label="Restart", icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
+        self.restart_btn.connect("clicked", lambda *_: self.win.run_verb(["restart", "all"], "Restarting all services…"))
+        for b in (self.start_btn, self.stop_btn, self.restart_btn):
+            head.append(b)
+        body.append(head)
 
-        self.append(Gtk.Label(label="Services", xalign=0, css_classes=["heading"]))
-        self.svc_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                                    column_spacing=8, row_spacing=8, homogeneous=True)
-        self.append(self.svc_flow)
+        # ── status cards ──
+        row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        self.c_web = self._status_card("Web Server")
+        self.c_php = self._status_card("PHP")
+        self.c_db = self._status_card("Database")
+        self.c_cache = self._status_card("Cache")
+        for c in (self.c_web, self.c_php, self.c_db, self.c_cache):
+            row1.append(c["card"])
+        body.append(row1)
 
-    def _metric(self, cap, val):
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, css_classes=["card", "bh-metric"])
-        v = Gtk.Label(label=val, xalign=0, css_classes=["bh-metric-val"])
-        c = Gtk.Label(label=cap, xalign=0, css_classes=["bh-metric-cap", "dim-label"])
-        card.append(v)
-        card.append(c)
-        return {"card": card, "val": v}
+        # ── metrics: CPU(+spark) / Memory / Storage / Network ──
+        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        self.cpu_val, cpu_card = self._cpu_card()
+        self.mem = self._bar_card("Memory")
+        self.disk = self._bar_card("Storage")
+        self.net_down, self.net_up, net_card = self._net_card()
+        for c in (cpu_card, self.mem["card"], self.disk["card"], net_card):
+            row2.append(c)
+        body.append(row2)
 
+        # ── websites panel ──
+        self.web_header = Gtk.Label(label="Websites", xalign=0, css_classes=["title-4"])
+        body.append(self.web_header)
+        self.site_list = PagedList(lambda s: build_site_row(self.win, s), site_match,
+                                   page_size=self.win.cfg_int("dashboard_page_size", 5),
+                                   empty_text="No sites yet — add one from the Sites tab.",
+                                   on_page_size_changed=lambda n: self.win.set_cfg("dashboard_page_size", n))
+        body.append(self.site_list)
+
+        # ── web tools ──
+        body.append(Gtk.Label(label="Web tools", xalign=0, css_classes=["title-4"]))
+        tools = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        self.t_pma = self._tool_card("phpMyAdmin", "phpmyadmin", ["pma", "install"])
+        self.t_adm = self._tool_card("Adminer", "adminer", ["adminer", "install"])
+        self.t_mail = self._tool_card("Mailpit", "mailpit", ["mailpit", "setup"])
+        for t in (self.t_pma, self.t_adm, self.t_mail):
+            tools.append(t["card"])
+        body.append(tools)
+
+        # ── activity log ──
+        self.log_expander = Gtk.Expander(label="Activity log")
+        self.log_view = Gtk.TextView(editable=False, monospace=True, css_classes=["card"])
+        log_sc = Gtk.ScrolledWindow(min_content_height=150)
+        log_sc.set_child(self.log_view)
+        self.log_expander.set_child(log_sc)
+        body.append(self.log_expander)
+
+    # ── card builders ──
+    def _status_card(self, title):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        top.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=["bh-metric-cap", "dim-label"]))
+        dot = status_dot(False)
+        top.append(dot)
+        card.append(top)
+        val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"], ellipsize=Pango.EllipsizeMode.END)
+        sub = Gtk.Label(label="", xalign=0, css_classes=["dim-label"])
+        card.append(val)
+        card.append(sub)
+        return {"card": card, "val": val, "sub": sub, "dot": dot}
+
+    def _cpu_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.append(Gtk.Label(label="CPU", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
+        val = Gtk.Label(label="0%", xalign=0, css_classes=["bh-metric-val"])
+        card.append(val)
+        self.spark = Gtk.DrawingArea(content_height=34, hexpand=True)
+        self.spark.set_draw_func(self._draw_spark)
+        card.append(self.spark)
+        return val, card
+
+    def _bar_card(self, title):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.append(Gtk.Label(label=title, xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
+        val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"])
+        card.append(val)
+        bar = Gtk.ProgressBar()
+        card.append(bar)
+        return {"card": card, "val": val, "bar": bar}
+
+    def _net_card(self):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.append(Gtk.Label(label="Network", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
+        down = Gtk.Label(label="Down  —", xalign=0)
+        up = Gtk.Label(label="Up  —", xalign=0)
+        card.append(down)
+        card.append(up)
+        return down, up, card
+
+    def _tool_card(self, title, site_name, on_verb):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["card", "bh-metric"])
+        card.append(Gtk.Label(label=title, xalign=0, css_classes=["bh-metric-cap"]))
+        status = Gtk.Label(label="Off", xalign=0, css_classes=["dim-label"])
+        card.append(status)
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+        sw.connect("notify::active", lambda s, _p, n=site_name, v=on_verb: self._tool_toggled(n, v, s.get_active()))
+        bottom.append(sw)
+        bottom.append(Gtk.Label(label="", hexpand=True))
+        openb = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
+        openb.connect("clicked", lambda *_, t=site_name: self._tool_open(t))
+        bottom.append(openb)
+        card.append(bottom)
+        return {"card": card, "switch": sw, "status": status, "open": openb, "url": ""}
+
+    # ── drawing ──
+    def _draw_spark(self, area, cr, w, h):
+        pts = list(self.cpu_hist)
+        if len(pts) < 2:
+            return
+        cr.set_source_rgb(0.051, 0.431, 0.992)  # #0d6efd
+        cr.set_line_width(2)
+        n = len(pts)
+        for i, v in enumerate(pts):
+            x = i * w / (n - 1)
+            y = h - (v / 100.0) * (h - 2) - 1
+            cr.line_to(x, y) if i else cr.move_to(x, y)
+        cr.stroke()
+
+    # ── web tools ──
+    def _tool_toggled(self, name, on_verb, on):
+        if self._loading_tools:
+            return
+        args = on_verb if on else ["site", "rm", name]
+        self.win.run_verb(args, f"{'Enabling' if on else 'Disabling'} {name}…")
+
+    def _tool_open(self, name):
+        t = {"phpmyadmin": self.t_pma, "adminer": self.t_adm, "mailpit": self.t_mail}[name]
+        if t["url"]:
+            _open(t["url"])
+
+    def _set_tool(self, t, sites_all, name):
+        site = next((s for s in sites_all if s["name"].lower() == name), None)
+        active = bool(site and site.get("enabled", True))
+        t["switch"].set_active(active)
+        t["open"].set_sensitive(active)
+        secure = bool(site and site.get("secure"))
+        t["status"].set_label(("Active · https" if secure else "Active") if active else "Off")
+        t["url"] = ((("https://" if secure else "http://") + site["domain"]) if active and site else "")
+
+    # ── refresh ──
     def refresh(self, data: dict) -> None:
-        cfg = data.get("config", {})
         services = data.get("services", [])
-        sites = data.get("sites", [])
-        self.hero_title.set_label(f"BHServe · {os.uname().nodename}")
-        php_installed = [s for s in services if s["role"] == "php" and s["installed"]]
-        running = [s for s in services if s.get("running")]
-        self.hero_sub.set_label(
-            f"{len(sites)} site(s) · default PHP {cfg.get('default_php','?')} · "
-            f"web {cfg.get('default_web','nginx')} · *.{cfg.get('tld','test')}"
-        )
-        self.m_sites["val"].set_label(str(len(sites)))
-        self.m_running["val"].set_label(str(len(running)))
-        self.m_php["val"].set_label(str(len(php_installed)))
-        mem, disk = _mem_disk()
-        self.m_mem["val"].set_label(mem)
-        self.m_disk["val"].set_label(disk)
+        all_sites = data.get("sites", [])
+        run = lambda k: any(s["key"] == k and s.get("running") for s in services)  # noqa: E731
 
-        child = self.svc_flow.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self.svc_flow.remove(child)
-            child = nxt
-        for s in services:
-            if not s["installed"]:
-                continue
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, css_classes=["card", "bh-metric"])
-            box.append(status_dot(s.get("running", False)))
-            lab = Gtk.Label(label=s["key"], xalign=0, hexpand=True)
-            box.append(lab)
-            self.svc_flow.append(box)
+        php_vers = sorted([s["key"][4:] for s in services
+                           if s["role"] == "php" and s["key"].startswith("php@") and s["installed"]], reverse=True)
+        sites = sorted([s for s in all_sites if not is_tool(s["name"])], key=lambda s: s["name"])
 
+        nginx, apache = run("nginx"), run("httpd")
+        web = "nginx + apache" if (nginx and apache) else "nginx" if nginx else "apache" if apache else "nginx"
+        self._fill(self.c_web, web, f"{len(sites)} site{'' if len(sites) == 1 else 's'}", nginx or apache)
+        self._fill(self.c_php, ", ".join(php_vers) if php_vers else "not installed",
+                   f"{len(php_vers)} installed", any(s["role"] == "php" and s.get("running") for s in services))
+        maria, my, pg = run("mariadb"), run("mysql"), run("postgresql@16") or run("postgresql")
+        dbrun = maria or my or pg
+        self._fill(self.c_db, "MariaDB" if maria else "MySQL" if my else "PostgreSQL" if pg else "MySQL / MariaDB",
+                   "running" if dbrun else "stopped", dbrun)
+        redis, memc = run("redis"), run("memcached")
+        self._fill(self.c_cache, "Redis · Memcached",
+                   f"redis {'on' if redis else 'off'}, memcached {'on' if memc else 'off'}", redis or memc)
 
-def _mem_disk():
-    mem = disk = "—"
-    try:
-        info = {}
-        for line in open("/proc/meminfo"):
-            k, _, v = line.partition(":")
-            info[k] = int(v.strip().split()[0])
-        total, avail = info.get("MemTotal", 0), info.get("MemAvailable", 0)
-        if total:
-            mem = f"{round(100 * (total - avail) / total)}%"
-    except Exception:
-        pass
-    try:
-        st = os.statvfs(os.path.expanduser("~"))
-        used = (st.f_blocks - st.f_bfree) / st.f_blocks
-        disk = f"{round(100 * used)}%"
-    except Exception:
-        pass
-    return mem, disk
+        self.subtitle.set_label(f"{sum(1 for s in services if s.get('running'))} services running · {len(sites)} sites")
+
+        cpu = self.cpu.percent()
+        self.cpu_val.set_label(f"{cpu:.0f}%")
+        self.cpu_hist.append(cpu)
+        self.spark.queue_draw()
+        mu, mt, mp = memory()
+        self.mem["val"].set_label(f"{mu:.1f} / {mt:.1f} GB")
+        self.mem["bar"].set_fraction(min(1.0, mp / 100))
+        du, dt, dp = disk()
+        self.disk["val"].set_label(f"{du:.0f} / {dt:.0f} GB")
+        self.disk["bar"].set_fraction(min(1.0, dp / 100))
+        down, up = self.net.rate_kbps()
+        self.net_down.set_label(f"Down  {rate_str(down)}")
+        self.net_up.set_label(f"Up  {rate_str(up)}")
+
+        daemons = {"nginx", "httpd", "mariadb", "postgresql@16", "redis", "memcached", "mailpit"}
+        any_running = any(s.get("running") for s in services)
+        to_start = any(s["key"] in daemons and s["installed"] and s.get("enabled") and not s.get("running")
+                       for s in services)
+        self.start_btn.set_sensitive(to_start)
+        self.stop_btn.set_sensitive(any_running)
+        self.restart_btn.set_sensitive(any_running)
+        for b in (self.start_btn, self.stop_btn):
+            b.remove_css_class("suggested-action")
+        if to_start:
+            self.start_btn.add_css_class("suggested-action")
+        elif any_running:
+            self.stop_btn.add_css_class("suggested-action")
+
+        self.web_header.set_label(f"Websites ({len(sites)})")
+        self.site_list.set_items(sites)
+
+        self._loading_tools = True
+        self._set_tool(self.t_pma, all_sites, "phpmyadmin")
+        self._set_tool(self.t_adm, all_sites, "adminer")
+        self._set_tool(self.t_mail, all_sites, "mailpit")
+        self._loading_tools = False
+
+        log = "\n".join(getattr(self.win, "applog", [])[-200:])
+        if self.log_view.get_buffer().get_char_count() != len(log):
+            self.log_view.get_buffer().set_text(log)
+
+    def _fill(self, card, val, sub, on):
+        card["val"].set_label(val)
+        card["sub"].set_label(sub)
+        _set_dot(card["dot"], on)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -252,74 +491,14 @@ class SitesPage(Gtk.Box):
         add.connect("clicked", lambda *_: self._add_dialog())
         header.append(add)
         self.append(header)
-        self.list = PagedList(self._row, self._match,
+        self.list = PagedList(lambda s: build_site_row(self.win, s), site_match,
                               page_size=self.win.cfg_int("sites_page_size", 15),
                               empty_text="No sites yet — click “Add site”.",
                               on_page_size_changed=lambda n: self.win.set_cfg("sites_page_size", n))
         self.append(self.list)
 
-    def _match(self, s, q):
-        return q.lower() in s["name"].lower() or q.lower() in s.get("php", "").lower()
-
     def refresh(self, data: dict) -> None:
         self.list.set_items(data.get("sites", []))
-
-    def _row(self, s: dict) -> Adw.ActionRow:
-        scheme = "https" if s.get("secure") else "http"
-        row = Adw.ActionRow(title=s["domain"],
-                            subtitle=f"{s.get('php','')} · {s.get('server','nginx')} · {scheme}")
-        row.add_prefix(status_dot(s.get("enabled", True)))
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, valign=Gtk.Align.CENTER)
-        if s.get("secure"):
-            box.append(pill("HTTPS", "bh-pill-blue"))
-        openb = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in browser")
-        openb.connect("clicked", lambda *_: _open(f"{scheme}://{s['domain']}"))
-        box.append(openb)
-        menu = Gtk.MenuButton(icon_name="view-more-symbolic", tooltip_text="More")
-        menu.set_popover(self._row_menu(s))
-        box.append(menu)
-        row.add_suffix(box)
-        return row
-
-    def _row_menu(self, s: dict) -> Gtk.Popover:
-        pop = Gtk.Popover()
-        v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6,
-                    margin_start=6, margin_end=6)
-
-        def item(label, icon, cb, destructive=False):
-            b = Gtk.Button(css_classes=["flat"] + (["destructive-action"] if destructive else []))
-            inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            inner.append(Gtk.Image.new_from_icon_name(icon))
-            inner.append(Gtk.Label(label=label, xalign=0, hexpand=True))
-            b.set_child(inner)
-            b.connect("clicked", lambda *_: (pop.popdown(), cb()))
-            v.append(b)
-
-        name = s["name"]
-        item("Change PHP version…", "application-x-php-symbolic", lambda: self._change_php(s))
-        item("Switch web server…", "network-server-symbolic", lambda: self._change_server(s))
-        if not s.get("secure"):
-            item("Enable HTTPS", "security-high-symbolic",
-                 lambda: self.win.run_verb(["secure", s["domain"]], f"Securing {s['domain']}…"))
-        item("Open folder", "folder-symbolic", lambda: _open(s["root"]))
-        item("Open in editor", "text-editor-symbolic", lambda: _open_editor(s["root"]))
-        item("Open terminal", "utilities-terminal-symbolic", lambda: _open_terminal(s["root"]))
-        item("Delete site…", "user-trash-symbolic", lambda: self.win.confirm(
-            f"Delete site “{name}”?", "Removes the vhost. Tick purge in the next step to also drop files + DB.",
-            lambda: self.win.run_verb(["site", "rm", name], f"Removing {name}…")), destructive=True)
-        pop.set_child(v)
-        return pop
-
-    def _change_php(self, s):
-        installed = [x["key"] for x in self.win.last_data.get("services", [])
-                     if x["role"] == "php" and x["installed"]]
-        installed = [k.replace("php@", "") for k in installed]
-        self.win.choose("Change PHP version", f"Pick a PHP version for {s['name']}", installed,
-                        lambda v: self.win.run_verb(["site", "php", s["name"], v], f"Switching {s['name']} → PHP {v}…"))
-
-    def _change_server(self, s):
-        self.win.choose("Switch web server", f"Serve {s['name']} via:", ["nginx", "apache"],
-                        lambda v: self.win.run_verb(["site", "server", s["name"], v], f"Switching {s['name']} → {v}…"))
 
     def _add_dialog(self):
         self.win.add_site_dialog()
@@ -546,10 +725,12 @@ class SettingsPage(Gtk.Box):
 
         g2 = Adw.PreferencesGroup(title="List sizes", description="Rows per page in each list")
         self.sizes = {}
-        for key, label in (("sites_page_size", "Sites"), ("databases_page_size", "Databases"),
-                           ("apps_page_size", "Node / Python apps")):
+        for key, label, dflt in (("dashboard_page_size", "Dashboard websites", 5),
+                                  ("sites_page_size", "Sites", 15),
+                                  ("databases_page_size", "Databases", 15),
+                                  ("apps_page_size", "Node / Python apps", 15)):
             r = Adw.ComboRow(title=label, model=Gtk.StringList.new(PAGE_SIZES))
-            cur = self.win.cfg_int(key, 15)
+            cur = self.win.cfg_int(key, dflt)
             try:
                 r.set_selected(PAGE_SIZES.index("All" if cur >= 10 ** 8 else str(cur)))
             except ValueError:

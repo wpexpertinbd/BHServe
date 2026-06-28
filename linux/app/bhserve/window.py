@@ -39,6 +39,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.app_version = __version__
         self.last_data: dict = {}
         self.pages: dict = {}
+        self.applog: list = []   # recent verb activity, shown in the Dashboard activity log
 
         self.toast_overlay = Adw.ToastOverlay()
         split = Adw.NavigationSplitView()
@@ -143,18 +144,26 @@ class MainWindow(Adw.ApplicationWindow):
     def run_verb(self, args, msg, refresh=True) -> None:
         if msg:
             self.toast(msg)
+            self._applog(msg)
         self.spinner.start()
 
         def done(rc, out):
             self.spinner.stop()
             if rc != 0:
-                self.toast(_first_line(out) or f"{' '.join(args)} failed")
+                err = _first_line(out) or f"{' '.join(args)} failed"
+                self.toast(err)
+                self._applog(f"✗ {err}")
             elif msg:
                 self.toast(msg.replace("…", " — done"))
+                self._applog(msg.replace("…", " — done"))
             if refresh:
                 self.refresh()
 
         self.engine.run_async(list(args), done)
+
+    def _applog(self, line: str) -> None:
+        self.applog.append(line)
+        del self.applog[:-200]
 
     def toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text, timeout=3))
