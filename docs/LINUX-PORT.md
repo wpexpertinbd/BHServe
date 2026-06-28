@@ -1,8 +1,18 @@
 # BHServe for Linux / Ubuntu — Port Plan & Architecture Spec
 
 > Written **from the macOS codebase** as the build spec for the Linux version.
-> Get the code with `git clone https://github.com/wpexpertinbd/BHServe`; the Linux
-> app lives in `linux/` in this repo. Build/test on an actual Ubuntu box (or VM).
+> **Current as of macOS v1.7.4.** Get the code with `git clone https://github.com/wpexpertinbd/BHServe`;
+> the Linux app lives in **`linux/`** — start with [`linux/README.md`](../linux/README.md) (kickoff +
+> WSL2 dev), then [`linux/engine/DELTAS.md`](../linux/engine/DELTAS.md) (the exact macOS→Linux engine
+> changes). Build/test on an actual Ubuntu box, a VM, or **WSL2** (Windows-Claude's path in).
+>
+> **Feature scope = full parity with macOS v1.7.4**, which is more than this doc's first draft (v1.5.5)
+> covered. Since then the Mac added: **Node site management** (`nodesite` verb — supervised frontend +
+> optional backend, reverse-proxy), **Python web apps** (`pysite` verb + a dedicated Python sidebar
+> tab), per-site **Open-in-editor / Open-terminal**, a **branded default landing page**, the **add-site
+> requirement guard**, **search + Show-menu + pagination** on the Sites / Databases / Node / Python
+> lists, the **update-check throttle** (GitHub 60/hr/IP), and the **MariaDB 127.0.0.1 security bind**.
+> The authoritative per-release changelog is the project memory `MEMORY.md` index line.
 
 **The good news, up front:** unlike the Windows port (which was a near-total rewrite),
 **Linux can reuse most of the existing `engine/bhserve` bash script.** bash, php-fpm,
@@ -116,17 +126,32 @@ Linux are flagged:
 - [ ] `dns` — **delta:** dnsmasq vs systemd-resolved (see §5)
 - [ ] `db {list|create|drop|passwd}` — **delta:** MariaDB socket path / auth-plugin differs on Ubuntu
 - [ ] `node {…}` — fnm-linux (near-identical)
+- [ ] **`nodesite {add|list|rm|start|stop|restart|status|npm}`** — managed Node apps
+      (frontend + optional backend, supervised via pid files + reverse-proxy vhost).
+      **Ports directly** — pure bash + `bash -c` + pid files + `kill_tree` (all native on Linux). ✅
+- [ ] **`pysite {add|list|rm|start|stop|restart|status|pip}`** — managed Python apps
+      (Flask/Django/FastAPI/Gunicorn/Uvicorn): one supervised process + venv + reverse-proxy.
+      **Ports directly**; **delta:** the `python` service installs `python@3.13` via brew on Mac →
+      on Linux use Linuxbrew `python@3.13` or apt `python3` + `python3-venv` (venv bin is `bin/`,
+      same as Mac — easier than Windows' `Scripts/`). ✅
 - [ ] `php {ioncube|status|ini path|reload}` — **ports directly**; ionCube even
       better (real Linux loaders for all versions). The Edit-php.ini feature works as-is.
 - [ ] `pma|adminer|mailpit` — unchanged
 - [ ] `config|logs|start|stop|restart|enable|disable|status|api` — unchanged
-      (incl. the **502 fix**: start every PHP version an enabled site uses)
+      (incl. the **502 fix**: start every PHP version an enabled site uses; the api JSON already
+      carries the **node + python** site fields the GUI needs — keep its shape)
 - [ ] `helper {install|uninstall}` — **delta:** writes `/etc/sudoers.d/bhserve`
       (already does on Mac!) — keep, optionally add a pkexec PolicyKit policy too.
 
-GUI screens mirror the Mac app 1:1 (Dashboard / Services / Sites / Databases / Node /
-Logs / Settings). Tray/background: GTK `StatusNotifierItem` (AppIndicator) for the
-menu-bar analog; close → tray. Brand blue **#0d6efd**.
+**GUI screens mirror the Mac app 1:1 — 8 panes:** Dashboard / Services / Sites / Databases /
+**Node** / **Python** / Logs / Settings. Carry over the v1.6–v1.7 UI: **search + "Show 10/15/20/50/
+100/All" menu + prev/next + jump-to-page** on the Sites, Databases, Node-apps and Python-apps lists
+(one shared paging helper, like the Mac's `SitePaging`/`PerPagePicker`/`PageBar`); the per-site `…`
+menu (Change PHP/root/server, HTTPS, **Open in editor**, **Open terminal**, Delete); the add-site
+sheet's **Node app** + **Python app** types with a requirement guard; **Settings ▸ List sizes** (four
+per-page defaults: Dashboard / Sites / Databases / Apps); the **auto-update toggle + throttle**.
+Tray/background: GTK `StatusNotifierItem` (AppIndicator) for the menu-bar analog; close → tray.
+Brand blue **#0d6efd**. Full per-screen detail: [`MAC-FEATURE-REFERENCE.md`](MAC-FEATURE-REFERENCE.md).
 
 ---
 
@@ -204,16 +229,21 @@ Then cut a GitHub release with the `.deb` + `.AppImage` so the updater finds it.
    wildcard-`.test` resolved drop-in, multi-version FPM (502 fix already in the script).
 3. **GTK shell:** Dashboard + Services + Sites + Settings driving the engine; tray;
    systemd-user autostart.
-4. **DB + Node + tools:** MariaDB (Ubuntu socket/auth deltas), fnm, pma/adminer/mailpit.
-5. **php.ini editor + ionCube (all versions) + .deb/.AppImage + auto-updater + polish.**
+4. **DB + Node + Python + tools:** MariaDB (Ubuntu socket/auth deltas), fnm + **`nodesite`** apps,
+   **`pysite`** apps (python + venv), pma/adminer/mailpit. The search/Show/pagination UI lands with
+   each list.
+5. **php.ini editor + ionCube (all versions) + .deb/.AppImage + auto-updater (with the 30-min
+   throttle) + polish.** Ship on the `linux-v1.0.x` tag channel.
 
 ---
 
 ## 10. Easy wins vs care-needed
 
 **Easy (native on Linux, port directly):** the entire bash engine, php-fpm + unix
-sockets, the FPM/502 model, mkcert, fnm, ionCube (all versions — better than Mac),
-nginx/apache vhosts, `~/.bhserve` layout.
+sockets, the FPM/502 model, **`nodesite` + `pysite` process supervision** (bash + pid files +
+`kill_tree` + reverse-proxy vhosts — all native), mkcert, fnm, ionCube (all versions — better than
+Mac), nginx/apache vhosts, the branded default page + WP-salts logic, `~/.bhserve` layout, the `api`
+JSON shape.
 
 **Needs care:**
 - **systemd-resolved owns :53** → don't fight it; use hosts-file or a resolved drop-in (§5).
