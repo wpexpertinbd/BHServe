@@ -71,7 +71,6 @@ php@7.4|php7.4-fpm|usr/sbin/php-fpm7.4|php
 nginx|nginx|usr/sbin/nginx|web
 httpd|apache2|usr/sbin/apache2|web
 mariadb|mariadb-server|usr/sbin/mariadbd|db
-mysql|mysql-server|usr/sbin/mysqld|db
 postgresql@16|postgresql-16|usr/lib/postgresql/16/bin/postgres|db
 redis|redis-server|usr/bin/redis-server|cache
 memcached|memcached|usr/bin/memcached|cache
@@ -246,6 +245,22 @@ _systemd_unit(){
 brew_svc(){ # action key
   local action="$1" key="$2" unit; unit="$(_systemd_unit "$key")"
   $SUDO systemctl "$action" "$unit" >/dev/null 2>&1 && ok "$key $action" || no "$key $action failed"
+}
+
+# cmd_api builds the db/cache/mail "running" flag from `brew services list` output (empty on
+# Linux → everything looked stopped). Shim `brew services list` to emit one "<formula> <state>"
+# line per service from systemd, so the api's existing awk detection works unchanged.
+brew(){
+  [ "${1:-}" = services ] && [ "${2:-}" = list ] || return 0
+  local key formula _p role unit
+  while IFS='|' read -r key formula _p role; do
+    case "$role" in
+      db|cache|mail)
+        svc_installed "$key" || continue   # don't report state for a not-really-installed engine
+        unit="$(_systemd_unit "$key")"
+        if systemctl is-active --quiet "$unit" 2>/dev/null; then echo "$formula started"; else echo "$formula stopped"; fi ;;
+    esac
+  done < <(services)
 }
 # Called in places with either the service key or the brew formula; match on the unit.
 brew_svc_running(){

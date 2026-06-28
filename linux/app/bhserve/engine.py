@@ -59,13 +59,30 @@ class EngineClient:
                 return os.path.abspath(c)
         return "bhserve"  # last resort: rely on PATH
 
-    # ── command construction (pkexec-elevate privileged verbs) ───────────────
+    # ── command construction (elevate privileged verbs) ──────────────────────
+    _sudo_nopw: bool | None = None
+
+    def _can_sudo_nopw(self) -> bool:
+        """True if `sudo` runs without a password (passwordless sudoers / WSL). Cached."""
+        if EngineClient._sudo_nopw is None:
+            try:
+                EngineClient._sudo_nopw = (shutil.which("sudo") is not None and
+                    subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5).returncode == 0)
+            except Exception:
+                EngineClient._sudo_nopw = False
+        return EngineClient._sudo_nopw
+
     def _build(self, args: tuple) -> list[str]:
         base = ["bash", self.path, *args]
-        if _needs_root(args) and os.geteuid() != 0 and shutil.which("pkexec"):
+        if not (_needs_root(args) and os.geteuid() != 0):
+            return base
+        # 1) passwordless sudo (WSL, or our nginx helper / a configured sudoers) → silent, and
+        #    works where there's no polkit auth agent (e.g. WSL2 has no agent to show a prompt).
+        if self._can_sudo_nopw():
+            return ["sudo", "-E", "bash", self.path, *args]
+        # 2) desktop: pkexec shows a polkit password dialog (GNOME/KDE).
+        if shutil.which("pkexec"):
             bh_home = os.environ.get("BHSERVE_HOME", os.path.expanduser("~/.bhserve"))
-            # pkexec runs `env …=… bash <engine> <verb>` as root with a polkit prompt; it sets
-            # PKEXEC_UID so the engine targets THIS user's ~/.bhserve and chowns back on exit.
             return ["pkexec", "env", f"BHSERVE_HOME={bh_home}", "BHSERVE_GUI=1",
                     "bash", self.path, *args]
         return base
