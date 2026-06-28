@@ -86,6 +86,11 @@ EOF
 
 # ── Binary locators (the few brew-keg paths that BREW_PREFIX="" can't fix) ────
 NGINX_BIN(){ echo "/usr/sbin/nginx"; }
+# fnm installs to /usr/local/bin (not on the merged-/usr path) — the engine's $BREW_PREFIX/bin
+# would resolve to /bin/fnm and report "fnm not installed".
+FNM_BIN(){ local f; for f in /usr/local/bin/fnm /usr/bin/fnm; do [ -x "$f" ] && { echo "$f"; return; }; done; echo /usr/local/bin/fnm; }
+# Apache on Debian/Ubuntu is the apache2 binary; it needs its APACHE_* runtime vars set.
+APACHE_BIN(){ echo "/usr/sbin/apache2"; }
 
 # php-fpm is versioned on Debian: php-fpm8.4, php-fpm8.3, …  The bare "php" key maps
 # to the configured default version.
@@ -97,7 +102,9 @@ php_fpm_bin(){
 
 # ── apt helpers ──────────────────────────────────────────────────────────────
 # Privileged runner (SUDO is set above: "" when already root via pkexec/sudo, else "sudo").
-_apt(){ $SUDO DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 "$@"; }
+# Use `env` for the var: a bare "VAR=val cmd" after an EMPTY $SUDO makes bash try to RUN
+# "VAR=val" as a command (the assignment prefix isn't re-recognised post-expansion).
+_apt(){ $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 "$@"; }
 _APT_UPDATED=false
 _apt_update_once(){ $_APT_UPDATED && return 0; _apt update >/dev/null 2>&1 || _apt update || true; _APT_UPDATED=true; }
 
@@ -484,6 +491,17 @@ _db_open_root(){
     || $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
     || $SUDO "$cli" -e "SET PASSWORD FOR 'root'@'localhost' = ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
   db_secure_bind
+}
+
+# The macOS db_ready_rootblank waits on /tmp/mysql.sock (Homebrew). Ubuntu's MariaDB socket is
+# /run/mysqld/mysqld.sock, so that check always failed → WordPress/PHP sites silently skipped DB
+# provisioning. Verify readiness via mysql_run (works whatever the socket path is).
+db_ready_rootblank(){
+  svc_installed mariadb || svc_installed mysql || return 1
+  brew_svc_running mariadb || brew_svc start mariadb >/dev/null 2>&1 || brew_svc start mysql >/dev/null 2>&1 || true
+  local i
+  for i in $(seq 1 15); do mysql_run -e "SELECT 1" >/dev/null 2>&1 && return 0; sleep 1; done
+  return 1
 }
 
 # Ubuntu MariaDB already binds 127.0.0.1 by default; write an idempotent drop-in in the

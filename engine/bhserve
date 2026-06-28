@@ -1376,9 +1376,18 @@ cmd_secure() {
   ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) \
     && ok "cert: $BH_HOME/certs/$domain.pem" || die "mkcert failed"
   # Re-render the vhost if a site for this domain exists, so the ssl block turns on.
+  # Node/Python sites are reverse-proxy vhosts — re-render them with their OWN renderer
+  # (re-rendering them as a php vhost produces an empty-root config that breaks nginx).
   local name="${domain%.*}"; name="${name%%.*}"
   local conf="$BH_HOME/nginx/sites/$name.conf"
-  if [ -f "$conf" ]; then
+  if [ -f "$BH_HOME/py-sites/$name.json" ]; then
+    render_nginx_node_vhost "$name" "$domain" "$(njson "$BH_HOME/py-sites/$name.json" port)" "" "" python
+    ok "re-rendered python site with HTTPS"; maybe_reload_nginx
+  elif [ -f "$BH_HOME/node-sites/$name.json" ]; then
+    local j="$BH_HOME/node-sites/$name.json"
+    render_nginx_node_vhost "$name" "$domain" "$(njson "$j" fe_port)" "$(njson "$j" be_port)" "$(njson "$j" api_paths)"
+    ok "re-rendered node site with HTTPS"; maybe_reload_nginx
+  elif [ -f "$conf" ]; then
     local root php server
     root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
