@@ -376,8 +376,10 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 def _first_line(text: str) -> str:
-    for ln in (text or "").splitlines():
-        ln = ln.strip().lstrip("✗! ").strip()
-        if ln:
-            return ln[:120]
-    return ""
+    lines = [ln.strip().lstrip("✗!✓ ").strip() for ln in (text or "").splitlines() if ln.strip()]
+    # Prefer the actual error (apt 'E:'/'Err:' or a '… failed' line) over a header line.
+    for ln in lines:
+        low = ln.lower()
+        if ln.startswith(("E:", "Err")) or "failed" in low or "could not" in low or "unable to" in low:
+            return ln[:180]
+    return (lines[0] if lines else "")[:180]

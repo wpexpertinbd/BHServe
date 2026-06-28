@@ -104,7 +104,9 @@ php_fpm_bin(){
 # Privileged runner (SUDO is set above: "" when already root via pkexec/sudo, else "sudo").
 # Use `env` for the var: a bare "VAR=val cmd" after an EMPTY $SUDO makes bash try to RUN
 # "VAR=val" as a command (the assignment prefix isn't re-recognised post-expansion).
-_apt(){ $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 "$@"; }
+# DPkg::Lock::Timeout=300 → wait up to 5 min for the dpkg lock (system apt-daily/unattended-
+# upgrades or a previous BHServe install) instead of failing instantly with "Could not get lock".
+_apt(){ $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=300 "$@"; }
 _APT_UPDATED=false
 _apt_update_once(){ $_APT_UPDATED && return 0; _apt update >/dev/null 2>&1 || _apt update || true; _APT_UPDATED=true; }
 
@@ -113,19 +115,42 @@ _codename(){ ( . /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-stable}"
 
 # Ondřej Surý's repo provides php7.4–8.4 (+ -fpm) — the PPA on Ubuntu, deb.sury.org on Debian.
 _ensure_php_repo(){
-  ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qiE 'ondrej|sury' && return 0
-  hdr "Adding the Ondřej PHP repository (php7.4–8.4)…"
-  if _is_ubuntu; then
-    _apt install -y software-properties-common ca-certificates >/dev/null 2>&1 || true
-    $SUDO add-apt-repository -y ppa:ondrej/php >/dev/null 2>&1 || $SUDO add-apt-repository -y ppa:ondrej/php
-  else
-    _apt install -y ca-certificates curl >/dev/null 2>&1 || true
-    $SUDO install -d -m 0755 /usr/share/keyrings
-    curl -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
-    echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(_codename) main" \
-      | $SUDO tee /etc/apt/sources.list.d/sury-php.list >/dev/null
+  if ! ls /etc/apt/sources.list.d/ 2>/dev/null | grep -qiE 'ondrej|sury'; then
+    hdr "Adding the Ondřej PHP repository (php7.4–8.4)…"
+    if _is_ubuntu; then
+      _apt install -y software-properties-common ca-certificates >/dev/null 2>&1 || true
+      $SUDO add-apt-repository -y ppa:ondrej/php >/dev/null 2>&1 || $SUDO add-apt-repository -y ppa:ondrej/php
+    else
+      _apt install -y ca-certificates curl >/dev/null 2>&1 || true
+      $SUDO install -d -m 0755 /usr/share/keyrings
+      curl -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
+      echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(_codename) main" \
+        | $SUDO tee /etc/apt/sources.list.d/sury-php.list >/dev/null
+    fi
   fi
+  _php_repo_codename_fallback   # run even if the repo was added before (fixes a broken codename)
   _APT_UPDATED=false; _apt_update_once
+}
+
+# Ondřej/Sury may not build for a brand-new Ubuntu yet (e.g. 26.04 'resolute' → 404 on the Release
+# file, which breaks ALL apt installs). If so, repoint the repo at the newest LTS codename it does
+# serve (noble = 24.04 LTS) — those PHP builds run fine on newer Ubuntu.
+_php_repo_codename_fallback(){
+  _is_ubuntu || return 0
+  local fb=noble out f
+  [ "$(_codename)" = "$fb" ] && return 0
+  out="$($SUDO apt-get update 2>&1 || true)"
+  echo "$out" | grep -qiE "ondrej.*(404|does not have a Release|no Release file)" || return 0
+  warn "Ondřej PHP has no build for '$(_codename)' yet — using its '$fb' (24.04 LTS) build instead"
+  shopt -s nullglob
+  for f in /etc/apt/sources.list.d/*ondrej*php*.sources; do
+    $SUDO sed -i -E "s/^([[:space:]]*Suites:).*/\1 $fb/I" "$f" 2>/dev/null || true
+  done
+  for f in /etc/apt/sources.list.d/*ondrej*php*.list /etc/apt/sources.list.d/*sury*.list; do
+    $SUDO sed -i -E "s#(/ubuntu|/php/)[[:space:]]+[a-z]+[[:space:]]+main#\1 $fb main#" "$f" 2>/dev/null || true
+  done
+  shopt -u nullglob
+  $SUDO apt-get update >/dev/null 2>&1 || true
 }
 
 # Common PHP extension set per version (mirrors the Mac/Windows default kit).
@@ -147,7 +172,7 @@ cmd_install() {
     while IFS='|' read -r key _ _ _; do [ -n "$key" ] && targets+=("$key"); done < <(services)
   else targets=("$@"); fi
   _apt_update_once
-  local key pkg v
+  local key pkg v failed=0
   for key in "${targets[@]}"; do
     svc_exists "$key" || { warn "unknown service: $key (skipped)"; continue; }
     if svc_installed "$key"; then ok "$key already installed"; continue; fi
@@ -158,13 +183,13 @@ cmd_install() {
         hdr "Installing $key  (apt)"
         # shellcheck disable=SC2046
         if _apt install -y $(_php_pkgs "$v"); then _disable_system_unit "php$v-fpm"; ok "$key installed"
-        else no "install $key failed"; fi ;;
+        else no "install $key failed"; failed=1; fi ;;
       nginx)
         hdr "Installing nginx  (apt)"
-        if _apt install -y nginx; then _disable_system_unit nginx; ok "nginx installed"; else no "install nginx failed"; fi ;;
+        if _apt install -y nginx; then _disable_system_unit nginx; ok "nginx installed"; else no "install nginx failed"; failed=1; fi ;;
       httpd)
         hdr "Installing apache2  (apt)"
-        if _apt install -y apache2 libapache2-mod-fcgid; then _disable_system_unit apache2; ok "apache2 installed"; else no "install apache2 failed"; fi ;;
+        if _apt install -y apache2 libapache2-mod-fcgid; then _disable_system_unit apache2; ok "apache2 installed"; else no "install apache2 failed"; failed=1; fi ;;
       mariadb|mysql)
         hdr "Installing $pkg  (apt)"
         if _apt install -y "$pkg"; then
@@ -172,7 +197,7 @@ cmd_install() {
           _db_open_root "$key"
           $SUDO systemctl disable "$key" >/dev/null 2>&1 || true   # no autostart; BHServe starts it on demand
           ok "$key installed"
-        else no "install $key failed"; fi ;;
+        else no "install $key failed"; failed=1; fi ;;
       fnm)
         hdr "Installing fnm (Node version manager)"
         _apt install -y unzip curl >/dev/null 2>&1 || true
@@ -180,22 +205,25 @@ cmd_install() {
            && unzip -o /tmp/bh-fnm.zip -d /tmp/bh-fnm >/dev/null 2>&1 \
            && $SUDO install -m 0755 /tmp/bh-fnm/fnm /usr/local/bin/fnm; then
           rm -rf /tmp/bh-fnm.zip /tmp/bh-fnm; ok "fnm installed"
-        else no "install fnm failed"; fi ;;
+        else no "install fnm failed"; failed=1; fi ;;
       mailpit)
         hdr "Installing Mailpit"
         if curl -fsSL https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh | $SUDO bash >/dev/null 2>&1 \
-           && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; else no "install mailpit failed (download blocked?)"; fi ;;
+           && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; else no "install mailpit failed (download blocked?)"; failed=1; fi ;;
       postgresql@*)
         hdr "Installing $pkg  (apt)"
-        if _apt install -y "$pkg"; then _disable_system_unit postgresql; ok "$key installed"; else no "install $key failed"; fi ;;
+        if _apt install -y "$pkg"; then _disable_system_unit postgresql; ok "$key installed"; else no "install $key failed"; failed=1; fi ;;
       mkcert)
         hdr "Installing mkcert + NSS tools  (apt)"
-        if _apt install -y mkcert libnss3-tools; then ok "mkcert installed"; else no "install mkcert failed"; fi ;;
+        if _apt install -y mkcert libnss3-tools; then ok "mkcert installed"; else no "install mkcert failed"; failed=1; fi ;;
       *)
         hdr "Installing $key  ($pkg)"
-        if _apt install -y "$pkg"; then ok "$key installed"; else no "install $key failed"; fi ;;
+        if _apt install -y "$pkg"; then ok "$key installed"; else no "install $key failed"; failed=1; fi ;;
     esac
+    # Truth-check: even if apt returned 0, confirm the binary is actually present.
+    case "$key" in fnm|mailpit) ;; *) svc_installed "$key" || { no "$key did not install (binary missing)"; failed=1; } ;; esac
   done
+  return $failed
 }
 
 cmd_update() {

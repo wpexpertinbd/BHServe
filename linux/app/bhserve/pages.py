@@ -568,10 +568,15 @@ class _AppsPage(Gtk.Box):
         apps = []
         for line in out.splitlines():
             line = line.strip()
+            # skip blanks + the engine's "no X sites — bhserve … <name> …" help line (the <…>
+            # placeholders also break GTK markup), usage lines, and *.test domains.
+            low = line.lower()
+            if (not line or "<" in line or "bhserve" in low or low.startswith("no ")
+                    or "—" in line or "usage" in low or ".test" in line or len(line) <= 1):
+                continue
             m = re.search(r"([a-z0-9][a-z0-9._-]*)", line, re.I)
-            if m and ".test" not in line and "usage" not in line.lower() and len(line) > 1:
-                if m.group(1) not in ("python", "node", "site", "app"):
-                    apps.append({"name": m.group(1), "line": line})
+            if m and m.group(1) not in ("python", "node", "site", "app"):
+                apps.append({"name": m.group(1), "line": GLib.markup_escape_text(line)})
         return apps
 
     def _row(self, a: dict) -> Adw.ActionRow:
