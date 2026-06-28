@@ -12,8 +12,15 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from urllib.parse import urlparse
 
 from . import __version__
+
+
+def _is_github_host(url: str) -> bool:
+    """Only ever download/install assets served from GitHub's own hosts."""
+    host = (urlparse(url).hostname or "").lower()
+    return host == "github.com" or host.endswith(".githubusercontent.com")
 
 REPO = "wpexpertinbd/BHServe"
 TAG_PREFIX = "linux-v"
@@ -66,7 +73,8 @@ def latest_release() -> dict | None:
             continue
         ver = tag[len(TAG_PREFIX):]
         deb = next((a["browser_download_url"] for a in rel.get("assets", [])
-                    if a.get("name", "").endswith(".deb")), None)
+                    if a.get("name", "").endswith(".deb")
+                    and _is_github_host(a.get("browser_download_url", ""))), None)
         cand = {"version": ver, "deb_url": deb, "notes": rel.get("body", "")}
         if best is None or is_newer(ver, best["version"]):
             best = cand
@@ -87,6 +95,8 @@ def check(force: bool = False) -> dict | None:
 
 def download_and_install(deb_url: str, on_log=lambda s: None) -> tuple[bool, str]:
     """Download the .deb to a temp file and install it with pkexec apt (graphical sudo)."""
+    if not _is_github_host(deb_url):
+        return False, "Refusing to install: update is not hosted on GitHub."
     try:
         on_log("Downloading update…")
         ctx = ssl.create_default_context()

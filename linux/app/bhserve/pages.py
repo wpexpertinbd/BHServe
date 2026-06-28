@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Callable
@@ -65,7 +66,7 @@ def _open_terminal(folder: str) -> None:
         ("gnome-terminal", ["--working-directory", folder]),
         ("konsole", ["--workdir", folder]),
         ("xfce4-terminal", ["--working-directory", folder]),
-        ("xterm", ["-e", f"cd '{folder}' && bash"]),
+        ("xterm", ["-e", "bash", "-c", f"cd {shlex.quote(folder)} && exec bash"]),
     ):
         if shutil.which(term):
             subprocess.Popen([term, *args])

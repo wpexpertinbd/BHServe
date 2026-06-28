@@ -25,6 +25,37 @@ BREW_PREFIX=""
 BREW="linux"
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
 
+# ── Elevation + invoking-user awareness ──────────────────────────────────────
+# Privileged verbs are run by the GUI via `pkexec env BHSERVE_HOME=… bash <engine> <verb>`
+# (a single polkit prompt per action) or from a terminal via `sudo bhserve …`. Either way
+# we then run as root but must act ON BEHALF OF the desktop user: target THEIR ~/.bhserve,
+# set workers/sockets to THEIR uid, and chown anything we create back to them on exit (so
+# the user can still edit their own site files). No standing passwordless sudoers is created.
+_BH_VERB="${1:-}"; _BH_SUB="${2:-}"
+if [ "$(id -u)" = 0 ]; then
+  _ru="${PKEXEC_UID:-${SUDO_UID:-}}"
+  if [ -n "${_ru:-}" ] && [ "$_ru" != 0 ]; then
+    USER_NAME="$(getent passwd "$_ru" | cut -d: -f1)"
+    GROUP_NAME="$(id -gn "$USER_NAME" 2>/dev/null || echo "$USER_NAME")"
+    export HOME="$(getent passwd "$_ru" | cut -d: -f6)"
+    BH_HOME="${BHSERVE_HOME:-$HOME/.bhserve}"
+  fi
+  SUDO=""   # already root — no nested elevation
+else
+  SUDO="${BHSERVE_SUDO:-sudo}"
+fi
+# Hand ownership of anything we created as root back to the invoking user.
+_bh_fix_ownership(){
+  [ "$(id -u)" = 0 ] && [ -n "${USER_NAME:-}" ] && [ "$USER_NAME" != root ] || return 0
+  [ -d "$BH_HOME" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$BH_HOME" 2>/dev/null || true
+  case "$_BH_VERB:$_BH_SUB" in
+    site:add|pysite:add|nodesite:add)
+      local sr; sr="$(jget sites_root "$HOME/BHServe/www" 2>/dev/null)"
+      case "$sr" in "$HOME"/*) [ -d "$sr" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$sr" 2>/dev/null || true ;; esac ;;
+  esac
+}
+trap _bh_fix_ownership EXIT
+
 # ── Service registry ─────────────────────────────────────────────────────────
 # key | apt package | version-probe binary (path WITHOUT leading slash, so
 #       "$BREW_PREFIX/$probe" == "/usr/…") | role
@@ -64,9 +95,7 @@ php_fpm_bin(){
 }
 
 # ── apt helpers ──────────────────────────────────────────────────────────────
-# Privileged runner. In production the GUI elevates the whole verb via pkexec; from a
-# terminal this prompts once for sudo. SUDO is overridable for headless/dev use.
-SUDO="${BHSERVE_SUDO:-sudo}"
+# Privileged runner (SUDO is set above: "" when already root via pkexec/sudo, else "sudo").
 _apt(){ $SUDO DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 "$@"; }
 _APT_UPDATED=false
 _apt_update_once(){ $_APT_UPDATED && return 0; _apt update >/dev/null 2>&1 || _apt update || true; _APT_UPDATED=true; }
@@ -285,6 +314,12 @@ hosts_sync_all(){
   local tmp; tmp="$(mktemp)"
   # everything OUTSIDE the managed block, then append the fresh block
   awk -v b="$HOSTS_BEGIN" -v e="$HOSTS_END" '$0==b{s=1} !s{print} $0==e{s=0}' /etc/hosts > "$tmp" 2>/dev/null || true
+  # SAFETY: never clobber /etc/hosts with just our block — the remainder must still carry a
+  # loopback entry (it always does on a real system). If not, the read failed → abort.
+  if ! grep -qiE '^[[:space:]]*(127\.0\.0\.1|::1)[[:space:]]' "$tmp"; then
+    warn "skipped /etc/hosts sync — existing file looks unreadable/empty (left untouched)"
+    rm -f "$tmp"; return 0
+  fi
   # drop trailing blank lines, then the block
   sed -e :a -e '/^\n*$/{$d;N;ba}' "$tmp" > "$tmp.2" 2>/dev/null && mv "$tmp.2" "$tmp"
   printf '%s\n%s\n' "$(cat "$tmp")" "$block" | $SUDO tee /etc/hosts >/dev/null && \
@@ -378,6 +413,32 @@ UNIT
     status) loginitem_enabled && echo enabled || echo disabled ;;
     *) die "usage: bhserve loginitem {enable|disable|status}" ;;
   esac
+}
+
+# ── Privileged helper (Linux): a SCOPED sudoers rule for the nginx binary ONLY ──
+# The macOS helper_install is brew/BSD-specific (wrong nginx path, `stat -f`, `-g wheel`).
+# On Linux we whitelist exactly /usr/sbin/nginx for the desktop user so the systemd --user
+# autostart can bind :80/:443 unattended. Nothing else is made passwordless — installs,
+# systemctl, mkcert, /etc/hosts writes all still go through a per-action polkit prompt.
+helper_installed(){ [ -f "$SUDOERS_FILE" ]; }
+helper_install(){
+  [ "$(id -u)" = 0 ] || exec pkexec "$(readlink -f "$0")" helper install
+  local u tmp; u="${USER_NAME:-${SUDO_USER:-}}"
+  [ -n "$u" ] && [ "$u" != root ] || die "could not determine the desktop user"
+  tmp="$(mktemp)"
+  cat > "$tmp" <<SUDO
+# BHServe — let $u start/stop/reload nginx (binds :80/:443) without a password.
+# Remove with: sudo bhserve helper uninstall
+Defaults:$u !requiretty
+$u ALL=(root) NOPASSWD: /usr/sbin/nginx
+SUDO
+  visudo -cf "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; die "sudoers validation failed — not installed"; }
+  install -m 0440 -o root -g root "$tmp" "$SUDOERS_FILE"; rm -f "$tmp"
+  ok "password-less nginx control enabled (autostart can bind :80/:443 unattended)"
+}
+helper_uninstall(){
+  [ "$(id -u)" = 0 ] || exec pkexec "$(readlink -f "$0")" helper uninstall
+  rm -f "$SUDOERS_FILE" && ok "privileged helper removed" || die "remove failed"
 }
 
 # ── Databases (Ubuntu client / auth / path deltas) ───────────────────────────

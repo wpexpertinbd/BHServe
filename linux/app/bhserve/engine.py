@@ -15,6 +15,26 @@ from typing import Callable
 import gi
 from gi.repository import GLib
 
+# Verbs that touch root-owned state (apt, systemd, :80/:443, /etc/hosts, mkcert CA). The GUI
+# runs these via pkexec (a single polkit prompt); the engine then runs root-aware and chowns
+# anything it creates back to the user. Everything else (api/status/logs/config/db/php) runs
+# unprivileged as the user.
+_PRIVILEGED = {"install", "update", "uninstall", "start", "stop", "restart",
+               "secure", "dns", "helper", "loginitem"}
+
+
+def _needs_root(args: tuple) -> bool:
+    if not args:
+        return False
+    v = args[0]
+    if v in _PRIVILEGED:
+        return True
+    if v == "site" and len(args) > 1 and args[1] in ("add", "rm", "remove"):
+        return True
+    if v in ("pysite", "nodesite") and len(args) > 1 and args[1] in ("add", "rm", "remove"):
+        return True
+    return False
+
 
 class EngineClient:
     def __init__(self) -> None:
@@ -39,14 +59,28 @@ class EngineClient:
                 return os.path.abspath(c)
         return "bhserve"  # last resort: rely on PATH
 
+    # ── command construction (pkexec-elevate privileged verbs) ───────────────
+    def _build(self, args: tuple) -> list[str]:
+        base = ["bash", self.path, *args]
+        if _needs_root(args) and os.geteuid() != 0 and shutil.which("pkexec"):
+            bh_home = os.environ.get("BHSERVE_HOME", os.path.expanduser("~/.bhserve"))
+            # pkexec runs `env …=… bash <engine> <verb>` as root with a polkit prompt; it sets
+            # PKEXEC_UID so the engine targets THIS user's ~/.bhserve and chowns back on exit.
+            return ["pkexec", "env", f"BHSERVE_HOME={bh_home}", "BHSERVE_GUI=1",
+                    "bash", self.path, *args]
+        return base
+
     # ── synchronous run (use only for fast verbs like api/status) ────────────
     def run(self, *args: str, timeout: int | None = None) -> tuple[int, str]:
         try:
             p = subprocess.run(
-                ["bash", self.path, *args],
+                self._build(args),
                 capture_output=True, text=True, timeout=timeout,
                 env={**os.environ, "BHSERVE_GUI": "1"},
             )
+            # pkexec exit 126 = user dismissed the auth dialog; 127 = not authorized.
+            if p.returncode in (126, 127) and _needs_root(args):
+                return p.returncode, "Cancelled — administrator approval is required for this action."
             return p.returncode, (p.stdout or "") + (p.stderr or "")
         except subprocess.TimeoutExpired:
             return 1, f"timed out after {timeout}s"
