@@ -41,33 +41,35 @@ chmod 0755 "$PKG/usr/lib/bhserve/app/bin/bhserve-gui"
 ln -sf /usr/lib/bhserve/engine/bhserve   "$PKG/usr/bin/bhserve"
 ln -sf /usr/lib/bhserve/app/bin/bhserve-gui "$PKG/usr/bin/bhserve-gui"
 
-# ── icon: largest frame of the shared AppIcon.ico → 256px png ──
-ICON_OUT="$PKG/usr/share/icons/hicolor/256x256/apps/bhserve.png"
-if [ -f "$ROOT/linux/packaging/bhserve.png" ]; then
-  cp "$ROOT/linux/packaging/bhserve.png" "$ICON_OUT"
-elif command -v convert >/dev/null && [ -f "$ROOT/app/icon/AppIcon.ico" ]; then
-  tmpd="$(mktemp -d)"; convert "$ROOT/app/icon/AppIcon.ico" "$tmpd/f-%02d.png" 2>/dev/null || true
-  best=""; barea=0
-  for f in "$tmpd"/f-*.png; do
-    [ -f "$f" ] || continue
-    wh="$(identify -format '%w %h' "$f" 2>/dev/null)"; a=$(( ${wh% *} * ${wh#* } ))
-    [ "$a" -gt "$barea" ] && { barea="$a"; best="$f"; }
-  done
-  [ -n "$best" ] && convert "$best" -resize 256x256 "$ICON_OUT" || true
-  rm -rf "$tmpd"
+# ── icons: install the committed hicolor sizes (the same brand icon as Windows/macOS,
+#    extracted from app/icon/AppIcon.ico), named after the app-id so GNOME shell / the
+#    taskbar / alt-tab / the in-app About all show it. ──
+APPID="com.biswashost.bhserve"
+ICONSRC="$ROOT/linux/packaging/icons"
+icon_done=0
+for s in 16 32 48 64 128 256; do
+  if [ -f "$ICONSRC/$s.png" ]; then
+    d="$PKG/usr/share/icons/hicolor/${s}x${s}/apps"; mkdir -p "$d"
+    cp "$ICONSRC/$s.png" "$d/$APPID.png"; icon_done=1
+  fi
+done
+if [ "$icon_done" = 0 ] && command -v convert >/dev/null && [ -f "$ROOT/app/icon/AppIcon.ico" ]; then
+  d="$PKG/usr/share/icons/hicolor/256x256/apps"; mkdir -p "$d"
+  convert "$ROOT/app/icon/AppIcon.ico" -resize 256x256 "$d/$APPID.png" 2>/dev/null && icon_done=1 || true
 fi
-[ -f "$ICON_OUT" ] || echo "  ! no icon (install imagemagick or add linux/packaging/bhserve.png)"
+[ "$icon_done" = 1 ] || echo "  ! no icon — add sizes to linux/packaging/icons/ or install imagemagick"
 
-# ── desktop entry ──
-cat > "$PKG/usr/share/applications/bhserve.desktop" <<'DESKTOP'
+# ── desktop entry (named after the app-id so the icon binds to the window) ──
+cat > "$PKG/usr/share/applications/$APPID.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=BHServe
 GenericName=Local Web Server
 Comment=Free local web server: nginx/PHP/MariaDB, multi-PHP, *.test HTTPS, WordPress
 Exec=bhserve-gui
-Icon=bhserve
+Icon=com.biswashost.bhserve
 Terminal=false
+StartupWMClass=com.biswashost.bhserve
 Categories=Development;WebDevelopment;
 Keywords=php;nginx;apache;mariadb;mysql;postgresql;wordpress;localhost;server;laravel;
 StartupNotify=true

@@ -568,7 +568,11 @@ class SettingsPage(Gtk.Box):
         body.append(g3)
 
         g4 = Adw.PreferencesGroup(title="About")
-        about = Adw.ActionRow(title="BHServe for Linux", subtitle="Free local web server · biswashost.com")
+        about = Adw.ActionRow(title="BHServe for Linux",
+                              subtitle=f"Version {self.win.app_version} · biswashost.com",
+                              activatable=True)
+        about.add_suffix(Gtk.Image.new_from_icon_name("help-about-symbolic"))
+        about.connect("activated", lambda *_: self.win.about())
         g4.add(about)
         body.append(g4)
 

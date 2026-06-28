@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .engine import EngineClient  # noqa: E402
 from .window import MainWindow  # noqa: E402
@@ -21,6 +21,7 @@ class BHServeApp(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        GLib.set_application_name("BHServe")
         self._load_css()
 
     def do_activate(self) -> None:

@@ -185,6 +185,19 @@ class MainWindow(Adw.ApplicationWindow):
         dlg.present()
         return False
 
+    def about(self) -> None:
+        win = Adw.AboutWindow(
+            transient_for=self,
+            application_name="BHServe",
+            application_icon="com.biswashost.bhserve",
+            version=self.app_version,
+            developer_name="BiswasHost",
+            website="https://www.biswashost.com",
+            comments="A free, self-controlled local web server for Linux —\na clean alternative to XAMPP.",
+            license_type=Gtk.License.MIT_X11,
+        )
+        win.present()
+
     def _do_update(self, rel: dict) -> None:
         from . import updater
         self.spinner.start()
