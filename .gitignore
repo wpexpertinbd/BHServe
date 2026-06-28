@@ -9,3 +9,9 @@ app/icon/AppIcon.iconset/
 
 # Claude Code session/local files
 .claude/
+
+# Linux build artifacts
+linux/dist/
+linux/packaging/bhserve.png
+**/__pycache__/
+*.pyc

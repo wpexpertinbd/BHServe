@@ -2384,7 +2384,10 @@ U
 # ── Platform delta layer ──────────────────────────────────────────────────────
 # On Linux, source apt/systemd overrides (BHServe for Linux). macOS is untouched.
 if [ "$(uname)" = "Linux" ]; then
-  _bh_engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # readlink -f so an installed /usr/bin/bhserve symlink still finds platform-linux.sh
+  # next to the REAL engine file (e.g. /usr/lib/bhserve/engine/).
+  _bh_self="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+  _bh_engine_dir="$(cd "$(dirname "$_bh_self")" && pwd)"
   [ -f "$_bh_engine_dir/platform-linux.sh" ] && . "$_bh_engine_dir/platform-linux.sh"
 fi
 

@@ -1,7 +1,21 @@
-# BHServe for Linux — start here (kickoff for the Linux port)
+# BHServe for Linux — Ubuntu/Debian (beta)
 
-> **Status: not started — this folder is the launch pad.** The macOS build is at **v1.7.4**
-> and is the design + feature reference. The full architecture spec is
+> **Status: v1.0.0 beta — engine + GTK app + `.deb` all working** (verified on Ubuntu 24.04
+> under WSL2). Built by the Windows-Claude per this plan. What's done:
+> - **Engine** (`../engine/platform-linux.sh`, sourced only on Linux — macOS untouched): apt +
+>   the Ondřej PHP repo, systemd service control, BHServe runs its own nginx + php-fpm.
+>   `init` / `install` / `site add` / multi-PHP / **trusted HTTPS (mkcert)** / `*.test` via a
+>   managed `/etc/hosts` block / **MariaDB** (root→loopback blank-password, the WordPress path) /
+>   **Python apps** (pysite) all verified end-to-end. fnm + Mailpit install supported.
+> - **GUI** (`app/bhserve/`, Python + GTK4/libadwaita): all 8 panes at macOS parity, drives the
+>   bash engine via the `api` JSON, search+Show+pagination, per-site … menu, self-updater.
+> - **Packaging** (`build.sh` → `dist/bhserve_<ver>_all.deb`): installs the engine + GUI,
+>   `bhserve` / `bhserve-gui` on PATH, desktop entry + icon.
+>
+> **To do:** `.AppImage` build; cut the `linux-v1.0.x` GitHub release; native-Ubuntu polish
+> (Wayland tray, postgres peer-auth, the wildcard-`.test` resolved path on real desktops).
+>
+> The macOS build (**v1.7.4**) is the design + feature reference. The full architecture spec is
 > [`../docs/LINUX-PORT.md`](../docs/LINUX-PORT.md); the exact engine changes are in
 > [`engine/DELTAS.md`](engine/DELTAS.md); the Mac feature list to reach parity with is
 > [`../docs/MAC-FEATURE-REFERENCE.md`](../docs/MAC-FEATURE-REFERENCE.md) and the per-release

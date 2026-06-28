@@ -12,7 +12,7 @@ Cloudflare Tunnel. 100% open-source.
 |----------|--------|
 | 🍎 **macOS** | ✅ **Stable** — native menu-bar app (Apple Silicon + Intel) |
 | 🪟 **Windows** | ✅ **Stable** — native WinUI app (Windows 10/11) |
-| 🐧 **Linux** | 🚧 **Coming soon** |
+| 🐧 **Linux** | 🧪 **Beta** — GTK4 app (Ubuntu/Debian, `.deb`) |
 
 > 🟢 Runs the author's daily dev work — WordPress, OpenCart, WHMCS, Blesta, Laravel, Next.js.
 
@@ -51,8 +51,22 @@ Cloudflare Tunnel. 100% open-source.
   **menu bar** (macOS) / **system tray** (Windows). Open the dashboard whenever you want.
 - **In-app auto-updater** — Settings ▸ Updates.
 
-*(The engine differs per OS — Homebrew on macOS, portable downloads on Windows — but the app,
-the features, and your sites work the same everywhere.)*
+*(The engine differs per OS — Homebrew on macOS, portable downloads on Windows, native
+apt + the Ondřej PHP repo on Linux — but the app, the features, and your sites work the
+same everywhere.)*
+
+### 🐧 Linux (Ubuntu/Debian, beta)
+
+```bash
+# download bhserve_<version>_all.deb from the linux-v* release, then:
+sudo apt install ./bhserve_<version>_all.deb
+bhserve-gui        # or launch “BHServe” from your apps menu
+```
+
+The `.deb` provides the engine + a **GTK4 / libadwaita** control panel (the same 8 panes
+as macOS/Windows). The servers themselves are installed on demand via apt — PHP comes from
+the **Ondřej Surý** repo (7.4 → 8.4). `*.test` resolves via a managed `/etc/hosts` block by
+default (wildcard dnsmasq is opt-in). Tested on **Ubuntu 24.04 + GNOME**.
 
 ---
 

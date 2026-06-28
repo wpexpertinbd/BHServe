@@ -530,8 +530,17 @@ class SettingsPage(Gtk.Box):
         self.autostart = Adw.SwitchRow(title="Start BHServe at login", subtitle="systemd user service")
         self.autostart.connect("notify::active", self._toggle_autostart)
         g1.add(self.autostart)
-        self.autoupdate = Adw.SwitchRow(title="Check for updates automatically", active=True)
+        self.autoupdate = Adw.SwitchRow(title="Check for updates automatically",
+                                        active=self.win.cfg_bool("auto_update", True))
+        self.autoupdate.connect("notify::active",
+                                lambda r, _p: self.win.set_cfg("auto_update", r.get_active()))
         g1.add(self.autoupdate)
+        check_row = Adw.ActionRow(title="Check for updates now",
+                                  subtitle=f"Current version {self.win.app_version}")
+        check_btn = Gtk.Button(label="Check", valign=Gtk.Align.CENTER)
+        check_btn.connect("clicked", lambda *_: self.win.check_updates(force=True))
+        check_row.add_suffix(check_btn)
+        g1.add(check_row)
         body.append(g1)
 
         g2 = Adw.PreferencesGroup(title="List sizes", description="Rows per page in each list")

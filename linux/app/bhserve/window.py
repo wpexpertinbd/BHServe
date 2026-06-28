@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
+from . import __version__  # noqa: E402
 from . import pages as P  # noqa: E402
 
 GUI_CFG = os.path.expanduser("~/.bhserve/config/gui.json")
@@ -35,6 +36,7 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app) -> None:
         super().__init__(application=app, title="BHServe", default_width=1080, default_height=720)
         self.engine = app.engine
+        self.app_version = __version__
         self.last_data: dict = {}
         self.pages: dict = {}
 
@@ -97,6 +99,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.sidebar_list.select_row(self.sidebar_list.get_row_at_index(0))
         self.refresh()
         GLib.timeout_add_seconds(4, self._tick)
+        # auto update-check shortly after launch (throttled + gated by the toggle), then daily
+        GLib.timeout_add_seconds(3, lambda: (self.check_updates(False), False)[1])
+        GLib.timeout_add_seconds(24 * 3600, lambda: (self.check_updates(False), True)[1])
 
     # ── navigation ──
     def _on_nav(self, _list, row) -> None:
@@ -153,6 +158,43 @@ class MainWindow(Adw.ApplicationWindow):
 
     def toast(self, text: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=text, timeout=3))
+
+    # ── self-update ──
+    def check_updates(self, force: bool = False) -> None:
+        from . import updater
+        if not force and not self.cfg_bool("auto_update", True):
+            return
+
+        def worker():
+            rel = updater.check(force=force)
+            if rel:
+                GLib.idle_add(self._offer_update, rel)
+            elif force:
+                GLib.idle_add(self.toast, "You're on the latest version.")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _offer_update(self, rel: dict) -> bool:
+        notes = (rel.get("notes") or "A new version is available.").strip()
+        dlg = Adw.MessageDialog(transient_for=self,
+                                heading=f"BHServe {rel['version']} is available",
+                                body=notes[:400])
+        dlg.add_response("later", "Later")
+        dlg.add_response("install", "Install update")
+        dlg.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
+        dlg.connect("response", lambda d, r: self._do_update(rel) if r == "install" else None)
+        dlg.present()
+        return False
+
+    def _do_update(self, rel: dict) -> None:
+        from . import updater
+        self.spinner.start()
+
+        def worker():
+            ok, msg = updater.download_and_install(
+                rel["deb_url"], lambda s: GLib.idle_add(self.toast, s))
+            GLib.idle_add(self.spinner.stop)
+            GLib.idle_add(self.toast, msg)
+        threading.Thread(target=worker, daemon=True).start()
 
     # ── dialogs ──
     def confirm(self, title, body, on_ok) -> None:
@@ -298,6 +340,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     def cfg_int(self, key, default) -> int:
         return int(self._gui().get(key, default))
+
+    def cfg_bool(self, key, default) -> bool:
+        return bool(self._gui().get(key, default))
 
     def set_cfg(self, key, value) -> None:
         d = self._gui()
