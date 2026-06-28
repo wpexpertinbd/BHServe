@@ -236,3 +236,80 @@ cmd_doctor() {
   systemctl is-enabled --quiet apache2 2>/dev/null && warn "the distro 'apache2' unit is enabled — disable it: sudo systemctl disable --now apache2"
   systemctl is-active  --quiet systemd-resolved 2>/dev/null && info "systemd-resolved owns 127.0.0.53:53 — BHServe uses /etc/hosts for *.test by default (wildcard dnsmasq is opt-in)"
 }
+
+# ── DNS for *.test on Linux  (hosts-file default; wildcard is opt-in) ─────────
+# Ubuntu owns 127.0.0.53:53 (systemd-resolved), so the robust, daemonless default is a
+# managed block in /etc/hosts — one line per BHServe domain, rewritten from the live
+# vhosts on every change. We override maybe_reload_nginx (called by EVERY add/rm/secure/
+# node/py path) so /etc/hosts stays in sync with no edits to the shared engine.
+HOSTS_BEGIN="# BHSERVE-START (managed — do not edit; rewritten on site changes)"
+HOSTS_END="# BHSERVE-END"
+
+# All domains currently served (server_name lines across every vhost, minus the catch-all).
+_bh_all_domains(){
+  grep -hoE 'server_name[[:space:]]+[^;]+;' "$BH_HOME"/nginx/sites/*.conf 2>/dev/null \
+    | sed -E 's/server_name[[:space:]]+//; s/;//' \
+    | tr ' ' '\n' | grep -vE '^(_|)$' | sort -u
+}
+
+# Rewrite the managed block in /etc/hosts to exactly the current domain set (idempotent).
+hosts_sync_all(){
+  local want block line
+  want="$(_bh_all_domains)"
+  block="$HOSTS_BEGIN"$'\n'
+  while IFS= read -r line; do [ -n "$line" ] && block+="127.0.0.1 $line"$'\n'; done <<<"$want"
+  block+="$HOSTS_END"
+  # Current managed block (if any) — skip the rewrite when nothing changed (no sudo prompt).
+  local cur=""
+  if grep -qF "$HOSTS_BEGIN" /etc/hosts 2>/dev/null; then
+    cur="$(awk -v b="$HOSTS_BEGIN" -v e="$HOSTS_END" '$0==b{f=1} f{print} $0==e{f=0}' /etc/hosts)"
+  fi
+  [ "$cur" = "$block" ] && return 0
+  local tmp; tmp="$(mktemp)"
+  # everything OUTSIDE the managed block, then append the fresh block
+  awk -v b="$HOSTS_BEGIN" -v e="$HOSTS_END" '$0==b{s=1} !s{print} $0==e{s=0}' /etc/hosts > "$tmp" 2>/dev/null || true
+  # drop trailing blank lines, then the block
+  sed -e :a -e '/^\n*$/{$d;N;ba}' "$tmp" > "$tmp.2" 2>/dev/null && mv "$tmp.2" "$tmp"
+  printf '%s\n%s\n' "$(cat "$tmp")" "$block" | $SUDO tee /etc/hosts >/dev/null && \
+    info "synced /etc/hosts ($(printf '%s' "$want" | grep -c . ) domain(s))"
+  rm -f "$tmp" "$tmp.2" 2>/dev/null || true
+}
+
+# Override: keep /etc/hosts in lock-step, then do the normal reload. This is the single
+# choke point every site mutation passes through, so node/py/secure are covered for free.
+maybe_reload_nginx(){
+  hosts_sync_all
+  nginx_running || return 0
+  if [ -t 1 ]; then nginx_reload; else info "reload nginx to serve changes (bhserve restart nginx)"; fi
+}
+
+# `bhserve dns` — default: (re)sync /etc/hosts for all sites. `bhserve dns wildcard` —
+# opt-in true *.test via a dnsmasq + systemd-resolved drop-in (experimental on desktops).
+cmd_dns() {
+  need_init
+  local mode="${1:-hosts}"
+  case "$mode" in
+    hosts|"")
+      hdr "DNS: /etc/hosts mode (default)"
+      hosts_sync_all
+      ok "all BHServe domains point to 127.0.0.1 via /etc/hosts"
+      info "for true wildcard *.$(jget tld test): bhserve dns wildcard" ;;
+    wildcard)
+      hdr "DNS: wildcard *.$(jget tld test) via dnsmasq + systemd-resolved"
+      svc_installed dnsmasq || die "dnsmasq not installed — run: bhserve install dnsmasq"
+      local tld; tld="$(jget tld test)"
+      # dnsmasq on a private loopback (avoids resolved's 127.0.0.53:53) answering *.tld.
+      $SUDO mkdir -p /etc/dnsmasq.d
+      printf 'no-resolv\nlisten-address=127.0.0.54\nbind-interfaces\naddress=/%s/127.0.0.1\n' "$tld" \
+        | $SUDO tee /etc/dnsmasq.d/bhserve.conf >/dev/null
+      $SUDO systemctl restart dnsmasq 2>/dev/null || $SUDO systemctl start dnsmasq 2>/dev/null || true
+      # route .tld lookups to that dnsmasq via a resolved drop-in
+      $SUDO mkdir -p /etc/systemd/resolved.conf.d
+      printf '[Resolve]\nDNS=127.0.0.54\nDomains=~%s\n' "$tld" \
+        | $SUDO tee /etc/systemd/resolved.conf.d/bhserve.conf >/dev/null
+      $SUDO systemctl restart systemd-resolved 2>/dev/null || true
+      ok "wildcard *.$tld → 127.0.0.1 (dnsmasq on 127.0.0.54, routed via systemd-resolved)"
+      info "test:  getent hosts anything.$tld" ;;
+    *) die "usage: bhserve dns [hosts|wildcard]" ;;
+  esac
+}
