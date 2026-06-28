@@ -98,8 +98,23 @@ APACHE_BIN(){ echo "/usr/sbin/apache2"; }
 # to the configured default version.
 php_fpm_bin(){
   local key="$1" v
-  if [ "$key" = "php" ]; then v="$(jget default_php 8.4)"; else v="${key#php@}"; fi
+  if [ "$key" = "php" ]; then v="$(jget default_php 8.4)"; v="${v#php@}"; else v="${key#php@}"; fi
   echo "/usr/sbin/php-fpm$v"
+}
+
+# Resolve a php key, but when resolving the DEFAULT (no explicit version) and the configured
+# default isn't installed (e.g. registry default 8.4 on a release that only ships 8.5), fall back
+# to the newest INSTALLED php so a `site add` without --php still gets a working pool. An EXPLICIT
+# version is honoured as-is (so a deliberate choice isn't silently changed).
+php_key(){
+  local v="${1:-}" was_default=0
+  case "$v" in ""|default) v="$(jget default_php 8.4)"; was_default=1 ;; esac
+  case "$v" in php) echo php; return ;; php@*) v="${v#php@}" ;; esac
+  if [ "$was_default" = 1 ] && [ ! -x "/usr/sbin/php-fpm$v" ]; then
+    local nf; nf="$(ls /usr/sbin/php-fpm* 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | sort -rV | head -1)"
+    [ -n "$nf" ] && v="$nf"
+  fi
+  echo "php@$v"
 }
 
 # ── apt helpers ──────────────────────────────────────────────────────────────
@@ -199,6 +214,10 @@ cmd_install() {
             _apt install -y "php$v-$_e" >/dev/null 2>&1 || true
           done
           _disable_system_unit "php$v-fpm"; ok "$key installed"
+          # If the configured default PHP isn't actually installed (e.g. registry default 8.4 on a
+          # release that ships 8.5), adopt this freshly-installed version so NEW sites get a usable PHP.
+          svc_installed "php@$(jget default_php 8.4)" 2>/dev/null \
+            || { json_set default_php "$v" 2>/dev/null && info "default PHP set to $v"; }
         else
           local _av; _av="$($SUDO apt-cache search --names-only 'php[0-9.]*-fpm' 2>/dev/null | grep -oE 'php[0-9]+\.[0-9]+' | sort -uV | sed 's/php/php@/' | tr '\n' ' ')"
           no "install $key failed — PHP $v isn't packaged for Ubuntu $(_codename). Available here: ${_av:-none}"
