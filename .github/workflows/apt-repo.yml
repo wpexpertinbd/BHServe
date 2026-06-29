@@ -1,0 +1,66 @@
+name: Publish apt repo
+
+# Rebuilds the GPG-signed apt repository (served via GitHub Pages) whenever a new Linux release is
+# published, or on demand. One-time setup lives in linux/apt-repo/README.md (signing key + Pages).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two publishes at once (they'd race on the Pages deployment).
+concurrency:
+  group: apt-repo
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Only for Linux releases (the repo also ships macOS v1.7.x / Windows win-v1.0.x), or manual runs.
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'linux-v') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install reprepro
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+
+      - name: Import the signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "::error::APT_GPG_PRIVATE_KEY secret is not set — see linux/apt-repo/README.md"; exit 1
+          fi
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
+          echo "$KEYID:6:" | gpg --import-ownertrust   # trust it so signing is non-interactive
+
+      - name: Download the latest Linux .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p debs
+          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 --json tagName \
+                  -q '[.[] | select(.tagName | startswith("linux-v"))][0].tagName')
+          echo "latest Linux release: $TAG"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p '*_all.deb' -D debs
+          ls -l debs
+
+      - name: Build the apt repository
+        run: bash linux/apt-repo/build-repo.sh public debs/*.deb
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
