@@ -228,3 +228,19 @@ php@* case, static-aware `cmd_update`/`cmd_uninstall`.)
 **Mac equivalent:** Homebrew already provides every PHP version (`brew install shivammathur/php/php@8.x`)
 on every supported macOS, so there is no apt/Ondřej-style gap — the Mac never needs a static fallback.
 Logged here only for cross-platform traceability per the standing rule.
+
+---
+
+## L2. Linux-only — `bhserve self-update` CLI  *(Linux: linux-v1.0.16)*
+
+**Optional for macOS.** Terminal users kept having to track version numbers / chase release URLs to
+update the `.deb` (the GUI has an updater, but CLI-first users don't open it). Added a
+`bhserve self-update` verb: queries the GitHub releases API for the newest `linux-v*` `.deb`, compares
+to the installed dpkg version, and `apt install`s it if newer (`engine/platform-linux.sh`:
+`cmd_self_update` + a verb interceptor at the end of the sourced platform layer, so the shared dispatch
+and macOS are untouched). Handles offline / API-rate-limit gracefully; `|| true` on every command-sub
+because the engine runs under `set -e`.
+
+**Mac equivalent (if wanted):** the Mac app already self-updates in-app, so this is lower priority. If
+a CLI `bhserve self-update` is desired on macOS it would fetch the newest `v1.7.x` `.dmg`/zip and
+`hdiutil`-mount + copy to /Applications, or just open the release page. Logged for traceability.

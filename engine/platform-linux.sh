@@ -641,3 +641,35 @@ db_secure_bind(){
   printf '# BHServe — keep the DB on localhost only (root has no password)\n[mysqld]\nbind-address = 127.0.0.1\n' \
     | $SUDO tee "$f" >/dev/null 2>&1 || true
 }
+
+# ── self-update (CLI convenience) ─────────────────────────────────────────────
+# Fetch + install the newest BHServe .deb straight from GitHub releases, so terminal users don't have
+# to track version numbers or chase download URLs. (The desktop app has its own in-app updater.)
+cmd_self_update(){
+  local api url latest cur tmp
+  # `|| true` on every command substitution: the engine runs under `set -e`, where a failing curl/
+  # dpkg-query in `var="$(…)"` would abort the function before our own error handling runs.
+  cur="$(dpkg-query -W -f='${Version}' bhserve 2>/dev/null || true)"
+  hdr "Checking for the latest BHServe release…"
+  api="$(curl -fsSL "https://api.github.com/repos/wpexpertinbd/BHServe/releases?per_page=20" 2>/dev/null || true)"
+  [ -n "$api" ] || { no "couldn't reach GitHub (offline, or API rate-limited — retry shortly)"; return 1; }
+  case "$api" in *'rate limit'*) no "GitHub API rate limit hit — wait ~1 min and retry (or grab the .deb from the releases page)"; return 1 ;; esac
+  url="$(printf '%s\n' "$api" | grep -oE 'https://github.com/[^"]*bhserve_[0-9.]+_all\.deb' | head -1 || true)"
+  [ -n "$url" ] || { no "no Linux .deb asset found in the latest releases"; return 1; }
+  latest="$(printf '%s' "$url" | sed -E 's#.*bhserve_([0-9.]+)_all\.deb#\1#' || true)"
+  info "installed: ${cur:-unknown}    latest: $latest"
+  if [ -n "$cur" ] && [ "$cur" = "$latest" ]; then ok "already up to date ($cur)"; return 0; fi
+  tmp="$(mktemp -d)"
+  hdr "Downloading + installing $latest…"
+  if curl -fsSL "$url" -o "$tmp/bhserve.deb" \
+     && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades "$tmp/bhserve.deb"; then
+    rm -rf "$tmp"; ok "updated ${cur:-?} → $latest — restart the BHServe app if it's open"; return 0
+  fi
+  rm -rf "$tmp"; no "self-update failed (download or apt error)"; return 1
+}
+
+# Linux-only verb, not in the shared dispatch: intercept it here (platform-linux.sh is sourced just
+# before the shared `case`), so the shared engine + macOS build stay untouched.
+case "${1:-}" in
+  self-update|self_update|selfupdate) cmd_self_update "${@:2}"; exit $? ;;
+esac
