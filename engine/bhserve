@@ -2270,7 +2270,10 @@ cmd_api() {
   while read -r key formula probe role; do
     [ -z "$key" ] && continue
     local installed=false running=false version=""
-    if [ -x "$BREW_PREFIX/$probe" ]; then installed=true; version="$(probe_version "$BREW_PREFIX/$probe")"; fi
+    # Use svc_installed (not a bare -x on $probe) so platform overrides can disambiguate services that
+    # share a probe path — e.g. on Linux MariaDB symlinks /usr/sbin/mysqld, so MySQL vs MariaDB must be
+    # told apart by package, not by the binary. On macOS svc_installed is exactly the -x check, unchanged.
+    if svc_installed "$key"; then installed=true; version="$(probe_version "$BREW_PREFIX/$probe")"; fi
     case "$role" in
       web) [ "$key" = nginx ] && nginx_running && running=true ;;
       php) fpm_running "$key" && running=true ;;

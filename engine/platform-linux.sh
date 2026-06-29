@@ -76,6 +76,7 @@ php@7.4|php7.4-fpm|usr/sbin/php-fpm7.4|php
 nginx|nginx|usr/sbin/nginx|web
 httpd|apache2|usr/sbin/apache2|web
 mariadb|mariadb-server|usr/sbin/mariadbd|db
+mysql|mysql-server|usr/sbin/mysqld|db
 postgresql@16|postgresql-16|usr/lib/postgresql/16/bin/postgres|db
 redis|redis-server|usr/bin/redis-server|cache
 memcached|memcached|usr/bin/memcached|cache
@@ -85,6 +86,18 @@ mailpit|mailpit|usr/local/bin/mailpit|mail
 fnm|fnm|usr/local/bin/fnm|node
 python|python3-venv|usr/bin/python3|python
 EOF
+}
+
+# MariaDB and MySQL both materialise /usr/sbin/mysqld (MariaDB as a symlink → it's the `mysql` row's
+# probe), so a bare -x probe can't tell them apart, and they CONFLICT on Debian/Ubuntu (only one is
+# installable at a time). Decide by package via dpkg; everything else falls back to the shared probe.
+# (cmd_api now calls svc_installed, so this disambiguation reaches the GUI too.)
+svc_installed(){
+  case "$1" in
+    mariadb) dpkg-query -W -f='${Status}\n' mariadb-server  2>/dev/null | grep -q 'ok installed' ;;
+    mysql)   dpkg-query -W -f='${Status}\n' 'mysql-server*' 2>/dev/null | grep -q 'ok installed' ;;
+    *)       local p; p="$(svc_probe "$1")"; [ -n "$p" ] && [ -x "$BREW_PREFIX/$p" ] ;;
+  esac
 }
 
 # ── Binary locators (the few brew-keg paths that BREW_PREFIX="" can't fix) ────
@@ -228,7 +241,8 @@ cmd_install() {
   [ $# -ge 1 ] || die "usage: bhserve install <svc|all>  (e.g. nginx, php@8.4, mariadb, redis, mkcert, dnsmasq)"
   local targets=()
   if [ "$1" = all ]; then
-    while IFS='|' read -r key _ _ _; do [ -n "$key" ] && targets+=("$key"); done < <(services)
+    # MariaDB is the default DB; MySQL is an explicit alternative (they conflict), so skip it in `all`.
+    while IFS='|' read -r key _ _ _; do [ -n "$key" ] && [ "$key" != mysql ] && targets+=("$key"); done < <(services)
   else targets=("$@"); fi
   _apt_update_once
   local key pkg v failed=0
@@ -278,6 +292,12 @@ cmd_install() {
         hdr "Installing apache2  (apt)"
         if _apt install -y apache2 libapache2-mod-fcgid; then _disable_system_unit apache2; ok "apache2 installed"; else no "install apache2 failed"; failed=1; fi ;;
       mariadb|mysql)
+        # mysql-server and mariadb-server conflict on Debian/Ubuntu — installing one makes apt REMOVE
+        # the other. Warn so the swap (and any data migration in /var/lib/mysql) isn't a surprise.
+        case "$key" in
+          mysql)   svc_installed mariadb && warn "MariaDB is installed — installing MySQL will replace it (apt removes mariadb-server; data in /var/lib/mysql may need migration)." ;;
+          mariadb) svc_installed mysql   && warn "MySQL is installed — installing MariaDB will replace it (apt removes mysql-server)." ;;
+        esac
         hdr "Installing $pkg  (apt)"
         if _apt install -y "$pkg"; then
           $SUDO systemctl start "$key" >/dev/null 2>&1 || true

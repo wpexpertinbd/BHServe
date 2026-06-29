@@ -244,3 +244,16 @@ because the engine runs under `set -e`.
 **Mac equivalent (if wanted):** the Mac app already self-updates in-app, so this is lower priority. If
 a CLI `bhserve self-update` is desired on macOS it would fetch the newest `v1.7.x` `.dmg`/zip and
 `hdiutil`-mount + copy to /Applications, or just open the release page. Logged for traceability.
+
+---
+
+## L3. Linux — add MySQL as a DB option (parity with Mac/Windows)  *(Linux: linux-v1.0.17)*
+
+**✅ No Mac action — macOS already offers both** (`brew install mysql` / `mariadb`, distinct probe
+paths `opt/mysql/bin/mysql` vs `opt/mariadb/bin/mariadb`). Linux had only MariaDB because Debian/Ubuntu
+MariaDB symlinks `/usr/sbin/mysqld -> mariadbd`, so an `-x` probe couldn't tell them apart (MySQL would
+false-show as installed whenever MariaDB was). Fix: cmd_api now calls `svc_installed` (was an inline
+`-x`; identical on macOS), and Linux overrides `svc_installed` to decide MariaDB vs MySQL **by dpkg
+package** (`mariadb-server` vs `mysql-server*`). Added the `mysql|mysql-server|usr/sbin/mysqld|db` row;
+`install all` skips mysql (it conflicts with MariaDB — only one installs at a time); install warns that
+choosing one replaces the other.
