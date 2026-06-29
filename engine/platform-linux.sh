@@ -138,6 +138,10 @@ php_key(){
 # SAME /usr/sbin/php-fpm<v> path the distro uses — so detection, version-probe, pool rendering and
 # serving all work with zero further changes.
 _STATIC_PHP_BASE="https://dl.static-php.dev/static-php-cli/common"
+# HTTPS-only curl flags (incl. redirects) for every download that lands a root-installed/-executed
+# artifact — defence against a protocol-downgrade or http redirect MITM. Used unquoted on purpose so
+# the two tokens word-split into separate args.
+_CURL_HTTPS='--proto =https --proto-redir =https'
 _static_php_arch(){ case "$(uname -m)" in aarch64|arm64) echo aarch64 ;; *) echo x86_64 ;; esac; }
 _static_php_install(){
   local v="$1" arch file tmp bin sysdir
@@ -148,12 +152,14 @@ _static_php_install(){
     ok "PHP $v already provided by the distro package"; return 0
   fi
   hdr "Installing PHP $v  (portable static build)"
-  file="$(curl -fsSL "$_STATIC_PHP_BASE/" 2>/dev/null \
+  file="$(curl $_CURL_HTTPS -fsSL "$_STATIC_PHP_BASE/" 2>/dev/null \
           | grep -oE "php-$v\.[0-9]+-fpm-linux-$arch\.tar\.gz" | sort -uV | tail -1)"
   [ -n "$file" ] || { no "no portable PHP $v build available for $arch"; return 1; }
   sysdir="/usr/local/lib/bhserve/php/$v"; tmp="$(mktemp -d)"
-  if curl -fsSL "$_STATIC_PHP_BASE/$file" -o "$tmp/fpm.tgz" \
-     && tar xzf "$tmp/fpm.tgz" -C "$tmp" 2>/dev/null \
+  # --no-same-owner: don't honour uid/gid baked into the archive; -C an isolated mktemp dir, then
+  # install ONLY the php-fpm we find (a hostile member elsewhere in the tree is never used).
+  if curl $_CURL_HTTPS -fsSL "$_STATIC_PHP_BASE/$file" -o "$tmp/fpm.tgz" \
+     && tar --no-same-owner -xzf "$tmp/fpm.tgz" -C "$tmp" 2>/dev/null \
      && bin="$(find "$tmp" -type f -name 'php-fpm' | head -1)" && [ -n "$bin" ]; then
     $SUDO mkdir -p "$sysdir"
     $SUDO install -m 0755 "$bin" "$sysdir/php-fpm"
@@ -187,7 +193,7 @@ _ensure_php_repo(){
     hdr "Adding the Sury PHP repository…"
     _apt install -y ca-certificates curl >/dev/null 2>&1 || true
     $SUDO install -d -m 0755 /usr/share/keyrings
-    curl -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
+    curl $_CURL_HTTPS -fsSL https://packages.sury.org/php/apt.gpg | $SUDO tee /usr/share/keyrings/sury-php.gpg >/dev/null
     echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(_codename) main" \
       | $SUDO tee /etc/apt/sources.list.d/sury-php.list >/dev/null
   fi
@@ -308,14 +314,16 @@ cmd_install() {
       fnm)
         hdr "Installing fnm (Node version manager)"
         _apt install -y unzip curl >/dev/null 2>&1 || true
-        if curl -fsSL https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip -o /tmp/bh-fnm.zip \
-           && unzip -o /tmp/bh-fnm.zip -d /tmp/bh-fnm >/dev/null 2>&1 \
-           && $SUDO install -m 0755 /tmp/bh-fnm/fnm /usr/local/bin/fnm; then
-          rm -rf /tmp/bh-fnm.zip /tmp/bh-fnm; ok "fnm installed"
-        else no "install fnm failed"; failed=1; fi ;;
+        # mktemp (not a predictable /tmp/bh-fnm) — avoids a symlink/TOCTOU race on the shared /tmp.
+        local _ft; _ft="$(mktemp -d)"
+        if curl $_CURL_HTTPS -fsSL https://github.com/Schniz/fnm/releases/latest/download/fnm-linux.zip -o "$_ft/fnm.zip" \
+           && unzip -o "$_ft/fnm.zip" -d "$_ft" >/dev/null 2>&1 \
+           && $SUDO install -m 0755 "$_ft/fnm" /usr/local/bin/fnm; then
+          rm -rf "$_ft"; ok "fnm installed"
+        else rm -rf "$_ft"; no "install fnm failed"; failed=1; fi ;;
       mailpit)
         hdr "Installing Mailpit"
-        if curl -fsSL https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh | $SUDO bash >/dev/null 2>&1 \
+        if curl $_CURL_HTTPS -fsSL https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh | $SUDO bash >/dev/null 2>&1 \
            && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; else no "install mailpit failed (download blocked?)"; failed=1; fi ;;
       postgresql@*)
         hdr "Installing $pkg  (apt)"
@@ -671,18 +679,23 @@ cmd_self_update(){
   # dpkg-query in `var="$(…)"` would abort the function before our own error handling runs.
   cur="$(dpkg-query -W -f='${Version}' bhserve 2>/dev/null || true)"
   hdr "Checking for the latest BHServe release…"
-  api="$(curl -fsSL "https://api.github.com/repos/wpexpertinbd/BHServe/releases?per_page=20" 2>/dev/null || true)"
+  api="$(curl $_CURL_HTTPS -fsSL "https://api.github.com/repos/wpexpertinbd/BHServe/releases?per_page=20" 2>/dev/null || true)"
   [ -n "$api" ] || { no "couldn't reach GitHub (offline, or API rate-limited — retry shortly)"; return 1; }
   case "$api" in *'rate limit'*) no "GitHub API rate limit hit — wait ~1 min and retry (or grab the .deb from the releases page)"; return 1 ;; esac
-  url="$(printf '%s\n' "$api" | grep -oE 'https://github.com/[^"]*bhserve_[0-9.]+_all\.deb' | head -1 || true)"
+  # Pin the host: escaped dots (github\.com, not github<any>com) so the asset URL can't be spoofed to
+  # a look-alike host in a tampered API body.
+  url="$(printf '%s\n' "$api" | grep -oE 'https://github\.com/[^"]*bhserve_[0-9.]+_all\.deb' | head -1 || true)"
   [ -n "$url" ] || { no "no Linux .deb asset found in the latest releases"; return 1; }
+  # Belt-and-suspenders host allowlist before we hand the URL to curl.
+  case "$url" in https://github.com/*) ;; *) no "refusing non-GitHub download URL"; return 1 ;; esac
   latest="$(printf '%s' "$url" | sed -E 's#.*bhserve_([0-9.]+)_all\.deb#\1#' || true)"
   info "installed: ${cur:-unknown}    latest: $latest"
   if [ -n "$cur" ] && [ "$cur" = "$latest" ]; then ok "already up to date ($cur)"; return 0; fi
   tmp="$(mktemp -d)"
   hdr "Downloading + installing $latest…"
-  if curl -fsSL "$url" -o "$tmp/bhserve.deb" \
-     && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades "$tmp/bhserve.deb"; then
+  # No --allow-downgrades: self-update only moves forward; a forced downgrade is never a normal update.
+  if curl $_CURL_HTTPS -fsSL "$url" -o "$tmp/bhserve.deb" \
+     && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp/bhserve.deb"; then
     rm -rf "$tmp"; ok "updated ${cur:-?} → $latest — restart the BHServe app if it's open"; return 0
   fi
   rm -rf "$tmp"; no "self-update failed (download or apt error)"; return 1

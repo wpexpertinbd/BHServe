@@ -257,3 +257,16 @@ false-show as installed whenever MariaDB was). Fix: cmd_api now calls `svc_insta
 package** (`mariadb-server` vs `mysql-server*`). Added the `mysql|mysql-server|usr/sbin/mysqld|db` row;
 `install all` skips mysql (it conflicts with MariaDB — only one installs at a time); install warns that
 choosing one replaces the other.
+
+---
+
+## L4. Linux — security hardening of the new download/self-update paths  *(Linux: linux-v1.0.18)*
+
+**Check the Mac's equivalents.** After auditing the Linux static-PHP/self-update/fnm download paths,
+applied: (1) `--proto =https --proto-redir =https` on every curl that lands a root-installed/-executed
+artifact (downgrade-MITM guard); (2) self-update GitHub host pinning — escaped `github\.com` regex +
+explicit allowlist `case`, and removed `--allow-downgrades` (forward-only); (3) fnm download moved off a
+predictable `/tmp/bh-fnm` to `mktemp -d` (symlink/TOCTOU); (4) `tar --no-same-owner` on the static-PHP
+extract. **Mac TODO:** the macOS engine's `curl` fetches (WordPress / wp-salts / ionCube / phpMyAdmin /
+Adminer) could take the same `--proto =https --proto-redir =https`; the Mac updater already has an
+`_is_github_host` allowlist (parity OK there).
