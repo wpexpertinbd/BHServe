@@ -71,6 +71,7 @@ php@8.4|php8.4-fpm|usr/sbin/php-fpm8.4|php
 php@8.3|php8.3-fpm|usr/sbin/php-fpm8.3|php
 php@8.2|php8.2-fpm|usr/sbin/php-fpm8.2|php
 php@8.1|php8.1-fpm|usr/sbin/php-fpm8.1|php
+php@8.0|php8.0-fpm|usr/sbin/php-fpm8.0|php
 php@7.4|php7.4-fpm|usr/sbin/php-fpm7.4|php
 nginx|nginx|usr/sbin/nginx|web
 httpd|apache2|usr/sbin/apache2|web
