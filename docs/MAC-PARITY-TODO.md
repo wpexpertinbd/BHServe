@@ -210,3 +210,21 @@ server + document root + "replace this file" hint + biswashost.com link; `phpinf
 - Default page: `windows/src/BHServe.Core/Engine.cs` → `const string DefaultIndexPhp` (the whole page)
   + its write in `SiteAdd` (`File.WriteAllText(.../index.php, DefaultIndexPhp)` when no index exists).
   Linted valid PHP 7.4 → 8.6.
+
+---
+
+## L1. Linux-only — hybrid PHP source (static-php fallback)  *(Linux: linux-v1.0.12)*
+
+**✅ macOS is NOT affected — no Mac action needed.** The Linux build can't always get every PHP
+version from `apt`: the Ondřej PPA only builds for Ubuntu releases it supports, so on a brand-new
+release (e.g. 26.04 'resolute') `apt` offers just the single PHP the distro ships. The fix is a
+**hybrid source**: try the distro/Ondřej package first (native, apt-managed extensions, ionCube-capable),
+and when that version isn't packaged, **fall back to a fully-static `php-fpm` binary** from
+static-php-cli (`dl.static-php.dev`) — installed to `/usr/local/lib/bhserve/php/<v>/php-fpm` and
+symlinked at the standard `/usr/sbin/php-fpm<v>` path so detection/version-probe/pool/serving are
+unchanged. (`engine/platform-linux.sh`: `_static_php_install`, `_is_static_php`, hybrid `cmd_install`
+php@* case, static-aware `cmd_update`/`cmd_uninstall`.)
+
+**Mac equivalent:** Homebrew already provides every PHP version (`brew install shivammathur/php/php@8.x`)
+on every supported macOS, so there is no apt/Ondřej-style gap — the Mac never needs a static fallback.
+Logged here only for cross-platform traceability per the standing rule.

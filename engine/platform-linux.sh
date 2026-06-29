@@ -117,6 +117,40 @@ php_key(){
   echo "php@$v"
 }
 
+# ── Portable static PHP (static-php-cli · dl.static-php.dev) ──────────────────
+# The hybrid fallback for PHP versions the distro/Ondřej can't provide (e.g. 8.4 on a brand-new
+# Ubuntu that only ships 8.5). These are FULLY STATIC php-fpm binaries (no system libs) so they run
+# on any release. We install one to /usr/local/lib/bhserve/php/<v>/php-fpm and symlink it in at the
+# SAME /usr/sbin/php-fpm<v> path the distro uses — so detection, version-probe, pool rendering and
+# serving all work with zero further changes.
+_STATIC_PHP_BASE="https://dl.static-php.dev/static-php-cli/common"
+_static_php_arch(){ case "$(uname -m)" in aarch64|arm64) echo aarch64 ;; *) echo x86_64 ;; esac; }
+_static_php_install(){
+  local v="$1" arch file tmp bin sysdir
+  arch="$(_static_php_arch)"
+  # Never clobber a real distro php-fpm binary — if one is already at the standard path (and it's
+  # not our own symlink), the distro provides this version; nothing to do.
+  if [ -e "/usr/sbin/php-fpm$v" ] && ! _is_static_php "$v"; then
+    ok "PHP $v already provided by the distro package"; return 0
+  fi
+  hdr "Installing PHP $v  (portable static build)"
+  file="$(curl -fsSL "$_STATIC_PHP_BASE/" 2>/dev/null \
+          | grep -oE "php-$v\.[0-9]+-fpm-linux-$arch\.tar\.gz" | sort -uV | tail -1)"
+  [ -n "$file" ] || { no "no portable PHP $v build available for $arch"; return 1; }
+  sysdir="/usr/local/lib/bhserve/php/$v"; tmp="$(mktemp -d)"
+  if curl -fsSL "$_STATIC_PHP_BASE/$file" -o "$tmp/fpm.tgz" \
+     && tar xzf "$tmp/fpm.tgz" -C "$tmp" 2>/dev/null \
+     && bin="$(find "$tmp" -type f -name 'php-fpm' | head -1)" && [ -n "$bin" ]; then
+    $SUDO mkdir -p "$sysdir"
+    $SUDO install -m 0755 "$bin" "$sysdir/php-fpm"
+    $SUDO ln -sf "$sysdir/php-fpm" "/usr/sbin/php-fpm$v"
+    rm -rf "$tmp"; ok "PHP $v installed (portable · $file)"; return 0
+  fi
+  rm -rf "$tmp"; no "portable PHP $v download/extract failed"; return 1
+}
+# True when php-fpm<v> is a portable static build (symlink into our lib dir), not a distro package.
+_is_static_php(){ local l="/usr/sbin/php-fpm$1"; [ -L "$l" ] && readlink -f "$l" 2>/dev/null | grep -q "/usr/local/lib/bhserve/php/"; }
+
 # ── apt helpers ──────────────────────────────────────────────────────────────
 # Privileged runner (SUDO is set above: "" when already root via pkexec/sudo, else "sudo").
 # Use `env` for the var: a bare "VAR=val cmd" after an EMPTY $SUDO makes bash try to RUN
@@ -204,24 +238,28 @@ cmd_install() {
     case "$key" in
       php@*)
         v="${key#php@}"; _ensure_php_repo
-        hdr "Installing $key  (apt)"
-        # Core + WordPress-essential extensions are required; the rest are best-effort (installed one
-        # at a time) so a package that isn't built for this release doesn't fail the whole install.
+        hdr "Installing $key"
+        # Hybrid: prefer the DISTRO/Ondřej package (native, apt-managed extensions, ionCube-capable).
+        # Core + WordPress-essential extensions are required; the rest are best-effort (one at a time)
+        # so a package not built for this release doesn't fail the whole install.
         if _apt install -y "php$v-fpm" "php$v-cli" "php$v-common" "php$v-mysql" "php$v-curl" \
-                           "php$v-mbstring" "php$v-xml" "php$v-zip" "php$v-gd" "php$v-intl"; then
+                           "php$v-mbstring" "php$v-xml" "php$v-zip" "php$v-gd" "php$v-intl" 2>/dev/null; then
           local _e
           for _e in pgsql sqlite3 bcmath soap readline opcache imagick gmp; do
             _apt install -y "php$v-$_e" >/dev/null 2>&1 || true
           done
-          _disable_system_unit "php$v-fpm"; ok "$key installed"
-          # If the configured default PHP isn't actually installed (e.g. registry default 8.4 on a
-          # release that ships 8.5), adopt this freshly-installed version so NEW sites get a usable PHP.
+          _disable_system_unit "php$v-fpm"; ok "$key installed (distro)"
+        # Fallback: a fully-static portable build — works on any release the distro/Ondřej can't cover.
+        elif _static_php_install "$v"; then
+          : # _static_php_install already printed success
+        else
+          no "install $key failed — no distro package and no portable build for PHP $v ($(_static_php_arch))"
+          failed=1
+        fi
+        # Adopt a freshly-installed version as the default when the configured default isn't installed.
+        if svc_installed "$key"; then
           svc_installed "php@$(jget default_php 8.4)" 2>/dev/null \
             || { json_set default_php "$v" 2>/dev/null && info "default PHP set to $v"; }
-        else
-          local _av; _av="$($SUDO apt-cache search --names-only 'php[0-9.]*-fpm' 2>/dev/null | grep -oE 'php[0-9]+\.[0-9]+' | sort -uV | sed 's/php/php@/' | tr '\n' ' ')"
-          no "install $key failed — PHP $v isn't packaged for Ubuntu $(_codename). Available here: ${_av:-none}"
-          failed=1
         fi ;;
       nginx)
         hdr "Installing nginx  (apt)"
@@ -279,7 +317,9 @@ cmd_update() {
     role="$(svc_role "$key")"
     hdr "Updating $key → latest  (apt upgrade)"
     case "$key" in
-      php@*) _ensure_php_repo; _apt install -y --only-upgrade $(_php_pkgs "${key#php@}") 2>&1 | tail -2 || true ;;
+      php@*)
+        if _is_static_php "${key#php@}"; then _static_php_install "${key#php@}"   # re-fetch newest static patch
+        else _ensure_php_repo; _apt install -y --only-upgrade $(_php_pkgs "${key#php@}") 2>&1 | tail -2 || true; fi ;;
       *)     _apt install -y --only-upgrade "$(svc_formula "$key")" 2>&1 | tail -2 || true ;;
     esac
     # Restart BHServe's own running instance onto the new binary so sites keep working.
@@ -298,6 +338,14 @@ cmd_uninstall() {
   for key in "$@"; do
     svc_exists "$key" || { warn "unknown service: $key"; continue; }
     svc_installed "$key" || { warn "$key not installed"; continue; }
+    # Portable static PHP: not an apt package — drop the symlink + the lib dir.
+    if [[ "$key" == php@* ]] && _is_static_php "${key#php@}"; then
+      hdr "Uninstalling $key  (portable build)"
+      svc_stop_any "$key"
+      $SUDO rm -f "/usr/sbin/php-fpm${key#php@}"
+      $SUDO rm -rf "/usr/local/lib/bhserve/php/${key#php@}"
+      ok "$key uninstalled"; continue
+    fi
     pkg="$(svc_formula "$key")"
     hdr "Uninstalling $key  (apt remove $pkg)"
     svc_stop_any "$key"
