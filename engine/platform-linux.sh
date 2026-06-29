@@ -254,7 +254,13 @@ cmd_install() {
         elif _static_php_install "$v"; then
           : # _static_php_install already printed success
         else
-          no "install $key failed — no distro package and no portable build for PHP $v ($(_static_php_arch))"
+          # Version-aware guidance. static-php-cli only builds 8.0+, so anything < 8.0 (7.4, EOL) can
+          # ONLY come from Ondřej/Sury on a release they've packaged — never from the static fallback.
+          if [ "${v%%.*}" -lt 8 ]; then
+            no "PHP $v is end-of-life — it's only packaged on an LTS (Ubuntu 22.04/24.04 or Debian) via the Ondřej/Sury repo, and there's no static build for it. This release ($(_codename)) has no PHP $v. Use BHServe on an LTS for $v, or pick PHP 8.0+ here."
+          else
+            no "install $key failed — no distro package for $(_codename) and no portable build for PHP $v ($(_static_php_arch)). Static builds exist for 8.0–8.5; check the version."
+          fi
           failed=1
         fi
         # Adopt a freshly-installed version as the default when the configured default isn't installed.
