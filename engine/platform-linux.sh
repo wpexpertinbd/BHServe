@@ -258,8 +258,11 @@ cmd_install() {
           failed=1
         fi
         # Adopt a freshly-installed version as the default when the configured default isn't installed.
+        # default_php may be stored bare (8.4) or prefixed (php@8.4, as `config set` writes it) — strip
+        # any prefix so the check doesn't become svc_installed "php@php@8.4" (always false → hijacks default).
         if svc_installed "$key"; then
-          svc_installed "php@$(jget default_php 8.4)" 2>/dev/null \
+          local _dp; _dp="$(jget default_php 8.4)"; _dp="${_dp#php@}"
+          svc_installed "php@$_dp" 2>/dev/null \
             || { json_set default_php "$v" 2>/dev/null && info "default PHP set to $v"; }
         fi ;;
       nginx)
