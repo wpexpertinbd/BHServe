@@ -1118,8 +1118,6 @@ site_add() {
   ul { list-style-type:none; padding:0; }
   ul li { margin:10px 0; font-size:16px; color:#444; }
   code { background:#eef7ee; color:#20a53a; padding:1px 6px; border-radius:4px; }
-  .footer { margin-top:22px; font-size:13px; color:#999; }
-  .footer a { color:#20a53a; text-decoration:none; }
 </style>
 </head>
 <body>
@@ -1130,7 +1128,6 @@ site_add() {
       <li>Your site's <code>index.php</code> file is located in the root directory.</li>
       <li>Feel free to modify, delete, or replace this page to customize your site!</li>
     </ul>
-    <div class='footer'>Powered by <strong>BHServe</strong> &middot; <a href='https://www.biswashost.com' target='_blank' rel='noopener'>biswashost.com</a></div>
   </div>
 </body>
 </html>

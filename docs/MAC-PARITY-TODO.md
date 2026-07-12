@@ -270,3 +270,31 @@ predictable `/tmp/bh-fnm` to `mktemp -d` (symlink/TOCTOU); (4) `tar --no-same-ow
 extract. **Mac TODO:** the macOS engine's `curl` fetches (WordPress / wp-salts / ionCube / phpMyAdmin /
 Adminer) could take the same `--proto =https --proto-redir =https`; the Mac updater already has an
 `_is_github_host` allowlist (parity OK there).
+
+---
+
+## 7. NEW — generic default page (no web-server name) + clearer server picker  *(Windows: win-v1.0.31)*
+
+Two related fixes after a user who chose Apache saw the default page report **nginx** and thought nginx
+wasn't installed (it was — an Apache site is fronted by nginx, so `SERVER_SOFTWARE` reads nginx).
+
+**A. Default site page — ALREADY DONE for macOS (shared engine).** The `engine/bhserve` default
+`index.php` (used by macOS + Linux) was replaced with a clean, generic "🎉 Congratulations! Your website
+is live now!" page that names **no web server** and has **no branding footer** (dropped the "Powered by
+BHServe · biswashost.com" line per request). So the Mac already ships this via the shared engine — no
+action needed. (Windows has its own copy in `BHServe.Core/Engine.cs::DefaultIndexPhp`, updated to match.)
+
+**B. Add-site server picker — needs the macOS Swift GUI updated.** Make the server choice
+self-explanatory so users know nginx alone serves PHP and Apache is a `.htaccess` backend behind nginx:
+- Relabel the picker options: **"nginx (serves PHP)"** and **"Apache (+ nginx, for .htaccess)"**, plus a
+  tooltip: *"nginx serves PHP on its own — all you need for PHP/WordPress. Apache is only for sites
+  needing native .htaccess; it runs behind nginx, so choosing it uses nginx too."*
+- **Requirement guard:** when the user picks **Apache**, require BOTH **nginx + apache** (Apache listens
+  only on :8080; nginx owns :80/:443 and proxies to it — an Apache-only setup has nothing serving :80 →
+  dead site). Windows fix: `RequiredServices` returns `{nginx, apache}` for `server=apache`. The Mac's
+  `AppState.siteRequirements`/`ensureSiteServices` should do the same.
+
+**Windows source to diff against:** `windows/src/BHServe.App/Views/SitesPage.xaml` (ComboBox labels +
+`Tag` for the real value) + `SitesPage.xaml.cs` (`SelectedServer` reads `Tag`); `BHServe.Core/Engine.cs`
+`RequiredServices` (nginx+apache for Apache) + `DefaultIndexPhp` (generic page). Linux equivalent:
+`linux/app/bhserve/window.py` (descriptive DropDown strings + tooltip, value stays index-mapped).
