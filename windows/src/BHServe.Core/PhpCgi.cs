@@ -89,6 +89,28 @@ public static class PhpCgi
         Directory.CreateDirectory(confd);
         psi.Environment["PHP_INI_SCAN_DIR"] = ";" + confd;
 
+        // ── Guarantee a usable Path + SystemRoot for the workers ────────────────────────────────
+        // The tray App can be launched with a STRIPPED environment (empty Path/SystemRoot — observed
+        // when it starts via its login-item/elevation path). php-cgi inherits that, and the FastCGI
+        // CHILD workers the master then spawns can't resolve the ionCube loader's dependency DLLs (the
+        // VC++ runtime in System32) → ionCube SILENTLY fails to load, breaking every ionCube-encoded
+        // app (e.g. WHMCS). A directly-launched php-cgi loads ionCube fine even with an empty env; only
+        // the master-spawned children are hit, and only when Path/SystemRoot are missing. Rebuild a
+        // sane Path (php dir + Windows system dirs) + SystemRoot so the workers load ionCube regardless
+        // of how the App itself was launched. Prepend our dirs; keep any inherited Path after them.
+        var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);   // C:\Windows\System32
+        var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);  // C:\Windows
+        var phpDir = Path.GetDirectoryName(exe)!;
+        var pathParts = new List<string> { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
+        if (psi.Environment.TryGetValue("Path", out var inheritedPath) && !string.IsNullOrWhiteSpace(inheritedPath))
+            pathParts.Add(inheritedPath);
+        psi.Environment["Path"] = string.Join(";",
+            pathParts.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
+        if (!psi.Environment.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr))
+            psi.Environment["SystemRoot"] = winDir;
+        if (!psi.Environment.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd))
+            psi.Environment["windir"] = winDir;
+
         var proc = Process.Start(psi);
         if (proc is null) return false;
         Directory.CreateDirectory(Paths.Run);
