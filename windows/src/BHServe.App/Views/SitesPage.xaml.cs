@@ -44,7 +44,8 @@ public sealed partial class SitesPage : Page
 
     // ── add row ──────────────────────────────────────────────────────────────────
     private string SelectedPhp => (PhpBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
-    private string SelectedServer => (ServerBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "nginx";
+    // Read the real server key from Tag (the Content is a descriptive label like "nginx (serves PHP)").
+    private string SelectedServer => (ServerBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "nginx";
     private string SelectedType => ((TypeBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "") switch
     {
         "WordPress"  => "wordpress",

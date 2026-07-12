@@ -27,9 +27,10 @@
                     <ComboBoxItem Content="Node app"/>
                     <ComboBoxItem Content="Python app"/>
                 </ComboBox>
-                <ComboBox x:Name="ServerBox" Width="100" SelectedIndex="0">
-                    <ComboBoxItem Content="nginx"/>
-                    <ComboBoxItem Content="apache"/>
+                <ComboBox x:Name="ServerBox" Width="230" SelectedIndex="0"
+                          ToolTipService.ToolTip="nginx serves PHP on its own — all you need for PHP/WordPress. Apache is only for sites that need native .htaccess; it runs behind nginx, so choosing it uses nginx too.">
+                    <ComboBoxItem Content="nginx (serves PHP)" Tag="nginx"/>
+                    <ComboBoxItem Content="Apache (+ nginx, for .htaccess)" Tag="apache"/>
                 </ComboBox>
                 <CheckBox x:Name="SslBox" Content="HTTPS" IsChecked="True"
                           ToolTipService.ToolTip="Issue a trusted SSL certificate now. You can also enable it later from the site's row."/>

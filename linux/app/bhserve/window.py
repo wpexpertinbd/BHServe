@@ -257,7 +257,11 @@ class MainWindow(Adw.ApplicationWindow):
                          if s["role"] == "php" and s["installed"]]
         php_choices = installed_php or [k.replace("php@", "") for k in P.PHP_KEYS]
         php = Gtk.DropDown.new_from_strings(php_choices)
-        srv = Gtk.DropDown.new_from_strings(["nginx", "apache"])
+        # Labels are descriptive; the actual --server value is mapped by index below (nginx / apache).
+        srv = Gtk.DropDown.new_from_strings(["nginx — serves PHP", "Apache — + nginx, for .htaccess"])
+        srv.set_tooltip_text("nginx serves PHP on its own — all you need for PHP/WordPress. "
+                             "Apache is only for sites needing native .htaccess; it runs behind nginx, "
+                             "so choosing it uses nginx too.")
         ssl = Gtk.CheckButton(label="Enable trusted HTTPS (mkcert)", active=True)
         for w, lab in ((name, "Name"), (typ, "Type"), (php, "PHP"), (srv, "Web server")):
             row = Gtk.Box(spacing=10)
