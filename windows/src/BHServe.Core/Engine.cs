@@ -92,7 +92,10 @@ public sealed class Engine
         var cfg = Config.Load();
         if (type == "node") return new List<string> { "nginx", "fnm" };
         if (type == "python") return new List<string> { "nginx", "python" };
-        var req = new List<string> { server == "apache" ? "apache" : "nginx" };
+        // An Apache site is a BACKEND behind nginx: Apache listens only on 127.0.0.1:8080, while nginx
+        // owns :80/:443 (+ TLS + *.test) and proxies to it. So "Apache" needs BOTH nginx AND apache —
+        // otherwise an Apache-only install has nothing serving :80 and the site is dead.
+        var req = server == "apache" ? new List<string> { "nginx", "apache" } : new List<string> { "nginx" };
         if (type is "php" or "wordpress") req.Add(Services.PhpKey(php, cfg));
         if (type == "wordpress")
             req.Add(Services.Installed("mysql", cfg) && !Services.Installed("mariadb", cfg) ? "mysql" : "mariadb");
