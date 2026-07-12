@@ -158,10 +158,17 @@ BHServe.App.exe"** — this is **Smart App Control** (a Windows 11 feature), not
 > cost). Each new release is a fresh unsigned file with no reputation yet, so SmartScreen/Smart App
 > Control can flag it. A signed build (planned) removes this entirely.
 
-### 🐧 Linux
+### 🐧 Linux (Ubuntu/Debian — beta)
 
-🚧 **Coming soon.** (The engine is largely portable; the GTK app + packaging are in
-progress — see `docs/LINUX-PORT.md`.)
+Download **`bhserve_x.y.z_all.deb`** from the latest **`linux-v*`** release and install it:
+
+```bash
+cd ~/Downloads && sudo apt install ./bhserve_*.deb
+bhserve-gui        # or launch “BHServe” from your apps menu
+```
+
+Future updates: `bhserve self-update`. Full guide → [`linux/README.md`](linux/README.md).
+Debian/Ubuntu only (uses `apt`); tested on Ubuntu 24.04 + 26.04.
 
 ---
 
@@ -258,7 +265,8 @@ Everything is in this repo:
 - **macOS** — Bash engine (`engine/bhserve`) + SwiftUI app (`app/`). `cd app && ./build-app.sh`
   then `./make-dist.sh` → `.dmg` + `.pkg`.
 - **Windows** — C# / .NET + WinUI (`windows/`). See **`windows/README.md`** (`build.ps1`).
-- **Linux** — in progress; see `docs/LINUX-PORT.md`.
+- **Linux** — Bash engine (`engine/bhserve` + `engine/platform-linux.sh`) + GTK4/PyGObject app
+  (`linux/`). `cd linux && ./build.sh` → `dist/bhserve_<ver>_all.deb`. See **`linux/README.md`**.
 
 Data lives in `~/.bhserve/` (macOS) / `%LOCALAPPDATA%\BHServe` (Windows); sites default to
 `~/BHServe/www/`. The engine is usable directly too (`bhserve doctor`, `site add`, `secure`, `status`, …).
