@@ -611,8 +611,10 @@ final class AppState {
             reqs.append(.init(key: "nginx", label: "nginx"))
             reqs.append(.init(key: "python", label: "Python"))
         default:
+            // nginx always owns :80/:443. An Apache site is fronted by nginx (Apache listens on
+            // :8080 for .htaccess), so it needs BOTH — an Apache-only setup has nothing on :80.
+            reqs.append(.init(key: "nginx", label: "nginx"))
             if server == "apache" { reqs.append(.init(key: "httpd", label: "Apache")) }
-            else { reqs.append(.init(key: "nginx", label: "nginx")) }
             if type == "php" || type == "wordpress" {
                 reqs.append(.init(key: php, label: "PHP \(php.replacingOccurrences(of: "php@", with: ""))"))
                 reqs.append(.init(key: mysqlServiceKey, label: mysqlLabel))

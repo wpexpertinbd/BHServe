@@ -244,12 +244,13 @@ struct AddSiteSheet: View {
                     ForEach(state.phpChoices, id: \.self) { Text($0).tag($0) }
                 }
                 Picker("Web server", selection: $server) {
-                    Text("nginx (fast)").tag("nginx")
-                    Text(state.httpdInstalled ? "Apache (.htaccess)" : "Apache — needs httpd").tag("apache")
+                    Text("nginx (serves PHP)").tag("nginx")
+                    Text("Apache (+ nginx, for .htaccess)").tag("apache")
                 }
-                if server == "apache" && !state.httpdInstalled {
-                    Label("Install httpd in Services to use Apache.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                .help("nginx serves PHP on its own — all you need for PHP/WordPress. Apache is only for sites needing native .htaccess; it runs behind nginx, so choosing it uses nginx too.")
+                if server == "apache" {
+                    Text("Apache runs behind nginx for native .htaccess support — BHServe will use both.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Picker("Site root", selection: $rootMode) {
                     Text("Default folder").tag("default")
@@ -283,7 +284,7 @@ struct AddSiteSheet: View {
                 .disabled(cleanName.isEmpty
                           || (isNode ? !nodeReady
                               : isPython ? !pyReady
-                                     : (php.isEmpty || (server == "apache" && !state.httpdInstalled)
+                                     : (php.isEmpty
                                         || (rootMode == "custom" && !customRoot.hasPrefix("/")))))
             }
         }
