@@ -28,21 +28,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install reprepro
-        run: sudo apt-get update && sudo apt-get install -y reprepro
-
-      - name: Import the signing key
+      # The apt repo is opt-in: it needs a one-time setup (signing key secret + Pages) documented in
+      # linux/apt-repo/README.md. Until that's done, SKIP gracefully (green, with a notice) instead of
+      # failing — so every Linux release doesn't email a failed run.
+      - name: Check for signing key
+        id: check
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: |
           if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
-            echo "::error::APT_GPG_PRIVATE_KEY secret is not set — see linux/apt-repo/README.md"; exit 1
+            echo "::notice::APT_GPG_PRIVATE_KEY secret not set — skipping apt-repo publish (this is NOT an error). See linux/apt-repo/README.md to enable native 'apt install bhserve'."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install reprepro
+        if: steps.check.outputs.configured == 'true'
+        run: sudo apt-get update && sudo apt-get install -y reprepro
+
+      - name: Import the signing key
+        if: steps.check.outputs.configured == 'true'
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
           echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
           KEYID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
           echo "$KEYID:6:" | gpg --import-ownertrust   # trust it so signing is non-interactive
 
       - name: Download the latest Linux .deb
+        if: steps.check.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -54,13 +69,16 @@ jobs:
           ls -l debs
 
       - name: Build the apt repository
+        if: steps.check.outputs.configured == 'true'
         run: bash linux/apt-repo/build-repo.sh public debs/*.deb
 
       - name: Upload Pages artifact
+        if: steps.check.outputs.configured == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
       - name: Deploy to GitHub Pages
         id: deploy
+        if: steps.check.outputs.configured == 'true'
         uses: actions/deploy-pages@v4
