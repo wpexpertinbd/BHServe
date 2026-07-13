@@ -33,7 +33,7 @@ button.suggested-action:hover { background-color: #0b5ed7; }
 
 /* dashboard metric cards */
 .bh-metric { padding: 14px 16px; }
-.bh-metric .bh-metric-val { font-size: 26px; font-weight: 800; }
+.bh-metric .bh-metric-val { font-size: 20px; font-weight: 600; }
 .bh-metric .bh-metric-cap { font-size: 12px; }
 
 .bh-hero {
