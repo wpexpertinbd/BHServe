@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.32"
+#define MyAppVersion "1.0.33"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -52,7 +52,12 @@ Name: "addtopath"; Description: "Add the bhserve CLI to PATH"; GroupDescription:
 [Files]
 ; dotnet publish output (self-contained) goes to ..\publish\ - copy it all.
 ; This includes BHServe.App.exe (GUI), bhserve.exe (CLI), bhserve-elevate.exe (UAC helper).
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Microsoft.WindowsAppRuntime.Insights.Resource.dll is excluded from the wildcard and installed
+; with restartreplace below: Windows maps that telemetry resource DLL into UNRELATED processes
+; (browsers etc.), which locks it and made updates fail with "DeleteFile failed; code 5". With
+; restartreplace an in-use copy is silently replaced on the next reboot instead of erroring.
+Source: "..\publish\*"; DestDir: "{app}"; Excludes: "Microsoft.WindowsAppRuntime.Insights.Resource.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\Microsoft.WindowsAppRuntime.Insights.Resource.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete
 #ifdef Bundle
 ; Bundled server binaries (nginx/php/mysql/redis/...) so the install needs NO runtime
 ; downloads - which is what stops antivirus flagging bhserve.exe as a downloader.
