@@ -27,6 +27,15 @@
 > (no `-v`, no newline/backslash/`$`/`&` escape processing) → all 8 salts land verbatim, `php -l` clean.
 > The .NET-specific `$`/`Regex.Replace` corruption never applied to the Mac.
 >
+> ✅ **#7 done in `v1.7.5`.** (A) **Generic default page** was already shipping on macOS via the shared
+> `engine/bhserve` (the "🎉 Congratulations! Your website is live now!" page — no web-server name, no
+> branding footer). (B) **Clearer server picker + Apache requirement guard**: relabeled the Add-site
+> options to **"nginx (serves PHP)"** / **"Apache (+ nginx, for .htaccess)"** with an explaining
+> tooltip; `AppState.siteRequirements` now requires **nginx + httpd** for an Apache site (nginx owns
+> :80/:443 and proxies to Apache on :8080 — an Apache-only site has nothing on :80); dropped the old
+> "Add disabled until httpd installed" gate + inline warning so the requirement guard installs+starts
+> both on confirm, exactly like Node/Python.
+>
 > ✅ **#6 ported to macOS in `v1.6.13`** — three UX features. (A) Per-site **"Open in code editor"** →
 > `AppState.openInEditor` auto-detects VS Code → Cursor → Sublime Text → PhpStorm (via bundle-id /
 > `/Applications` / `~/Applications`), `open -a <app> <dir>`, Finder fallback. (B) Per-site
