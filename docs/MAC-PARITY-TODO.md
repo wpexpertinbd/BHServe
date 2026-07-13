@@ -474,10 +474,16 @@ like `api.amarmedi.test` resolved to `api`, its `api.amarmedi.conf` was never fo
 silently no-op'd. Now strips the `.$tld` suffix → `api.amarmedi`. This is the same bug I fixed in the
 Windows C# `Secure` (`domain.Split('.')[0]`) — macOS inherits the shell fix automatically.
 
-**Checked, NOT applicable to Linux/Mac (unlike Windows):** the daemon-stop-by-tracked-pid orphan bug
-(nginx_stop kills by config-path pgrep fallback; fpm_stop kills a real php-fpm master) and the
-reload-vs-restart cert staleness (Linux `nginx -s reload` cleanly re-reads certs, no intercepting-AV
-compounding). So no restart change needed on the shell side.
+**⚠️ CORRECTION (linux-v1.0.36) — reload-vs-restart DOES apply to Linux/Mac for the REMOVE case.**
+I first concluded `nginx -s reload` was enough on the shell side. It is NOT. Installing SSL works on
+reload (fresh browser connection → new worker → cert served). But **Removing SSL** left the old
+workers serving the previous cert on kept-alive connections (up to `keepalive_timeout`, ~65s), so the
+site still showed HTTPS until a manual restart-all — exactly the Windows symptom. Fix: `_rerender_site_vhost`
+now renders the vhost then does a full **nginx stop+start** (not `maybe_reload_nginx`), matching Windows'
+`RerenderVhostAndRestart`. So secure/unsecure/resecure all apply instantly. **macOS inherits this
+automatically** (shared engine) — verify a full nginx restart is clean on Mac (it uses the same
+`nginx_stop`/`nginx_start`, so it should be). The daemon-stop-by-tracked-pid orphan bug remains
+NOT applicable to Linux/Mac (nginx_stop kills by config-path pgrep fallback; fpm_stop kills a real master).
 
 **Linux GUI (done):** site-row `_site_menu` (pages.py) now shows **Install SSL (HTTPS)** when http-only,
 and **Reinstall SSL (fresh certificate)** + **Remove SSL** (confirm) when secured — wired to the new verbs.
