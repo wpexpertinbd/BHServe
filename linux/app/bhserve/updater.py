@@ -105,9 +105,13 @@ def download_and_install(deb_url: str, on_log=lambda s: None) -> tuple[bool, str
         with urllib.request.urlopen(req, timeout=120, context=ctx) as r, os.fdopen(fd, "wb") as f:
             f.write(r.read())
         on_log("Installing (you may be asked for your password)…")
-        # pkexec gives a graphical prompt; apt resolves any new deps.
-        p = subprocess.run(["pkexec", "apt-get", "install", "-y", path],
-                           capture_output=True, text=True)
+        # pkexec gives a graphical prompt. Install via `dpkg -i` (upgrades in place) then
+        # `apt-get -f install` to pull any new deps — NOT `apt/apt-get install ./file.deb`,
+        # which fails on apt 2.9+ (Ubuntu 25.04+) with "Unsupported file … given on commandline".
+        # Pass the path as $1 so no shell-quoting of the temp path is needed.
+        p = subprocess.run(
+            ["pkexec", "sh", "-c", 'dpkg -i "$1"; apt-get -f install -y', "sh", path],
+            capture_output=True, text=True)
         os.unlink(path) if os.path.exists(path) else None
         if p.returncode == 0:
             return True, "Update installed — restart BHServe to use the new version."

@@ -59,7 +59,8 @@ same everywhere.)*
 
 ```bash
 # download bhserve_<version>_all.deb from the linux-v* release, then:
-sudo apt install ./bhserve_<version>_all.deb
+sudo dpkg -i ./bhserve_<version>_all.deb
+sudo apt-get -f install -y      # first install only: pulls in deps
 bhserve-gui        # or launch “BHServe” from your apps menu
 ```
 
@@ -165,7 +166,8 @@ BHServe.App.exe"** — this is **Smart App Control** (a Windows 11 feature), not
 Download **`bhserve_x.y.z_all.deb`** from the latest **`linux-v*`** release and install it:
 
 ```bash
-cd ~/Downloads && sudo apt install ./bhserve_*.deb
+cd ~/Downloads
+sudo dpkg -i ./bhserve_*.deb && sudo apt-get -f install -y
 bhserve-gui        # or launch “BHServe” from your apps menu
 ```
 

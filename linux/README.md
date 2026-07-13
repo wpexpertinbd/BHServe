@@ -16,16 +16,22 @@ one-click WordPress — all installed **on demand**, so the download stays small
 
 ```bash
 cd ~/Downloads     # wherever the .deb downloaded
-sudo apt install ./bhserve_*.deb
+sudo dpkg -i ./bhserve_*.deb
+sudo apt-get -f install -y
 ```
 
 Or grab it straight from the terminal (bump the version to the latest release):
 
 ```bash
 cd /tmp
-wget https://github.com/wpexpertinbd/BHServe/releases/download/linux-v1.0.19/bhserve_1.0.19_all.deb
-sudo apt install ./bhserve_1.0.19_all.deb
+wget https://github.com/wpexpertinbd/BHServe/releases/download/linux-v1.0.37/bhserve_1.0.37_all.deb
+sudo dpkg -i ./bhserve_1.0.37_all.deb
+sudo apt-get -f install -y
 ```
+
+> The second line pulls in any missing dependencies (only needed on a first install). Use
+> `dpkg -i`, **not** `apt install ./file.deb` — on newer Ubuntu (25.04+/apt 2.9+) the latter fails
+> with *"Unsupported file … given on commandline"*.
 
 **2. Launch it** — open **“BHServe”** from your applications menu, or run:
 
@@ -50,7 +56,7 @@ bhserve self-update
 ```
 
 Checks the latest release and installs it if you're behind — no version-tracking or manual re-download.
-(You can also just `sudo apt install ./bhserve_<newer>.deb` over the top.)
+(You can also just `sudo dpkg -i ./bhserve_<newer>.deb` over the top — it upgrades in place.)
 
 ---
 

@@ -113,3 +113,7 @@ OUT="$DIST/bhserve_${VERSION}_all.deb"
 dpkg-deb --root-owner-group --build "$PKG" "$OUT" >/dev/null
 echo "✓ $OUT"
 ls -la "$OUT"
+echo
+echo "Install / upgrade (use dpkg — 'apt install ./file.deb' fails on apt 2.9+):"
+echo "  sudo dpkg -i $OUT"
+echo "  sudo apt-get -f install -y      # first install only: pulls in deps"

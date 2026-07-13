@@ -256,4 +256,5 @@ JSON shape.
 - **Wayland vs X11** for the tray/AppIndicator — libadwaita handles most, but test the
   `StatusNotifierItem` on stock GNOME (needs the AppIndicator extension on some setups).
 - **No code-signing/notarization needed** (Linux has no Gatekeeper) — one less hassle
-  than Mac/Windows. `.deb` users just `apt install ./file.deb`.
+  than Mac/Windows. `.deb` users just `dpkg -i ./file.deb && apt-get -f install -y` (not
+  `apt install ./file.deb` — newer apt 2.9+ rejects a local path with "Unsupported file").

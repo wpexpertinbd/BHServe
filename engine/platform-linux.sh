@@ -827,11 +827,21 @@ cmd_self_update(){
   tmp="$(mktemp -d)"
   hdr "Downloading + installing $latest…"
   # No --allow-downgrades: self-update only moves forward; a forced downgrade is never a normal update.
-  if curl $_CURL_HTTPS -fsSL "$url" -o "$tmp/bhserve.deb" \
-     && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp/bhserve.deb"; then
-    rm -rf "$tmp"; ok "updated ${cur:-?} → $latest — restart the BHServe app if it's open"; return 0
+  if ! curl $_CURL_HTTPS -fsSL "$url" -o "$tmp/bhserve.deb"; then
+    rm -rf "$tmp"; no "self-update failed (download error)"; return 1
   fi
-  rm -rf "$tmp"; no "self-update failed (download or apt error)"; return 1
+  # Install via `dpkg -i` (upgrades in place) then `apt-get -f install` to pull any new deps — NOT
+  # `apt-get install <path.deb>`, which fails on apt 2.9+ (Ubuntu 25.04+) with "Unsupported file".
+  # dpkg -i exits non-zero when a dep is missing (leaves the pkg unpacked); apt-get -f then configures
+  # it + installs the deps — so run apt-get -f unconditionally, then VERIFY the installed version.
+  $SUDO env DEBIAN_FRONTEND=noninteractive dpkg -i "$tmp/bhserve.deb" >/dev/null 2>&1 || true
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get -f install -y >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  local now; now="$(dpkg-query -W -f='${Version}' bhserve 2>/dev/null || true)"
+  if [ "$now" = "$latest" ]; then
+    ok "updated ${cur:-?} → $latest — restart the BHServe app if it's open"; return 0
+  fi
+  no "self-update failed (dpkg/apt error) — grab the .deb from the releases page and run: sudo dpkg -i bhserve_${latest}_all.deb && sudo apt-get -f install -y"; return 1
 }
 
 # Linux-only verb, not in the shared dispatch: intercept it here (platform-linux.sh is sourced just
