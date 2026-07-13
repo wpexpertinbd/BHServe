@@ -1605,6 +1605,9 @@ db_users_mysql(){ mysql_run -N -e "SELECT user FROM mysql.user WHERE host='local
 
 # Escape a string for a MySQL single-quoted literal.
 mysql_esc(){ local s="$1"; s="${s//\\/\\\\}"; s="${s//\'/\\\'}"; printf '%s' "$s"; }
+# Escape a string for a PostgreSQL single-quoted literal: double the quotes (backslashes are
+# literal under the default standard_conforming_strings=on — MySQL backslash-escaping is wrong for PG).
+pg_esc(){ printf '%s' "${1//\'/\'\'}"; }
 
 # Password comes from --password OR $BHSERVE_DB_PASSWORD (env keeps it out of `ps`).
 DB_PASSWORD=""
@@ -1694,7 +1697,7 @@ db_create(){
       ok "created postgres db '$name'"
       if [ -n "$DB_PASSWORD" ]; then
         "$(PSQL_CLI)" -U "$USER_NAME" -d postgres -c \
-          "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(mysql_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(mysql_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
+          "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(pg_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(pg_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
           && ok "role '$name' created with password" || warn "role/grant failed"
       fi ;;
     *) die "unknown engine: $engine (mysql|pg)" ;;
@@ -1710,7 +1713,7 @@ db_set_password(){
       mysql_grant_user "$name" && ok "password set for '$name'@localhost" || die "set password failed (is the server running?)" ;;
     pg|postgres) local c; c="$(PSQL_CLI)"; [ -x "$c" ] || die "postgresql not installed"
       "$c" -U "$USER_NAME" -d postgres -c \
-        "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(mysql_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(mysql_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
+        "DO \$\$ BEGIN CREATE ROLE \"$name\" LOGIN PASSWORD '$(pg_esc "$DB_PASSWORD")'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE \"$name\" PASSWORD '$(pg_esc "$DB_PASSWORD")'; END \$\$; GRANT ALL PRIVILEGES ON DATABASE \"$name\" TO \"$name\";" \
         && ok "password set for role '$name'" || die "set password failed" ;;
     *) die "unknown engine: $engine (mysql|pg)" ;;
   esac

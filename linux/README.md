@@ -1,11 +1,11 @@
-# BHServe for Linux — Ubuntu / Debian (beta)
+# BHServe for Linux — Ubuntu / Debian
 
 A free local web server for Linux — the same app, features and sites as the macOS/Windows builds, as a
 **GTK4 / libadwaita** control panel + a `bhserve` CLI. Multiple PHP versions per site, nginx & Apache,
 MariaDB / MySQL / PostgreSQL, Redis & Memcached, Node & Python apps, trusted HTTPS + `*.test` domains,
 one-click WordPress — all installed **on demand**, so the download stays small.
 
-> 🧪 **Beta.** Works end-to-end (verified on Ubuntu 24.04 and 26.04). Please report issues.
+> ✅ **Stable.** Works end-to-end (verified on Ubuntu 24.04 and 26.04). Please report any issues.
 
 ---
 
@@ -94,6 +94,10 @@ rm -rf ~/.bhserve                # optional: also wipe BHServe's data (config, c
 - **Native `apt install bhserve`** (a signed apt repo, so `apt upgrade` handles updates) is wired up but
   **opt-in** — see [`apt-repo/README.md`](apt-repo/README.md) to enable it. Until then, use the `.deb` +
   `bhserve self-update` above.
+- **No tray icon after closing the window?** The top-bar icon uses GNOME's AppIndicator support, which
+  ships enabled on Ubuntu. On a vanilla GNOME desktop, enable the *"AppIndicator and KStatusNotifierItem
+  Support"* extension (or install `gnome-shell-extension-appindicator`). Without it, closing the window
+  just quits normally.
 - **RHEL / Fedora / openSUSE** (dnf/zypper) aren't supported yet — this build is Debian/Ubuntu (`apt`) only.
 
 ---

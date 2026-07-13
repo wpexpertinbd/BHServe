@@ -93,12 +93,18 @@ class EngineClient:
         return base
 
     # ── synchronous run (use only for fast verbs like api/status) ────────────
-    def run(self, *args: str, timeout: int | None = None) -> tuple[int, str]:
+    def run(self, *args: str, timeout: int | None = None,
+            env: dict | None = None) -> tuple[int, str]:
         try:
+            # `env` carries secrets (e.g. BHSERVE_DB_PASSWORD) so they go via the process
+            # environment (owner-only /proc/<pid>/environ) instead of argv (world-readable in `ps`).
+            run_env = {**os.environ, "BHSERVE_GUI": "1"}
+            if env:
+                run_env.update(env)
             p = subprocess.run(
                 self._build(args),
                 capture_output=True, text=True, timeout=timeout,
-                env={**os.environ, "BHSERVE_GUI": "1"},
+                env=run_env,
             )
             # pkexec exit 126 = user dismissed the auth dialog; 127 = not authorized.
             if p.returncode in (126, 127) and _needs_root(args):
@@ -115,9 +121,10 @@ class EngineClient:
         return _extract_json(out)
 
     # ── async run for anything slow (install/start/secure/…) ─────────────────
-    def run_async(self, args: list[str], on_done: Callable[[int, str], None]) -> None:
+    def run_async(self, args: list[str], on_done: Callable[[int, str], None],
+                  env: dict | None = None) -> None:
         def worker() -> None:
-            rc, out = self.run(*args)
+            rc, out = self.run(*args, env=env)
             GLib.idle_add(on_done, rc, out)
         threading.Thread(target=worker, daemon=True).start()
 

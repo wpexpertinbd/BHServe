@@ -149,6 +149,9 @@ _CURL_HTTPS='--proto =https --proto-redir =https'
 _static_php_arch(){ case "$(uname -m)" in aarch64|arm64) echo aarch64 ;; *) echo x86_64 ;; esac; }
 _static_php_install(){
   local v="$1" arch file tmp bin sysdir
+  # Guard: v flows into "$SUDO ln -sf …/usr/sbin/php-fpm$v" and (in the heal path) "$SUDO rm" —
+  # never let anything but a bare major.minor near a privileged path.
+  [[ "$v" =~ ^[0-9]+\.[0-9]+$ ]] || { no "invalid PHP version '$v'"; return 1; }
   arch="$(_static_php_arch)"
   # Never clobber a real distro php-fpm binary — if one is already at the standard path (and it's
   # not our own symlink), the distro provides this version; nothing to do.
@@ -481,6 +484,8 @@ db_ext_ensure(){
   local want="${1:-default}"
   case "$want" in default|"") want="$(jget default_php 8.4)";; esac
   want="${want#php@}"
+  # $want reaches "$SUDO rm /usr/sbin/php-fpm$want" below — accept only a bare major.minor.
+  [[ "$want" =~ ^[0-9]+\.[0-9]+$ ]] || { printf 'php@%s\n' "$want"; return 0; }
   if _php_has_mysqli "$want"; then printf 'php@%s\n' "$want"; return 0; fi
   {
     if _is_static_php "$want"; then

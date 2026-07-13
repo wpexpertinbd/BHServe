@@ -171,7 +171,7 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     # ── verb runner ──
-    def run_verb(self, args, msg, refresh=True, then=None) -> None:
+    def run_verb(self, args, msg, refresh=True, then=None, env=None) -> None:
         if msg:
             self.toast(msg)
             self._applog(msg)
@@ -191,7 +191,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif refresh:
                 self.refresh()
 
-        self.engine.run_async(list(args), done)
+        self.engine.run_async(list(args), done, env=env)
 
     def _applog(self, line: str) -> None:
         self.applog.append(line)
@@ -461,9 +461,8 @@ class MainWindow(Adw.ApplicationWindow):
             if not nm:
                 return
             args = ["db", "create", nm, "--engine", ["mysql", "pg"][eng.get_selected()]]
-            if pw.get_text():
-                args += ["--password", pw.get_text()]
-            self.run_verb(args, f"Creating {nm}…")
+            env = {"BHSERVE_DB_PASSWORD": pw.get_text()} if pw.get_text() else None
+            self.run_verb(args, f"Creating {nm}…", env=env)  # password via env, not argv/ps
 
         dlg.connect("response", resp)
         dlg.present()
@@ -494,13 +493,15 @@ class MainWindow(Adw.ApplicationWindow):
         dlg.present()
 
     def db_root_dialog(self) -> None:
+        # Pass the password via BHSERVE_DB_PASSWORD env, not argv — keeps it out of `ps`.
         self._pw_dialog(
             "Root password",
             "Sets the MySQL/MariaDB root password BHServe uses everywhere (new WordPress sites + "
             "phpMyAdmin). Leave blank to remove it. Local-dev only.",
             "new root password (blank = remove)",
-            lambda pw: self.run_verb(["db", "root-passwd", "--password", pw],
-                                     "Setting root password…" if pw else "Removing root password…"),
+            lambda pw: self.run_verb(["db", "root-passwd"],
+                                     "Setting root password…" if pw else "Removing root password…",
+                                     env={"BHSERVE_DB_PASSWORD": pw}),
             apply_label="Apply")
 
     def db_password_dialog(self, name) -> None:
@@ -508,8 +509,9 @@ class MainWindow(Adw.ApplicationWindow):
             f"Set password · {name}",
             f"Creates/updates a dedicated user “{name}” (@localhost + @127.0.0.1) for this database.",
             "new password",
-            lambda pw: self.run_verb(["db", "passwd", name, "--engine", "mysql", "--password", pw],
-                                     f"Setting password for {name}…") if pw else None,
+            lambda pw: self.run_verb(["db", "passwd", name, "--engine", "mysql"],
+                                     f"Setting password for {name}…",
+                                     env={"BHSERVE_DB_PASSWORD": pw}) if pw else None,
             apply_label="Set")
 
     def db_drop(self, name, engine="mysql") -> None:

@@ -12,7 +12,7 @@ Cloudflare Tunnel. 100% open-source.
 |----------|--------|
 | 🍎 **macOS** | ✅ **Stable** — native menu-bar app (Apple Silicon + Intel) |
 | 🪟 **Windows** | ✅ **Stable** — native WinUI app (Windows 10/11) |
-| 🐧 **Linux** | 🧪 **Beta** — GTK4 app (Ubuntu/Debian, `.deb`) |
+| 🐧 **Linux** | ✅ **Stable** — GTK4 app (Ubuntu/Debian, `.deb`) |
 
 > 🟢 Runs the author's daily dev work — WordPress, OpenCart, WHMCS, Blesta, Laravel, Next.js.
 
@@ -55,7 +55,7 @@ Cloudflare Tunnel. 100% open-source.
 apt + the Ondřej PHP repo on Linux — but the app, the features, and your sites work the
 same everywhere.)*
 
-### 🐧 Linux (Ubuntu/Debian, beta)
+### 🐧 Linux (Ubuntu/Debian)
 
 ```bash
 # download bhserve_<version>_all.deb from the linux-v* release, then:
@@ -65,8 +65,10 @@ bhserve-gui        # or launch “BHServe” from your apps menu
 
 The `.deb` provides the engine + a **GTK4 / libadwaita** control panel (the same 8 panes
 as macOS/Windows). The servers themselves are installed on demand via apt — PHP comes from
-the **Ondřej Surý** repo (7.4 → 8.4). `*.test` resolves via a managed `/etc/hosts` block by
-default (wildcard dnsmasq is opt-in). Tested on **Ubuntu 24.04 + GNOME**.
+the **Ondřej Surý** repo (7.4 → 8.4), with a portable static build for versions the distro
+can't provide. `*.test` resolves via a managed `/etc/hosts` block by default (wildcard
+dnsmasq is opt-in). Closing the window keeps BHServe in the top-bar tray. Tested on
+**Ubuntu 24.04 + GNOME**.
 
 ---
 
@@ -158,7 +160,7 @@ BHServe.App.exe"** — this is **Smart App Control** (a Windows 11 feature), not
 > cost). Each new release is a fresh unsigned file with no reputation yet, so SmartScreen/Smart App
 > Control can flag it. A signed build (planned) removes this entirely.
 
-### 🐧 Linux (Ubuntu/Debian — beta)
+### 🐧 Linux (Ubuntu/Debian)
 
 Download **`bhserve_x.y.z_all.deb`** from the latest **`linux-v*`** release and install it:
 
