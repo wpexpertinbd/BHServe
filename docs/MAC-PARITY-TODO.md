@@ -348,8 +348,11 @@ Several fixes; the **shared-engine** ones already apply to macOS, the **GUI** on
   `/etc/systemd/system/mailpit.service` (loopback SMTP :1025 + UI :8025), the `brew()` shim handles
   `services start|stop|restart` → systemctl, and `mailpit_platform_setup` back-fills the unit for older
   installs.
-- **phpMyAdmin mysqli.** `db_ext_ensure` apt-installs `php<v>-mysql` (+`phpenmod`) when the serving distro
-  PHP lacks mysqli; portable static builds have it compiled in.
+- **phpMyAdmin mysqli** *(refined in linux-v1.0.25)*. The portable static **`common`** build ships
+  `pdo_mysql`+`mysqlnd` but **NOT `mysqli`** (which phpMyAdmin requires). `db_ext_ensure` now RETURNS the
+  php key to serve the tools with: uses the requested PHP if it has mysqli, else picks another installed
+  PHP that does, else heals (distro → apt `php<v>-mysql`; static → refetch the fuller `bulk` build). macOS
+  keeps the no-op (brew PHP has mysqli) — the shared hook just echoes the key back.
 - **dnsmasq shows active once installed** (Ubuntu ships dnsmasq-base with no running unit; BHServe-Linux
   DNS is hosts-file based, so dnsmasq is optional) — `dnsmasq_running` override.
 

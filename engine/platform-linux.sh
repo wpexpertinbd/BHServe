@@ -434,26 +434,57 @@ UNIT
 # Called by the shared mailpit_setup — create the unit if an earlier install predates it.
 mailpit_platform_setup(){ [ -f /etc/systemd/system/mailpit.service ] || _mailpit_unit; }
 
-# phpMyAdmin/Adminer need mysqli + pdo_mysql. A distro php-fpm loads them from php<v>-mysql
-# (via the compiled-in conf.d that our PHP_INI_SCAN_DIR leading ':' preserves). A portable
-# static build has them compiled in already. So: for a distro PHP that's missing the ext,
-# apt-install php<v>-mysql and bounce the pool; for a static build, nothing to do.
+# Fuller portable build (has mysqli, unlike 'common') — used only to HEAL a static PHP that
+# needs mysqli, never as the default install source (keeps normal installs small).
+_STATIC_PHP_BULK="https://dl.static-php.dev/static-php-cli/bulk"
+
+# php-fpm<v> binary path for a version (portable symlink or distro), else its cli, else "".
+_php_bin_for(){
+  local v="$1" b="/usr/sbin/php-fpm$v"
+  [ -x "$b" ] && { echo "$b"; return; }
+  command -v "php$v" 2>/dev/null
+}
+# True when the given PHP version exposes the mysqli extension.
+_php_has_mysqli(){ local b; b="$(_php_bin_for "$1")"; [ -n "$b" ] && "$b" -m 2>/dev/null | grep -qi '^mysqli$'; }
+# Installed PHP versions (portable + distro php-fpm live at /usr/sbin/php-fpm<v>).
+_installed_php_versions(){ ls /usr/sbin/php-fpm* 2>/dev/null | grep -oE '[0-9]+\.[0-9]+$' | sort -urV; }
+
+# phpMyAdmin (and Adminer's MySQL driver) need the mysqli extension. The portable static
+# 'common' build ships pdo_mysql + mysqlnd but NOT mysqli, so the requested PHP may lack it.
+# Strategy (all messages to stderr; only the chosen "php@<v>" is printed on stdout):
+#   1) requested PHP has mysqli            → use it
+#   2) another installed PHP has mysqli    → serve the tool with THAT one
+#   3) none has it → heal the requested PHP: distro → apt php<v>-mysql; static → refetch 'bulk'
 db_ext_ensure(){
-  local key="${1:-}" v="${1#php@}"; v="${v:-$(jget default_php 8.4)}"; v="${v#php@}"
-  _is_static_php "$v" && return 0                    # compiled-in on the portable build
-  local binp; binp="/usr/sbin/php-fpm$v"
-  [ -x "$binp" ] || binp="$(command -v php$v 2>/dev/null || command -v php 2>/dev/null)"
-  # already has mysqli? nothing to do.
-  if [ -n "$binp" ] && "$binp" -m 2>/dev/null | grep -qi '^mysqli$'; then return 0; fi
-  hdr "Adding the MySQL PHP extension (php$v-mysql)"
-  _apt_update_once
-  if _apt install -y "php$v-mysql"; then
-    $SUDO phpenmod -v "$v" mysqli pdo_mysql >/dev/null 2>&1 || true
-    ok "php$v-mysql installed (mysqli + pdo_mysql)"
-    fpm_running "php@$v" && { fpm_stop "php@$v" >/dev/null 2>&1; fpm_start "php@$v" >/dev/null 2>&1; } || true
-  else
-    warn "could not install php$v-mysql — phpMyAdmin needs the mysqli extension"
+  local want="${1:-default}"
+  case "$want" in default|"") want="$(jget default_php 8.4)";; esac
+  want="${want#php@}"
+  if _php_has_mysqli "$want"; then printf 'php@%s\n' "$want"; return 0; fi
+  local v alt=""
+  for v in $(_installed_php_versions); do
+    [ "$v" = "$want" ] && continue
+    _php_has_mysqli "$v" && { alt="$v"; break; }
+  done
+  if [ -n "$alt" ]; then
+    warn "PHP $want has no mysqli — serving phpMyAdmin/Adminer with PHP $alt instead" >&2
+    printf 'php@%s\n' "$alt"; return 0
   fi
+  # nothing installed has mysqli — heal the requested version in place
+  {
+    if _is_static_php "$want"; then
+      hdr "PHP $want has no mysqli — refetching a fuller portable build (bulk)"
+      _STATIC_PHP_BASE="$_STATIC_PHP_BULK" _static_php_install "$want" || warn "bulk refetch failed"
+    else
+      hdr "Adding the MySQL PHP extension (php$want-mysql)"
+      _apt_update_once
+      if _apt install -y "php$want-mysql"; then
+        $SUDO phpenmod -v "$want" mysqli pdo_mysql >/dev/null 2>&1 || true
+        ok "php$want-mysql installed (mysqli + pdo_mysql)"
+      else warn "could not install php$want-mysql — phpMyAdmin needs mysqli"; fi
+    fi
+    fpm_running "php@$want" && { fpm_stop "php@$want" >/dev/null 2>&1; fpm_start "php@$want" >/dev/null 2>&1; } || true
+  } >&2
+  printf 'php@%s\n' "$want"
 }
 
 # Resolve a brew formula OR a BHServe service key to its systemd unit name.

@@ -2076,8 +2076,8 @@ pma_install(){
 \$cfg['TempDir'] = '$dir/tmp';
 PHP
   ok "wrote config.inc.php (socket: $sock)"
-  local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
-  db_ext_ensure "$phpkey"   # phpMyAdmin needs mysqli — make sure the serving PHP has it
+  local tld phpkey; tld="$(jget tld test)"
+  phpkey="$(db_ext_ensure default)"   # phpMyAdmin needs mysqli — pick/heal a PHP that has it
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost "phpmyadmin" "phpmyadmin.$tld" "$dir" "$phpkey"
@@ -2098,8 +2098,8 @@ adminer_install(){
     curl -fsSL "https://www.adminer.org/latest.php" -o "$dir/index.php" || die "download failed"
     ok "Adminer in $dir"
   else ok "Adminer already present ($dir)"; fi
-  local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
-  db_ext_ensure "$phpkey"   # Adminer needs mysqli/pdo_mysql to talk to MySQL/MariaDB
+  local tld phpkey; tld="$(jget tld test)"
+  phpkey="$(db_ext_ensure default)"   # serve Adminer with a PHP that has mysqli
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost adminer "adminer.$tld" "$dir" "$phpkey" nginx
@@ -2229,10 +2229,12 @@ PLIST
 # this to install its systemd unit for pre-existing installs). No-op on macOS (brew handles it).
 mailpit_platform_setup(){ :; }
 
-# Platform hook: make sure the given PHP has the MySQL client extensions (mysqli/pdo_mysql)
-# that phpMyAdmin/Adminer need. No-op on macOS (brew's PHP ships them). Linux overrides this
-# to apt-install php<v>-mysql when the serving PHP is a distro build.
-db_ext_ensure(){ :; }
+# Platform hook: return the php key that phpMyAdmin/Adminer should be served with — one whose
+# PHP has the mysqli extension they require. Default (macOS) just echoes the requested key back,
+# since brew's PHP ships mysqli. Linux overrides this: a portable static 'common' build has
+# pdo_mysql + mysqlnd but NOT mysqli, so it may return a different installed php that has it (or
+# heal the requested one). Prints the key on stdout; all diagnostics go to stderr.
+db_ext_ensure(){ printf '%s\n' "$(php_key "${1:-default}")"; }
 
 # Best-effort trusted HTTPS for a built-in tool domain (phpMyAdmin / Adminer / Mailpit) so it
 # works over https out of the box. Silent no-op when mkcert isn't installed yet.
