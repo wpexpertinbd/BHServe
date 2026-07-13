@@ -23,6 +23,18 @@ button.suggested-action:hover { background-color: #0b5ed7; }
 .dot-on  { color: #2ec27e; }   /* green */
 .dot-off { color: #9aa0a6; }   /* grey  */
 
+/* auto-start (favourite) toggle: clearly blue + white star when active — parity with the
+   Windows Services page (grey/flat when off; solid brand-blue when on). */
+.bh-star:checked {
+  background-color: #0d6efd;
+  background-image: none;
+  color: #ffffff;
+  box-shadow: none;
+}
+.bh-star:checked image { color: #ffffff; }
+.bh-star:checked:hover  { background-color: #0b5ed7; }
+.bh-star:checked:active { background-color: #0a53be; }
+
 /* small status pills */
 .bh-pill {
   font-size: 11px; font-weight: 700;

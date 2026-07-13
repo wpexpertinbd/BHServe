@@ -508,7 +508,8 @@ class ServicesPage(Gtk.Box):
                     b = Gtk.Button(icon_name="media-playback-start-symbolic", tooltip_text="Start")
                     b.connect("clicked", lambda *_: self.win.run_verb(["start", key], f"Starting {key}…"))
                 box.append(b)
-            star = Gtk.ToggleButton(icon_name="starred-symbolic", tooltip_text="Auto-start", active=s.get("enabled", False))
+            star = Gtk.ToggleButton(icon_name="starred-symbolic", tooltip_text="Auto-start",
+                                    active=s.get("enabled", False), css_classes=["bh-star"])
             star.connect("toggled", lambda btn: self.win.run_verb(
                 ["enable" if btn.get_active() else "disable", key], None, refresh=True))
             box.append(star)

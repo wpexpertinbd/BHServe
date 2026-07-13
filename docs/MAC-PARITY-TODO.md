@@ -323,6 +323,11 @@ diverged from the Windows `NavigationView` + single-`ScrollViewer` dashboard. Ma
 **Mac check:** confirm the macOS dashboard scrolls as one region (not a nested list scroll) and the
 source list has app-branding at top + Settings reachable at the bottom, with a working sidebar toggle.
 
+**Also (linux-v1.0.27):** the Services **auto-start (star) toggle** now paints solid **brand-blue with a
+white star when active** (was a grey star that read the same on/off) — matches the Windows Services page.
+Linux does this via a `.bh-star:checked` CSS rule in `style.css`. Confirm the macOS auto-start indicator
+is likewise clearly distinct on/off.
+
 ---
 
 ## L6. Built-in tools (phpMyAdmin/Adminer/Mailpit) + tool HTTPS + mailpit daemon  *(Linux: linux-v1.0.24)*
