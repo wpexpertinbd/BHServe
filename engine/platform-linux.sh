@@ -137,7 +137,11 @@ php_key(){
 # on any release. We install one to /usr/local/lib/bhserve/php/<v>/php-fpm and symlink it in at the
 # SAME /usr/sbin/php-fpm<v> path the distro uses — so detection, version-probe, pool rendering and
 # serving all work with zero further changes.
-_STATIC_PHP_BASE="https://dl.static-php.dev/static-php-cli/common"
+#
+# Use the 'bulk' preset, NOT 'common': the 'common' build ships pdo_mysql + mysqlnd but NOT the
+# mysqli extension, and mysqli is REQUIRED by both WordPress and phpMyAdmin — i.e. the default
+# stack. 'bulk' includes mysqli (verified) so the default PHP works standalone. (~29MB vs 11MB.)
+_STATIC_PHP_BASE="https://dl.static-php.dev/static-php-cli/bulk"
 # HTTPS-only curl flags (incl. redirects) for every download that lands a root-installed/-executed
 # artifact — defence against a protocol-downgrade or http redirect MITM. Used unquoted on purpose so
 # the two tokens word-split into separate args.
@@ -434,10 +438,6 @@ UNIT
 # Called by the shared mailpit_setup — create the unit if an earlier install predates it.
 mailpit_platform_setup(){ [ -f /etc/systemd/system/mailpit.service ] || _mailpit_unit; }
 
-# Fuller portable build (has mysqli, unlike 'common') — used only to HEAL a static PHP that
-# needs mysqli, never as the default install source (keeps normal installs small).
-_STATIC_PHP_BULK="https://dl.static-php.dev/static-php-cli/bulk"
-
 # php-fpm<v> binary path for a version (portable symlink or distro), else its cli, else "".
 _php_bin_for(){
   local v="$1" b="/usr/sbin/php-fpm$v"
@@ -446,34 +446,25 @@ _php_bin_for(){
 }
 # True when the given PHP version exposes the mysqli extension.
 _php_has_mysqli(){ local b; b="$(_php_bin_for "$1")"; [ -n "$b" ] && "$b" -m 2>/dev/null | grep -qi '^mysqli$'; }
-# Installed PHP versions (portable + distro php-fpm live at /usr/sbin/php-fpm<v>).
-_installed_php_versions(){ ls /usr/sbin/php-fpm* 2>/dev/null | grep -oE '[0-9]+\.[0-9]+$' | sort -urV; }
 
-# phpMyAdmin (and Adminer's MySQL driver) need the mysqli extension. The portable static
-# 'common' build ships pdo_mysql + mysqlnd but NOT mysqli, so the requested PHP may lack it.
-# Strategy (all messages to stderr; only the chosen "php@<v>" is printed on stdout):
-#   1) requested PHP has mysqli            → use it
-#   2) another installed PHP has mysqli    → serve the tool with THAT one
-#   3) none has it → heal the requested PHP: distro → apt php<v>-mysql; static → refetch 'bulk'
+# Ensure the DEFAULT/requested PHP itself has mysqli (required by WordPress + phpMyAdmin). We heal
+# the SAME version in place — never fall back to a different php the user may not have installed;
+# the default stack must work standalone. Distro PHP → apt php<v>-mysql; portable static PHP →
+# refetch (the source is the 'bulk' preset, which includes mysqli). All messages go to stderr;
+# only the php key is printed on stdout.
 db_ext_ensure(){
   local want="${1:-default}"
   case "$want" in default|"") want="$(jget default_php 8.4)";; esac
   want="${want#php@}"
   if _php_has_mysqli "$want"; then printf 'php@%s\n' "$want"; return 0; fi
-  local v alt=""
-  for v in $(_installed_php_versions); do
-    [ "$v" = "$want" ] && continue
-    _php_has_mysqli "$v" && { alt="$v"; break; }
-  done
-  if [ -n "$alt" ]; then
-    warn "PHP $want has no mysqli — serving phpMyAdmin/Adminer with PHP $alt instead" >&2
-    printf 'php@%s\n' "$alt"; return 0
-  fi
-  # nothing installed has mysqli — heal the requested version in place
   {
     if _is_static_php "$want"; then
-      hdr "PHP $want has no mysqli — refetching a fuller portable build (bulk)"
-      _STATIC_PHP_BASE="$_STATIC_PHP_BULK" _static_php_install "$want" || warn "bulk refetch failed"
+      # A static 'common' build lacks mysqli and can't load it as a .so — refetch the full
+      # (bulk) build for this version, which has it compiled in. Force a re-download by clearing
+      # our symlink first (else _static_php_install may short-circuit).
+      hdr "PHP $want is missing mysqli — refetching a fuller portable build"
+      $SUDO rm -f "/usr/sbin/php-fpm$want" "/usr/local/lib/bhserve/php/$want/php-fpm" 2>/dev/null || true
+      _static_php_install "$want" || warn "refetch failed — could not add mysqli to PHP $want"
     else
       hdr "Adding the MySQL PHP extension (php$want-mysql)"
       _apt_update_once

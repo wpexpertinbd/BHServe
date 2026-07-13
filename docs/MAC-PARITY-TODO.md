@@ -348,11 +348,15 @@ Several fixes; the **shared-engine** ones already apply to macOS, the **GUI** on
   `/etc/systemd/system/mailpit.service` (loopback SMTP :1025 + UI :8025), the `brew()` shim handles
   `services start|stop|restart` → systemctl, and `mailpit_platform_setup` back-fills the unit for older
   installs.
-- **phpMyAdmin mysqli** *(refined in linux-v1.0.25)*. The portable static **`common`** build ships
-  `pdo_mysql`+`mysqlnd` but **NOT `mysqli`** (which phpMyAdmin requires). `db_ext_ensure` now RETURNS the
-  php key to serve the tools with: uses the requested PHP if it has mysqli, else picks another installed
-  PHP that does, else heals (distro → apt `php<v>-mysql`; static → refetch the fuller `bulk` build). macOS
-  keeps the no-op (brew PHP has mysqli) — the shared hook just echoes the key back.
+- **phpMyAdmin mysqli** *(finalized in linux-v1.0.26)*. The portable static **`common`** build ships
+  `pdo_mysql`+`mysqlnd` but **NOT `mysqli`** (required by BOTH WordPress and phpMyAdmin — the default
+  stack). Two-part fix: (1) the Linux static-PHP source is now the **`bulk`** preset (has mysqli) instead
+  of `common`, so every static PHP — including the default 8.4 — works standalone; (2) `db_ext_ensure`
+  heals the **default/requested** PHP *in place* when it lacks mysqli (distro → apt `php<v>-mysql`+restart;
+  static → refetch bulk), and **never** switches to a different php version (the default stack must not
+  depend on a non-default one the user may not have installed). Verified in WSL that BHServe's
+  `PHP_INI_SCAN_DIR=":<cd>"` leading-colon preserves the distro conf.d, so the apt heal's mysqli loads.
+  macOS keeps the no-op (brew PHP has mysqli) — the shared hook just echoes `php_key` back.
 - **dnsmasq shows active once installed** (Ubuntu ships dnsmasq-base with no running unit; BHServe-Linux
   DNS is hosts-file based, so dnsmasq is optional) — `dnsmasq_running` override.
 
