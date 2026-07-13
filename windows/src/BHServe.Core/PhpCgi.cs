@@ -178,6 +178,28 @@ public static class PhpCgi
         {
             try { Process.GetProcessById(info.Pid).Kill(true); } catch { /* already gone */ }
         }
+        // The tracked pid can be stale while ORPHANED php-cgi masters from earlier starts keep
+        // serving the port (a restart that didn't clean up cleanly, an app relaunch, etc. — the
+        // same pile-up nginx had). Then a "restart" kills only the tracked pid, the orphan keeps
+        // answering, and workers spawned with a stale/stripped env stay live — which is why ionCube
+        // stopped loading until a full stop-all + start-all. Kill EVERY php-cgi for THIS version's
+        // exe path so a restart truly respawns fresh workers (with the ionCube-capable env).
+        var exe = Tools.PhpCgiExe(version);
+        if (exe is not null)
+        {
+            foreach (var p in Process.GetProcessesByName("php-cgi"))
+            {
+                try
+                {
+                    string? path = null;
+                    try { path = p.MainModule?.FileName; } catch { }
+                    if (path is not null && string.Equals(path, exe, StringComparison.OrdinalIgnoreCase))
+                        p.Kill(true);
+                }
+                catch { }
+                finally { p.Dispose(); }
+            }
+        }
         try { File.Delete(RunFile(version)); } catch { }
     }
 }
