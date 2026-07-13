@@ -1,8 +1,11 @@
 ﻿<Project>
-  <!-- Shared properties for all BHServe Windows projects. Keep Version in sync
-       with the GitHub release tag (the in-app updater compares against it). -->
+  <!-- Shared properties for all BHServe Windows projects. This <Version> is only a
+       fallback for a raw `dotnet build`; the real release build (windows\build.ps1)
+       OVERRIDES it with -p:Version read from installer\bhserve.iss (the single source
+       of truth), so the assembly version the in-app updater reads always matches the
+       installed/released version. Keep it roughly current anyway. -->
   <PropertyGroup>
-    <Version>1.0.31</Version>
+    <Version>1.0.35</Version>
     <Company>BiswasHost</Company>
     <Authors>Benjamin Biswas</Authors>
     <Product>BHServe</Product>

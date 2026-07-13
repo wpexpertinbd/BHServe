@@ -22,14 +22,24 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# ── version: the installer .iss is the SINGLE SOURCE OF TRUTH ─────────────────────
+# Stamp the SAME version onto the published assemblies (-p:Version). The in-app updater
+# reads the assembly version (GetExecutingAssembly().GetName().Version); if it isn't bumped
+# in lockstep with the installer, the app self-reports a stale version and offers the update
+# FOREVER (the 1.0.31-vs-latest loop). Deriving both from the .iss makes drift impossible.
+$issText = Get-Content (Join-Path $PSScriptRoot "installer\bhserve.iss") -Raw
+$ver = [regex]::Match($issText, '#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value
+if (-not $ver) { throw "could not read MyAppVersion from installer\bhserve.iss" }
+Write-Host "build  version $ver (from bhserve.iss)" -ForegroundColor Cyan
+
 # ── publish the three exes self-contained ───────────────────────────────────────
 Write-Host "build  publishing app + cli + elevate ($Rid)..." -ForegroundColor Cyan
 $publish = Join-Path $PSScriptRoot "publish"
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 
-dotnet publish src/BHServe.App/BHServe.App.csproj -c $Configuration -r $Rid --self-contained true -p:WindowsAppSDKSelfContained=true -o $publish
-dotnet publish src/BHServe.Cli/BHServe.Cli.csproj -c $Configuration -r $Rid --self-contained true -o $publish
-dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj -c $Configuration -r $Rid --self-contained true -o $publish
+dotnet publish src/BHServe.App/BHServe.App.csproj -c $Configuration -r $Rid --self-contained true -p:WindowsAppSDKSelfContained=true "-p:Version=$ver" -o $publish
+dotnet publish src/BHServe.Cli/BHServe.Cli.csproj -c $Configuration -r $Rid --self-contained true "-p:Version=$ver" -o $publish
+dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj -c $Configuration -r $Rid --self-contained true "-p:Version=$ver" -o $publish
 
 # ── optional: bundle the server binaries (no runtime downloads -> no "dropper" AV flag) ──
 $payloadBin = Join-Path $PSScriptRoot "payload\bin"
