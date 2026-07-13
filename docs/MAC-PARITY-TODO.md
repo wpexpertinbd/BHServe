@@ -493,6 +493,8 @@ like `api.amarmedi.test` resolved to `api`, its `api.amarmedi.conf` was never fo
 silently no-op'd. Now strips the `.$tld` suffix → `api.amarmedi`. This is the same bug I fixed in the
 Windows C# `Secure` (`domain.Split('.')[0]`) — macOS inherits the shell fix automatically.
 
+**✅ REAL FIX (linux-v1.0.40):** the actual cause was NOT the async race (that was hardening) — `engine.py` `_PRIVILEGED` listed `secure` but not `unsecure`/`resecure`, so removal ran UNPRIVILEGED (no pkexec prompt) and couldn't restart nginx. Added both to `_PRIVILEGED`. Benjamin diagnosed it from "install prompts for a password, remove doesn't"; my WSL tests missed it (passwordless sudo masks the privilege gap). **Mac already runs its SSL apply via a privileged restart, so it was never hit.**
+
 **✅ RESOLVED (linux-v1.0.39) — root cause = async `nginx -s stop` race; Mac already immune.**
 Diagnosed on the real WSL2 box (not theory). The cause was NOT reload-vs-restart (linux-v1.0.36 already
 switched `_rerender_site_vhost` to a full `nginx_stop; nginx_start`) — it was that **`nginx -s stop` is
