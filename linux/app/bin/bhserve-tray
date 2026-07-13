@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""BHServe tray helper — a tiny top-bar (StatusNotifierItem) icon with an "Open BHServe" /
+"Quit BHServe" menu, so closing the window keeps BHServe reachable instead of quitting.
+
+It's a SEPARATE process on purpose: the tray libraries (Ayatana/AppIndicator) are GTK3, and
+GTK3 cannot be loaded into the main app's GTK4 interpreter. The main app spawns this with its
+own PID as argv[1], and we talk back to it over the standard org.freedesktop.Application D-Bus
+interface (Activate → show the window; ActivateAction "quit" → quit). On GNOME this needs the
+AppIndicator shell extension (shipped + enabled by default on Ubuntu); without it, or without
+the GIR, this exits quietly and the app just closes normally.
+"""
+import os
+import sys
+
+import gi
+
+_AI = None
+for _lib in ("AyatanaAppIndicator3", "AppIndicator3"):
+    try:
+        gi.require_version("Gtk", "3.0")
+        gi.require_version(_lib, "0.1")
+        _AI = __import__("gi.repository", fromlist=[_lib])
+        _AI = getattr(_AI, _lib)
+        break
+    except (ValueError, ImportError):
+        _AI = None
+if _AI is None:
+    sys.exit(0)  # no tray support → let the app fall back to normal close/quit
+
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "com.biswashost.bhserve"
+OBJ = "/com/biswashost/bhserve"
+MAIN_PID = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 0
+
+
+def _app_alive() -> bool:
+    return bool(MAIN_PID) and os.path.exists(f"/proc/{MAIN_PID}")
+
+
+def _bus_call(method: str, sig: str, val) -> bool:
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus.call_sync(APP_ID, OBJ, "org.freedesktop.Application", method,
+                      GLib.Variant(sig, val), None, Gio.DBusCallFlags.NONE, 3000, None)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _show(*_):
+    # Activate the primary instance → its do_activate un-hides + presents the window.
+    _bus_call("Activate", "(a{sv})", ({},))
+
+
+def _quit(*_):
+    if not _bus_call("ActivateAction", "(sava{sv})", ("quit", [], {})) and _app_alive():
+        try:
+            os.kill(MAIN_PID, 15)  # SIGTERM fallback
+        except Exception:  # noqa: BLE001
+            pass
+    Gtk.main_quit()
+
+
+def main() -> int:
+    ind = _AI.Indicator.new(APP_ID, APP_ID, _AI.IndicatorCategory.APPLICATION_STATUS)
+    ind.set_status(_AI.IndicatorStatus.ACTIVE)
+    ind.set_title("BHServe")
+
+    menu = Gtk.Menu()
+    for label, cb in (("Open BHServe", _show), ("Quit BHServe", _quit)):
+        item = Gtk.MenuItem(label=label)
+        item.connect("activate", cb)
+        menu.append(item)
+    menu.show_all()
+    ind.set_menu(menu)
+    ind.set_secondary_activate_target(menu.get_children()[0])  # middle-click = Open
+
+    # If the main app goes away (quit from its own window, or crash), don't leave a dead icon.
+    def _watch():
+        if MAIN_PID and not _app_alive():
+            Gtk.main_quit()
+            return False
+        return True
+    GLib.timeout_add_seconds(3, _watch)
+
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

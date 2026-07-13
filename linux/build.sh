@@ -34,12 +34,15 @@ mkdir -p "$PKG/usr/lib/bhserve/app/bhserve" "$PKG/usr/lib/bhserve/app/bin"
 for f in "$ROOT"/linux/app/bhserve/*.py "$ROOT"/linux/app/bhserve/*.css; do
   tr -d '\r' < "$f" > "$PKG/usr/lib/bhserve/app/bhserve/$(basename "$f")"
 done
-tr -d '\r' < "$ROOT/linux/app/bin/bhserve-gui" > "$PKG/usr/lib/bhserve/app/bin/bhserve-gui"
-chmod 0755 "$PKG/usr/lib/bhserve/app/bin/bhserve-gui"
+for b in bhserve-gui bhserve-tray; do
+  tr -d '\r' < "$ROOT/linux/app/bin/$b" > "$PKG/usr/lib/bhserve/app/bin/$b"
+  chmod 0755 "$PKG/usr/lib/bhserve/app/bin/$b"
+done
 
 # ── CLI + GUI on PATH (symlinks; engine resolves its real dir via readlink -f) ──
 ln -sf /usr/lib/bhserve/engine/bhserve   "$PKG/usr/bin/bhserve"
 ln -sf /usr/lib/bhserve/app/bin/bhserve-gui "$PKG/usr/bin/bhserve-gui"
+ln -sf /usr/lib/bhserve/app/bin/bhserve-tray "$PKG/usr/bin/bhserve-tray"
 
 # ── icons: install the committed hicolor sizes (the same brand icon as Windows/macOS,
 #    extracted from app/icon/AppIcon.ico), named after the app-id so GNOME shell / the
@@ -83,7 +86,7 @@ Section: web
 Priority: optional
 Architecture: all
 Depends: bash, python3, python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, curl, unzip, libglib2.0-bin
-Recommends: libnss3-tools, policykit-1, software-properties-common
+Recommends: libnss3-tools, policykit-1, software-properties-common, gir1.2-gtk-3.0, gir1.2-ayatanaappindicator3-0.1
 Maintainer: BiswasHost <support@biswashost.com>
 Homepage: https://www.biswashost.com
 Description: Free local web server (nginx/PHP/MariaDB) with a GTK control panel
