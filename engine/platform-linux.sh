@@ -370,7 +370,7 @@ cmd_update() {
     # Restart BHServe's own running instance onto the new binary so sites keep working.
     case "$role" in
       php) fpm_running "$key" && { fpm_stop "$key" >/dev/null 2>&1; fpm_start "$key" >/dev/null 2>&1; } || true ;;
-      web) [ "$key" = nginx ] && nginx_running && { nginx_stop >/dev/null 2>&1; nginx_start >/dev/null 2>&1; } || true ;;
+      web) [ "$key" = nginx ] && nginx_running && nginx_restart >/dev/null 2>&1 || true ;;
       db|cache|mail) brew_svc_running "$key" && { brew_svc stop "$key" >/dev/null 2>&1; sleep 1; brew_svc start "$key" >/dev/null 2>&1; } || true ;;
     esac
     ok "$key updated"

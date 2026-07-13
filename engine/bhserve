@@ -1394,8 +1394,34 @@ _rerender_site_vhost() {
     return 0   # no vhost for this domain — cert changed but nothing to re-render
   fi
   hosts_sync_all
-  if nginx_running; then nginx_stop >/dev/null 2>&1; nginx_start >/dev/null 2>&1 || warn "restart nginx (bhserve restart nginx)"
-  else nginx_start >/dev/null 2>&1 || true; fi
+  nginx_restart >/dev/null 2>&1 || warn "restart nginx (bhserve restart nginx)"
+}
+
+# Reliable stop→start for cert changes. `nginx -s stop` is ASYNC — the master can keep :80/:443
+# bound for a moment after it returns, so a back-to-back nginx_start may (a) no-op because its
+# `nginx_running` guard still sees the dying master, or (b) fail to bind (EADDRINUSE). That's why
+# SSL secure/unsecure sometimes "didn't apply until a restart-all" (the restart-all path stops/
+# starts OTHER services in between = enough delay for the old master to exit). Here: stop, WAIT
+# until the master is truly gone (pgrep by config path — survives a stale pid file), then start.
+nginx_restart(){
+  # If we can't gain privilege for :80/:443 — the macOS GUI runs this verb UNPRIVILEGED and does its
+  # OWN privileged nginx restart afterwards — don't spin waiting to stop a root-owned master we can't
+  # signal. Fall back to the old fast stop→start (a no-op there) and let the caller's restart apply it.
+  if needs_root_ports && [ "$(id -u)" != 0 ] && ! sudo -n true 2>/dev/null; then
+    nginx_stop >/dev/null 2>&1 || true; nginx_start; return
+  fi
+  nginx_stop >/dev/null 2>&1 || true
+  local pre="" i=0; needs_root_ports && pre="sudo"
+  while pgrep -f "nginx: master.*$BH_HOME/nginx/nginx.conf" >/dev/null 2>&1; do
+    i=$((i+1))
+    if [ "$i" -ge 30 ]; then   # ~3s grace, then force-kill a stuck master so start can bind
+      $pre pkill -9 -f "nginx: master.*$BH_HOME/nginx/nginx.conf" 2>/dev/null || true
+      sleep 0.3; break
+    fi
+    sleep 0.1
+  done
+  rm -f "$BH_HOME/run/nginx.pid" 2>/dev/null || true
+  nginx_start
 }
 
 # Remove HTTPS from a site: delete its cert + key and re-render the vhost (drops the ssl block
