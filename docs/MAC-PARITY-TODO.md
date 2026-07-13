@@ -464,7 +464,10 @@ time, seconds apart) is never rolled back. The GUI Reinstall-SSL is inherently p
 
 ---
 
-## 9b. Per-site SSL Install/Reinstall/Remove — Linux done (linux-v1.0.35); macOS still needs the GUI
+## 9b. Per-site SSL Install/Reinstall/Remove — Linux GUI done (linux-v1.0.35+); macOS still needs the GUI
+> Today's other Linux-only work needs NO Mac parity: the responsive-dashboard 4→2→1 card reflow was a
+> GTK measure/allocate fix (WinUI star-columns + SwiftUI stacks reflow natively), and the `.deb`
+> install-command fix (`dpkg -i` vs `apt install ./file.deb`) is Debian-packaging-specific.
 
 **Shared engine (macOS gets these FREE — verify):** `engine/bhserve` now has `cmd_unsecure` +
 `cmd_resecure` (dispatched as `bhserve unsecure|resecure <domain>`) + a factored `_rerender_site_vhost`
@@ -474,16 +477,23 @@ like `api.amarmedi.test` resolved to `api`, its `api.amarmedi.conf` was never fo
 silently no-op'd. Now strips the `.$tld` suffix → `api.amarmedi`. This is the same bug I fixed in the
 Windows C# `Secure` (`domain.Split('.')[0]`) — macOS inherits the shell fix automatically.
 
-**⚠️ CORRECTION (linux-v1.0.36) — reload-vs-restart DOES apply to Linux/Mac for the REMOVE case.**
-I first concluded `nginx -s reload` was enough on the shell side. It is NOT. Installing SSL works on
-reload (fresh browser connection → new worker → cert served). But **Removing SSL** left the old
-workers serving the previous cert on kept-alive connections (up to `keepalive_timeout`, ~65s), so the
-site still showed HTTPS until a manual restart-all — exactly the Windows symptom. Fix: `_rerender_site_vhost`
-now renders the vhost then does a full **nginx stop+start** (not `maybe_reload_nginx`), matching Windows'
-`RerenderVhostAndRestart`. So secure/unsecure/resecure all apply instantly. **macOS inherits this
-automatically** (shared engine) — verify a full nginx restart is clean on Mac (it uses the same
-`nginx_stop`/`nginx_start`, so it should be). The daemon-stop-by-tracked-pid orphan bug remains
-NOT applicable to Linux/Mac (nginx_stop kills by config-path pgrep fallback; fpm_stop kills a real master).
+**⚠️ STILL OPEN on Linux (as of linux-v1.0.38) — likely affects Mac too; DO NOT claim "instant".**
+Story so far: I first (wrongly) thought `nginx -s reload` was enough shell-side; it is NOT (removing a
+cert/listener leaves old workers serving the old cert on kept-alive connections). So in linux-v1.0.36 I
+changed `_rerender_site_vhost` to render then do a full `nginx_stop; nginx_start` (matching Windows'
+`RerenderVhostAndRestart`). **BUT Benjamin retested on linux-v1.0.38 and SSL apply STILL needs a manual
+"restart all"** — so the restart inside the verb isn't achieving what a full restart-all does. Deferred
+("leave it for now"), NOT fixed. Since this is the SHARED engine, **macOS very likely has the same latent
+bug** — do NOT wire the Mac GUI on the assumption it applies instantly. When picking this up (debug-own-
+code-first, reproduce on the real box before changing again):
+- Confirm the GUI verb actually reaches `_rerender_site_vhost` (not a `cmd_secure` branch that still reloads).
+- Check whether `nginx_stop` really kills the master (stale pidfile → stop no-ops → `nginx_start` sees
+  Running()==true and no-ops too = the Windows daemon-stop-orphan pattern, which I'd wrongly marked
+  "not applicable" to Linux/Mac). Prove via the nginx master PID/StartTime before+after.
+- Check privilege: the verb may run UNPRIVILEGED but :443 needs root to rebind → stop ok, start fails
+  silently, and the user's separate "restart all" (with sudo) is what actually works. Inspect
+  `needs_root_ports`/sudo in the verb path.
+The daemon-stop-by-tracked-pid orphan concern for OTHER daemons still stands to be audited on Linux/Mac too.
 
 **Linux GUI (done):** site-row `_site_menu` (pages.py) now shows **Install SSL (HTTPS)** when http-only,
 and **Reinstall SSL (fresh certificate)** + **Remove SSL** (confirm) when secured — wired to the new verbs.
