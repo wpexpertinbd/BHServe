@@ -266,7 +266,7 @@ BHServe is a **local development** tool, hardened accordingly:
 
 Everything is in this repo:
 
-- **macOS** — Bash engine (`engine/bhserve`) + SwiftUI app (`app/`). `cd app && ./build-app.sh`
+- **macOS** — Bash engine (`engine/bhserve`) + SwiftUI app (`macos/`). `cd macos && ./build-app.sh`
   then `./make-dist.sh` → `.dmg` + `.pkg`.
 - **Windows** — C# / .NET + WinUI (`windows/`). See **`windows/README.md`** (`build.ps1`).
 - **Linux** — Bash engine (`engine/bhserve` + `engine/platform-linux.sh`) + GTK4/PyGObject app

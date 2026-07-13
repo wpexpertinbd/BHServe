@@ -29,7 +29,7 @@
 
 ## In progress — Phase 4 (native GUI, our own — no ServBay/Herd dependency)
 Engine contract: `bhserve api` emits JSON (config + services{installed,running,version} + sites).
-SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in Xcode):
+SwiftUI app in `macos/` (SwiftPM, macOS 14+, builds with `swift build` / opens in Xcode):
 - ✅ `Engine.swift` — Process bridge: `run` (user) + `runPrivileged` (osascript admin prompt for :80/:443 + dns, shell+AppleScript escaped), `snapshot()` decodes `api` JSON.
 - ✅ `AppState` (@Observable) — resolves engine path (env → ~/.bhserve → dev checkout), reload/control/install/addSite/secure/removeSite, runs engine off the main actor.
 - ✅ UI — `Window` + `MenuBarExtra`; NavigationSplitView (Services / Sites). Services grouped by role with status dots + Start/Stop/Install; Sites list with open-in-browser, one-click Secure, add-site sheet (PHP picker), remove. Start/Stop All in sidebar footer + menu bar.
@@ -44,11 +44,11 @@ SwiftUI app in `app/` (SwiftPM, macOS 14+, builds with `swift build` / opens in 
 - ▶️ Next: Adminer/Mailpit one-click; GUI server picker; LaunchAgent.
 
 ## Phase 5 (packaging) — in progress
-- ✅ `app/build-app.sh` → self-contained **BHServe.app** (bundles the engine in Resources; app prefers the bundled engine, then `~/.bhserve/engine`, then dev checkout). Info.plist (`com.biswashost.bhserve`), ad-hoc signed last (Apple-Silicon "damaged" trap avoided). Engine prepends `/opt/homebrew/{bin,sbin}` to PATH so a Finder-launched app still finds `brew`.
+- ✅ `macos/build-app.sh` → self-contained **BHServe.app** (bundles the engine in Resources; app prefers the bundled engine, then `~/.bhserve/engine`, then dev checkout). Info.plist (`com.biswashost.bhserve`), ad-hoc signed last (Apple-Silicon "damaged" trap avoided). Engine prepends `/opt/homebrew/{bin,sbin}` to PATH so a Finder-launched app still finds `brew`.
 - ✅ App icon (.icns, BH blue). Menu-bar-resident: close window → .accessory (no Dock icon, stays running); reopen → .regular.
-- ✅ Distributables: `app/make-dist.sh` → `BHServe-<ver>.dmg` (drag-to-Applications, +Applications symlink) and `BHServe-<ver>.pkg` (pkgbuild → /Applications). Ad-hoc signed; DMG checksum verified, PKG payload verified.
+- ✅ Distributables: `macos/make-dist.sh` → `BHServe-<ver>.dmg` (drag-to-Applications, +Applications symlink) and `BHServe-<ver>.pkg` (pkgbuild → /Applications). Ad-hoc signed; DMG checksum verified, PKG payload verified.
 - ▶️ Next: LaunchAgent (launch-at-login / autostart services), optional Developer-ID sign + notarize for clean distribution to other Macs.
-- Run now: `cd app && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
+- Run now: `cd macos && swift run BHServe`  (engine must be initialized; privileged actions prompt for admin).
 
 ## Paused 2026-06-24 (all committed) — resume notes
 BHServe is feature-complete for daily use: Dashboard (live CPU/RAM/disk + sparkline,

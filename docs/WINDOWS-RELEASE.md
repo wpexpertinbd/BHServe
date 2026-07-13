@@ -6,7 +6,7 @@
 
 BHServe is a **single monorepo** (`github.com/wpexpertinbd/BHServe`) holding macOS,
 Windows, and (later) Linux. **Do not create a separate repo.** The Windows app lives
-under `windows/`; the Mac app under `app/` + `engine/`.
+under `windows/`; the Mac app under `macos/` + `engine/`.
 
 ---
 
@@ -19,7 +19,7 @@ git checkout master
 git pull origin master                 # always sync first — Mac releases land here too
 git checkout -b windows-<short-topic>   # e.g. windows-gui-phase3
 # …work…
-git add windows/                        # keep changes scoped to windows/ (don't touch app/ or engine/)
+git add windows/                        # keep changes scoped to windows/ (don't touch macos/ or engine/)
 git commit -m "windows: <what changed>"
 git push -u origin windows-<short-topic>
 gh pr create --title "Windows: <summary>" --body "<what + how tested>"
@@ -28,7 +28,7 @@ gh pr create --title "Windows: <summary>" --body "<what + how tested>"
 Conventions (match the existing history):
 - **Commit messages** end with: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
 - **PR bodies** end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-- Keep Windows changes inside `windows/` (plus shared `docs/`). Never modify `app/**`,
+- Keep Windows changes inside `windows/` (plus shared `docs/`). Never modify `macos/**`,
   `engine/**`, or the Mac build scripts in a Windows PR — that's how the Mac app stays safe.
 - Benjamin reviews/merges PRs (or merge once approved). Small follow-ups (e.g. the two
   security fixes from the PR #1 review) can be added to the same branch before merge.
@@ -97,7 +97,7 @@ GET https://api.github.com/repos/wpexpertinbd/BHServe/releases
 → if newer than this build's Version → offer download+run (then exit so the installer can replace it)
 ```
 
-(Mirror the Mac flow in `app/Sources/BHServe/AppState.swift` `checkForUpdate` / `downloadAndInstall`,
+(Mirror the Mac flow in `macos/Sources/BHServe/AppState.swift` `checkForUpdate` / `downloadAndInstall`,
 just with `.exe` instead of `.pkg`, and the `win-` tag filter instead of `/latest`.)
 
 ---

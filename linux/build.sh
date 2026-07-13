@@ -45,7 +45,7 @@ ln -sf /usr/lib/bhserve/app/bin/bhserve-gui "$PKG/usr/bin/bhserve-gui"
 ln -sf /usr/lib/bhserve/app/bin/bhserve-tray "$PKG/usr/bin/bhserve-tray"
 
 # ── icons: install the committed hicolor sizes (the same brand icon as Windows/macOS,
-#    extracted from app/icon/AppIcon.ico), named after the app-id so GNOME shell / the
+#    extracted from macos/icon/AppIcon.ico), named after the app-id so GNOME shell / the
 #    taskbar / alt-tab / the in-app About all show it. ──
 APPID="com.biswashost.bhserve"
 ICONSRC="$ROOT/linux/packaging/icons"
@@ -56,9 +56,9 @@ for s in 16 32 48 64 128 256; do
     cp "$ICONSRC/$s.png" "$d/$APPID.png"; icon_done=1
   fi
 done
-if [ "$icon_done" = 0 ] && command -v convert >/dev/null && [ -f "$ROOT/app/icon/AppIcon.ico" ]; then
+if [ "$icon_done" = 0 ] && command -v convert >/dev/null && [ -f "$ROOT/macos/icon/AppIcon.ico" ]; then
   d="$PKG/usr/share/icons/hicolor/256x256/apps"; mkdir -p "$d"
-  convert "$ROOT/app/icon/AppIcon.ico" -resize 256x256 "$d/$APPID.png" 2>/dev/null && icon_done=1 || true
+  convert "$ROOT/macos/icon/AppIcon.ico" -resize 256x256 "$d/$APPID.png" 2>/dev/null && icon_done=1 || true
 fi
 [ "$icon_done" = 1 ] || echo "  ! no icon — add sizes to linux/packaging/icons/ or install imagemagick"
 
