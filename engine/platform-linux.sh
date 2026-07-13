@@ -438,6 +438,10 @@ UNIT
 # Called by the shared mailpit_setup — create the unit if an earlier install predates it.
 mailpit_platform_setup(){ [ -f /etc/systemd/system/mailpit.service ] || _mailpit_unit; }
 
+# Distro MariaDB/MySQL socket (Debian/Ubuntu) — used as the fall-back when the server can't be
+# queried and no socket file is present yet (the shared default /tmp/mysql.sock is macOS-only).
+db_default_socket(){ echo /run/mysqld/mysqld.sock; }
+
 # php-fpm<v> binary path for a version (portable symlink or distro), else its cli, else "".
 _php_bin_for(){
   local v="$1" b="/usr/sbin/php-fpm$v"

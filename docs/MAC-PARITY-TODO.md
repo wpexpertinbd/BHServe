@@ -368,3 +368,19 @@ Several fixes; the **shared-engine** ones already apply to macOS, the **GUI** on
 **Mac GUI TODO:** hide `tool` sites (or name ∈ {phpmyadmin, adminer, mailpit}) from the macOS **Sites**
 list + dashboard website list — they belong under Services / dashboard web-tools only. Linux does this via
 `is_tool(name)`; the engine now also exposes the `tool` flag per site.
+
+---
+
+## L7. Shared engine — pin the DB socket in every FPM pool  *(Linux: linux-v1.0.30)*
+
+**Shared-engine change — macOS gets it too (verify it's harmless there).** WordPress uses
+`DB_HOST=localhost`, so mysqli connects via each PHP's *default* Unix socket. A portable **static** PHP
+build defaults `mysqli.default_socket` to empty and `pdo_mysql.default_socket` to `/tmp/mysql.sock` —
+which misses a distro MariaDB on `/run/mysqld/mysqld.sock`, so a WP site on a static PHP shows **"Error
+establishing a database connection"** even though phpMyAdmin (which names the socket explicitly) works.
+Fix: `render_fpm_pool` now emits `php_admin_value[{mysqli,pdo_mysql,mysql}.default_socket] = <db_socket>`,
+where `db_socket()` = live `SHOW VARIABLES LIKE 'socket'` → first existing socket file → platform default
+(`db_default_socket`: `/tmp/mysql.sock` on macOS, `/run/mysqld/mysqld.sock` on Linux). `fpm_start` also
+re-renders a pool conf that predates the pin (heals old sites on next start). `pma_socket` is now an alias
+of `db_socket`. On macOS brew's PHP default socket already matches brew MariaDB, so this is a harmless
+belt-and-suspenders pin — just confirm brew sites still connect.

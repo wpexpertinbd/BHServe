@@ -908,11 +908,12 @@ apache_reload(){ apache_running || return 0; "$(APACHE_BIN)" -f "$BH_HOME/apache
 
 # ── PHP-FPM pools ─────────────────────────────────────────────────────────────
 render_fpm_pool() {
-  local key="$1" label sock conf binp
+  local key="$1" label sock conf binp dbsock
   label="$(php_label "$key")"
   sock="$(php_sock "$key")"
   conf="$BH_HOME/php/php-$label.conf"
   binp="$(php_fpm_bin "$key")"
+  dbsock="$(db_socket)"   # pin so DB_HOST=localhost works on any PHP build (see db_socket)
   [ -x "$binp" ] || { warn "$key not installed; skipping pool (brew install $(svc_formula "$key"))"; return 1; }
   cat > "$conf" <<FPM
 ; BHServe PHP-FPM pool — $key
@@ -951,6 +952,12 @@ php_admin_value[opcache.enable] = 1
 php_admin_value[opcache.memory_consumption] = 192
 php_admin_value[opcache.max_accelerated_files] = 20000
 php_admin_value[realpath_cache_size] = 4096k
+; ── pin the DB socket so DB_HOST=localhost reaches MariaDB on ANY PHP build ──
+; (portable static PHP defaults to /tmp/mysql.sock or empty, which misses a distro
+;  MariaDB on /run/mysqld/mysqld.sock → WordPress "Error establishing a DB connection")
+php_admin_value[mysqli.default_socket] = $dbsock
+php_admin_value[pdo_mysql.default_socket] = $dbsock
+php_admin_value[mysql.default_socket] = $dbsock
 FPM
   # route mail() to Mailpit when it's installed (sendmail-compatible shim)
   if svc_installed mailpit; then
@@ -969,6 +976,11 @@ FPM
 fpm_start(){
   local key="$1" label conf binp pid
   label="$(php_label "$key")"; conf="$BH_HOME/php/php-$label.conf"; binp="$(php_fpm_bin "$key")"
+  # Heal a pool conf written before the DB-socket pin (mysqli.default_socket) — re-render it once
+  # so old sites gain the fix on next start/restart without a manual PHP-version switch.
+  if [ -f "$conf" ] && ! grep -q 'mysqli.default_socket' "$conf"; then
+    render_fpm_pool "$key" >/dev/null 2>&1 || true
+  fi
   [ -f "$conf" ] || render_fpm_pool "$key" || return 1
   [ -x "$binp" ] || { warn "$key php-fpm missing"; return 1; }
   pid="$BH_HOME/run/php-$label.pid"
@@ -2030,15 +2042,27 @@ php_status(){
 # ── phpMyAdmin ───────────────────────────────────────────────────────────────
 PMA_VER="5.2.3"
 
-pma_socket(){
+# Platform default DB socket when the server is down (can't be queried) and no socket file
+# exists yet. macOS/brew = /tmp/mysql.sock; Linux overrides this to the distro path.
+db_default_socket(){ echo /tmp/mysql.sock; }
+
+# The Unix socket MariaDB/MySQL actually listens on. Prefer the live value (SHOW VARIABLES),
+# else the first existing socket file, else the platform default. Used to (a) point phpMyAdmin
+# at the DB and (b) PIN mysqli/pdo_mysql/mysql default_socket in every FPM pool — otherwise a
+# portable static PHP (whose compiled default socket is /tmp/mysql.sock or empty) can't reach a
+# distro MariaDB on /run/mysqld/mysqld.sock, so `DB_HOST=localhost` sites (WordPress!) fail with
+# "Error establishing a database connection" even though phpMyAdmin (explicit socket) works.
+db_socket(){
   local s; s="$(mysql_run -N -e "SHOW VARIABLES LIKE 'socket';" 2>/dev/null | awk '{print $2}')"
   [ -n "$s" ] && { echo "$s"; return; }
   local c
-  for c in /tmp/mysql.sock "$BREW_PREFIX/var/run/mariadb.sock" /tmp/mariadb.sock; do
+  for c in /run/mysqld/mysqld.sock /var/run/mysqld/mysqld.sock /tmp/mysql.sock \
+           "$BREW_PREFIX/var/run/mariadb.sock" /tmp/mariadb.sock; do
     [ -S "$c" ] && { echo "$c"; return; }
   done
-  echo /tmp/mysql.sock
+  db_default_socket
 }
+pma_socket(){ db_socket; }   # back-compat alias
 
 cmd_pma(){
   need_init
