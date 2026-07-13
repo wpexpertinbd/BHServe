@@ -203,6 +203,22 @@ class CardGrid(Gtk.Grid):
         self._cards.append(w)
         self.attach(w, i % 4, i // 4, 1, 1)   # provisional 4-col (a sane default); do_size_allocate refines
 
+    def do_measure(self, orientation, for_size):
+        minimum, natural, min_b, nat_b = Gtk.Grid.do_measure(self, orientation, for_size)
+        if orientation == Gtk.Orientation.HORIZONTAL and self._cards:
+            # A homogeneous N-col Grid reports its FULL N-column min width as its minimum. That pins
+            # the whole window wide and PREVENTS the narrowing that would trigger the 4→2→1 reflow
+            # (chicken-and-egg: can't shrink to reflow because the un-reflowed min blocks shrinking).
+            # Report a SINGLE card's min instead — the window can then narrow, do_size_allocate fires
+            # with the smaller width, and we reflow to fit. Cards wrap/ellipsize so they never clip.
+            one = 0
+            for c in self._cards:
+                cm = c.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+                if cm > one:
+                    one = cm
+            return (one, natural, min_b, nat_b)
+        return (minimum, natural, min_b, nat_b)
+
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
         cols = 4 if width >= 700 else 2 if width >= 360 else 1
         if cols != self._cols:
@@ -233,6 +249,10 @@ class DashboardPage(Gtk.Box):
         self._loading_tools = False
 
         scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+        # NEVER horizontal-scroll: otherwise the ScrolledWindow lets the content keep its wide
+        # natural width and just adds an h-scrollbar, so the cards never receive the narrowed
+        # width and never reflow. NEVER forces the page width down onto the content.
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                        margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
         scroller.set_child(body)
