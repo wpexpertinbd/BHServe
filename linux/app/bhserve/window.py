@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 
 import gi
@@ -315,12 +316,70 @@ class MainWindow(Adw.ApplicationWindow):
                     "--type", ["wordpress", "php", "others"][typ.get_selected()],
                     "--php", php_choices[php.get_selected()],
                     "--server", ["nginx", "apache"][srv.get_selected()]]
-            self.run_verb(args, f"Creating {nm}…")
-            if ssl.get_active():
-                tld = self.last_data.get("config", {}).get("tld", "test")
-                GLib.timeout_add_seconds(3, lambda: (self.run_verb(["secure", f"{nm}.{tld}"], None), False)[1])
+            tld = self.last_data.get("config", {}).get("tld", "test")
+            self._run_add_site(nm, args, ssl.get_active(), tld)
 
         dlg.connect("response", resp)
+        dlg.present()
+
+    # Run `site add` (+ optional `secure`) and show a proper result dialog when the whole
+    # flow finishes — parity with the Windows/macOS "Site created" banner (was only a toast).
+    def _run_add_site(self, nm, args, do_secure, tld) -> None:
+        self.toast(f"Creating {nm}…")
+        self._applog(f"Creating {nm}…")
+        self.spinner.start()
+
+        def finish(ok, output):
+            self.spinner.stop()
+            self.refresh()
+            self._applog(f"{'✓' if ok else '✗'} {nm} " + ("created" if ok else "failed"))
+            self._site_result_dialog(ok, output, nm, tld)
+
+        def after_add(rc, out):
+            if rc != 0:
+                finish(False, out)
+            elif do_secure:
+                self.engine.run_async(["secure", f"{nm}.{tld}"],
+                                      lambda rc2, out2: finish(True, out + "\n" + out2))
+            else:
+                finish(True, out)
+
+        self.engine.run_async(list(args), after_add)
+
+    def _site_result_dialog(self, ok, output, nm, tld) -> None:
+        m = re.search(r"https://\S+", output) or re.search(r"https?://\S+", output)
+        url = (m.group(0).rstrip(".") if m else f"http://{nm}.{tld}")
+        dlg = Adw.MessageDialog(
+            transient_for=self,
+            heading=("Site created" if ok else "Couldn’t create site"),
+            body=(f"{nm}.{tld} is ready." if ok else f"Something went wrong creating {nm}."))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        if ok:
+            box.append(Gtk.Label(label=url, xalign=0, selectable=True,
+                                  css_classes=["bh-brand"], wrap=True))
+        # step lines (✓ / ✗ / ! from the engine output), color-coded
+        steps = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, css_classes=["card"],
+                        margin_top=6, margin_bottom=6, margin_start=10, margin_end=10)
+        shown = 0
+        cls = {"✓": "bh-step-ok", "✗": "bh-step-err", "!": "bh-step-warn"}
+        for raw in output.replace("\r", "").split("\n"):
+            t = raw.strip()
+            if not t or t[0] not in cls:
+                continue
+            steps.append(Gtk.Label(label=t, xalign=0, wrap=True, css_classes=[cls[t[0]]]))
+            shown += 1
+            if shown >= 14:
+                break
+        if shown:
+            sc = Gtk.ScrolledWindow(max_content_height=240, propagate_natural_height=True)
+            sc.set_child(steps)
+            box.append(sc)
+        dlg.set_extra_child(box)
+        dlg.add_response("close", "Close")
+        if ok:
+            dlg.add_response("open", "Open site")
+            dlg.set_response_appearance("open", Adw.ResponseAppearance.SUGGESTED)
+        dlg.connect("response", lambda d, r: P._open(url) if r == "open" else None)
         dlg.present()
 
     def _app_dialog(self, kind) -> None:
