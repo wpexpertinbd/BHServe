@@ -493,23 +493,22 @@ like `api.amarmedi.test` resolved to `api`, its `api.amarmedi.conf` was never fo
 silently no-op'd. Now strips the `.$tld` suffix → `api.amarmedi`. This is the same bug I fixed in the
 Windows C# `Secure` (`domain.Split('.')[0]`) — macOS inherits the shell fix automatically.
 
-**⚠️ STILL OPEN on Linux (as of linux-v1.0.38) — likely affects Mac too; DO NOT claim "instant".**
-Story so far: I first (wrongly) thought `nginx -s reload` was enough shell-side; it is NOT (removing a
-cert/listener leaves old workers serving the old cert on kept-alive connections). So in linux-v1.0.36 I
-changed `_rerender_site_vhost` to render then do a full `nginx_stop; nginx_start` (matching Windows'
-`RerenderVhostAndRestart`). **BUT Benjamin retested on linux-v1.0.38 and SSL apply STILL needs a manual
-"restart all"** — so the restart inside the verb isn't achieving what a full restart-all does. Deferred
-("leave it for now"), NOT fixed. Since this is the SHARED engine, **macOS very likely has the same latent
-bug** — do NOT wire the Mac GUI on the assumption it applies instantly. When picking this up (debug-own-
-code-first, reproduce on the real box before changing again):
-- Confirm the GUI verb actually reaches `_rerender_site_vhost` (not a `cmd_secure` branch that still reloads).
-- Check whether `nginx_stop` really kills the master (stale pidfile → stop no-ops → `nginx_start` sees
-  Running()==true and no-ops too = the Windows daemon-stop-orphan pattern, which I'd wrongly marked
-  "not applicable" to Linux/Mac). Prove via the nginx master PID/StartTime before+after.
-- Check privilege: the verb may run UNPRIVILEGED but :443 needs root to rebind → stop ok, start fails
-  silently, and the user's separate "restart all" (with sudo) is what actually works. Inspect
-  `needs_root_ports`/sudo in the verb path.
-The daemon-stop-by-tracked-pid orphan concern for OTHER daemons still stands to be audited on Linux/Mac too.
+**✅ RESOLVED (linux-v1.0.39) — root cause = async `nginx -s stop` race; Mac already immune.**
+Diagnosed on the real WSL2 box (not theory). The cause was NOT reload-vs-restart (linux-v1.0.36 already
+switched `_rerender_site_vhost` to a full `nginx_stop; nginx_start`) — it was that **`nginx -s stop` is
+ASYNC**: the master can keep :443 bound for a moment after it returns, so the immediate `nginx_start`
+either no-ops (its `nginx_running` guard still sees the dying master) or fails to bind (EADDRINUSE).
+`restart all` "worked" only because `cmd_restart` does `cmd_stop; sleep 2; cmd_start` — that 2s gap lets
+the master fully exit. Also: the user's earlier "still broken" test was on a PRE-1.0.36 build (the in-app
+updater itself was broken by the apt-2.9 `apt install ./file.deb` bug until 1.0.38, so their install was
+stuck old). **Fix:** new shared `nginx_restart()` = stop, WAIT until the master is truly gone (`pgrep`
+by config path, ~3s grace then force-kill), then start; `_rerender_site_vhost` + the Linux post-upgrade
+restart call it. **Verified:** 5-round secure/unsecure stress (nginx stayed up, ssl toggled every round)
++ wire-level `openssl` SAN check (SNI=myapp.test served `DNS:myapp.test` before unsecure, `DNS:app83.test`
+after = HTTPS gone, no restart-all). **Mac:** `nginx_restart` has a privilege guard — when the verb runs
+UNPRIVILEGED (the Mac path) and can't sudo, it skips the wait/kill and just does the old fast stop→start,
+so the Mac's own privileged `control("restart","nginx")` (already shipped in v1.7.6) still does the real
+work with no added delay. So Mac is unaffected + already correct.
 
 **Linux GUI (done):** site-row `_site_menu` (pages.py) now shows **Install SSL (HTTPS)** when http-only,
 and **Reinstall SSL (fresh certificate)** + **Remove SSL** (confirm) when secured — wired to the new verbs.
