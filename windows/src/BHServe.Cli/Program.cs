@@ -21,6 +21,8 @@ try
         case "enable":    engine.Enable(Arg(rest, 0)); break;
         case "disable":   engine.Disable(Arg(rest, 0)); break;
         case "secure":    engine.Secure(Arg(rest, 0)); break;
+        case "unsecure":  engine.Unsecure(Arg(rest, 0)); break;
+        case "resecure":  engine.Resecure(Arg(rest, 0)); break;
         case "status":    engine.Status(); break;
         case "api":       Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(engine.Api())); break;
 

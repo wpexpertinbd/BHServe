@@ -205,6 +205,26 @@ public sealed partial class SiteListControl : UserControl
         if ((s as FrameworkElement)?.Tag is string domain) await Op(() => EngineHost.Instance.Engine.Secure(domain));
     }
 
+    /// <summary>Reinstall SSL: drop the old cert and issue a completely fresh one (new key +
+    /// serial) + full nginx restart. The one-click remedy when a site's HTTPS shows untrusted.</summary>
+    private async void Resecure_Click(object s, RoutedEventArgs e)
+    {
+        if ((s as FrameworkElement)?.Tag is string domain) await Op(() => EngineHost.Instance.Engine.Resecure(domain));
+    }
+
+    private async void Unsecure_Click(object s, RoutedEventArgs e)
+    {
+        if ((s as FrameworkElement)?.Tag is not string domain) return;
+        var dlg = new ContentDialog
+        {
+            Title = "Remove SSL", Content = $"Remove HTTPS from {domain}? The site keeps working over http://.",
+            PrimaryButtonText = "Remove", CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close, XamlRoot = this.XamlRoot,
+        };
+        if (await dlg.ShowAsync() == ContentDialogResult.Primary)
+            await Op(() => EngineHost.Instance.Engine.Unsecure(domain));
+    }
+
     private async void Share_Click(object s, RoutedEventArgs e)
     {
         var name = Tag(s);

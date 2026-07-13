@@ -605,32 +605,70 @@ public sealed class Engine
             throw new BhException("mkcert failed:\n" + outp);
         Ok($"cert: {Path.Combine(Paths.Certs, domain + ".pem")}");
 
-        var name = domain.Split('.')[0];
-        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
-        if (File.Exists(conf))
-        {
-            var cfg = Config.Load();
-            // A proxy vhost (Mailpit, or any ported service) has a proxy_pass and no PHP root —
-            // re-render it with the proxy renderer; RenderPhpVhost would produce a broken vhost.
-            var pm = Regex.Match(File.ReadAllText(conf), @"proxy_pass http://127\.0\.0\.1:(\d+)");
-            if (pm.Success)
-            {
-                NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg);
-                Ok("re-rendered proxy vhost with HTTPS");
-            }
-            else
-            {
-                var (dom, root, phpKey) = ParseVhost(conf);
-                NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
-                Ok("re-rendered vhost with HTTPS");
-            }
-            // Full restart, NOT reload: after a cert change old nginx workers keep serving the
-            // PREVIOUS certs on kept-alive connections (a reload only starts new workers), which
-            // left stale certs live for hours — an HTTPS-scanning AV then kept flagging them as
-            // untrusted. A stop+start guarantees the fresh certs are what's actually served.
-            if (Nginx.Running()) { Nginx.Stop(); System.Threading.Thread.Sleep(300); Nginx.Start(cfg); }
-        }
+        RerenderVhostAndRestart(domain);
         Ok($"secured: https://{domain}");
+    }
+
+    /// <summary>Remove HTTPS from a site: delete its cert + key and re-render the vhost
+    /// (which drops the ssl listen block since the cert files are gone). The site keeps
+    /// serving over http. Use Resecure for a clean fresh certificate instead.</summary>
+    public void Unsecure(string domain)
+    {
+        NeedInit();
+        Hdr($"Removing HTTPS from {domain}");
+        var cert = Path.Combine(Paths.Certs, $"{domain}.pem");
+        var key  = Path.Combine(Paths.Certs, $"{domain}-key.pem");
+        var had = File.Exists(cert);
+        try { File.Delete(cert); } catch { }
+        try { File.Delete(key); } catch { }
+        Ok(had ? "certificate removed" : "no certificate found (already http-only)");
+        RerenderVhostAndRestart(domain);
+        Ok($"unsecured: http://{domain}");
+    }
+
+    /// <summary>Reinstall HTTPS: drop the old cert + key and issue a completely fresh one
+    /// (new key + new serial). This is the GUI remedy when a site's certificate shows as
+    /// untrusted — e.g. after an AV/OS trust hiccup — without touching anything else.</summary>
+    public void Resecure(string domain)
+    {
+        NeedInit();
+        Hdr($"Reinstalling HTTPS for {domain}");
+        try { File.Delete(Path.Combine(Paths.Certs, $"{domain}.pem")); } catch { }
+        try { File.Delete(Path.Combine(Paths.Certs, $"{domain}-key.pem")); } catch { }
+        Secure(domain);
+    }
+
+    /// <summary>Re-render a site's vhost (proxy-aware) after a cert change and fully RESTART
+    /// nginx. Restart, NOT reload: old workers keep serving the PREVIOUS certs on kept-alive
+    /// connections after a reload, which left stale certs live for hours — an HTTPS-scanning
+    /// AV then kept flagging them as untrusted. Stop+start guarantees fresh certs are served.</summary>
+    private void RerenderVhostAndRestart(string domain)
+    {
+        // Site name = domain minus the ".<tld>" suffix — NOT Split('.')[0], which broke
+        // multi-label sites (api.amarmedi.test → "api" → api.conf not found → re-render
+        // silently skipped, so those sites never got their vhost refreshed on secure).
+        var tldSuffix = "." + Config.Load().Tld;
+        var name = domain.EndsWith(tldSuffix, StringComparison.OrdinalIgnoreCase)
+            ? domain[..^tldSuffix.Length]
+            : domain.Split('.')[0];
+        var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (!File.Exists(conf)) return;
+        var cfg = Config.Load();
+        // A proxy vhost (Mailpit, or any ported service) has a proxy_pass and no PHP root —
+        // re-render it with the proxy renderer; RenderPhpVhost would produce a broken vhost.
+        var pm = Regex.Match(File.ReadAllText(conf), @"proxy_pass http://127\.0\.0\.1:(\d+)");
+        if (pm.Success)
+        {
+            NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg);
+            Ok("re-rendered proxy vhost");
+        }
+        else
+        {
+            var (dom, root, phpKey) = ParseVhost(conf);
+            NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
+            Ok("re-rendered vhost");
+        }
+        if (Nginx.Running()) { Nginx.Stop(); System.Threading.Thread.Sleep(300); Nginx.Start(cfg); }
     }
 
     // ── status / api ────────────────────────────────────────────────────────────

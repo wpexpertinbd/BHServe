@@ -434,3 +434,30 @@ Windows fixes; check the Mac/Linux equivalents:
   **Mac/Linux check:** the shared engine's `cmd_secure` → `maybe_reload_nginx` also only RELOADS —
   the stale-worker window exists there too (mostly harmless without an intercepting AV, but consider
   restart-on-secure for parity).
+
+---
+
+## 9. Per-site SSL Install / Reinstall / Remove (win-v1.0.34) — port to macOS + Linux
+
+Every site row (Dashboard site list + Sites tab — shared `SiteListControl`) now has, in its "..." menu:
+- **Install SSL (HTTPS)** — enabled when the site is http-only (existing `secure`).
+- **Reinstall SSL (fresh certificate)** — enabled when secured: deletes the old cert + key and issues a
+  completely fresh one (new key + serial) + full nginx restart. THE one-click remedy when a site's
+  HTTPS shows untrusted (AV/OS trust hiccups) — previously unfixable from the GUI.
+- **Remove SSL** — confirm dialog, deletes cert + key, re-renders the vhost back to http-only.
+
+Engine: new `Unsecure(domain)` + `Resecure(domain)` + factored `RerenderVhostAndRestart` (proxy-aware
+re-render + full nginx stop/start). CLI verbs: `bhserve unsecure <domain>` / `bhserve resecure <domain>`.
+Also fixed: site name derivation was `domain.Split('.')[0]`, which broke MULTI-LABEL sites
+(api.amarmedi.test → "api" → api.conf not found → vhost re-render silently skipped on secure) — now
+strips the ".<tld>" suffix. **Check the Mac/Linux engines for the same multi-label bug** (the shared
+engine's cmd_secure uses `name="${domain%.*}"; name="${name%%.*}"` — same class of bug).
+
+**Mac TODO:** add the three menu items to the Websites panel row menu; engine verbs `unsecure`/`resecure`
+in the shared `engine/bhserve` (delete certs + re-render vhost + restart; reuse cmd_secure's proxy-aware
+branch). **Linux TODO:** same three items in `_site_menu` (pages.py) + the shared-engine verbs.
+
+⚠️ Ops lesson from the incident that motivated this: NEVER bulk-rewrite many cert files in seconds
+(mass-rewrite of *.pem looks ransomware-like to protection layers, which silently RESTORE the old
+files — bulk-re-issued certs kept "reverting" to June copies). Per-site product pacing (one secure at a
+time, seconds apart) is never rolled back. The GUI Reinstall-SSL is inherently per-site = safe.
