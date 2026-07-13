@@ -257,7 +257,8 @@ class DashboardPage(Gtk.Box):
         self.site_list = PagedList(lambda s: build_site_row(self.win, s), site_match,
                                    page_size=self.win.cfg_int("dashboard_page_size", 5),
                                    empty_text="No sites yet — add one from the Sites tab.",
-                                   on_page_size_changed=lambda n: self.win.set_cfg("dashboard_page_size", n))
+                                   on_page_size_changed=lambda n: self.win.set_cfg("dashboard_page_size", n),
+                                   scroll=False)
         body.append(self.site_list)
 
         # ── web tools ──

@@ -298,3 +298,27 @@ self-explanatory so users know nginx alone serves PHP and Apache is a `.htaccess
 `Tag` for the real value) + `SitesPage.xaml.cs` (`SelectedServer` reads `Tag`); `BHServe.Core/Engine.cs`
 `RequiredServices` (nginx+apache for Apache) + `DefaultIndexPhp` (generic page). Linux equivalent:
 `linux/app/bhserve/window.py` (descriptive DropDown strings + tooltip, value stays index-mapped).
+
+---
+
+## L5. Linux — GUI shell parity (dashboard scroll, sidebar structure + collapse)  *(Linux: linux-v1.0.23)*
+
+**✅ macOS is likely already fine — verify only.** These were Linux GTK-shell bugs where the Linux GUI
+diverged from the Windows `NavigationView` + single-`ScrollViewer` dashboard. Mac (AppKit source list +
+`ScrollView`) probably already matches; check against the Windows reference and skip if so.
+
+- **Whole-dashboard scroll.** Windows wraps the entire `DashboardPage` in one `<ScrollViewer>` and the
+  website list sizes to its content. Linux had the site list inside its own nested `ScrolledWindow`
+  (`vexpand=True`) *within* the dashboard's outer scroller → it collapsed to a narrow strip (2 sites
+  barely visible). Fix: `widgets.PagedList(..., scroll=False)` skips the inner scroller so the list
+  sizes to content and the outer dashboard scroller handles all scrolling.
+- **Sidebar structure.** App icon + "BHServe" name pinned at the sidebar **top**, nav items in the
+  middle, **Settings pinned at the bottom** (was just the last row in one flat list) — matches the
+  Windows NavigationView (`IsSettingsVisible` footer). Two `ListBox`es; `_on_nav` unselects the other so
+  only one row highlights.
+- **Sidebar collapse/expand.** Switched `Adw.NavigationSplitView` → `Adw.OverlaySplitView` + a header
+  `ToggleButton` (`sidebar-show-symbolic`) bound to `show-sidebar`, kept in sync via
+  `notify::show-sidebar`. Windows/Mac already have a hamburger collapse.
+
+**Mac check:** confirm the macOS dashboard scrolls as one region (not a nested list scroll) and the
+source list has app-branding at top + Settings reachable at the bottom, with a working sidebar toggle.

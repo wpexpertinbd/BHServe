@@ -16,6 +16,8 @@ button.suggested-action:hover { background-color: #0b5ed7; }
 /* sidebar brand header */
 .bh-brand { font-weight: 800; font-size: 16px; }
 .bh-brand-dot { color: #0d6efd; }
+/* the two nav lists shouldn't paint their own card background inside the sidebar */
+.bh-sidebar list.navigation-sidebar { background: transparent; }
 
 /* running/stopped dots */
 .dot-on  { color: #2ec27e; }   /* green */

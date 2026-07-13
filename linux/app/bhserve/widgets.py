@@ -34,12 +34,14 @@ class PagedList(Gtk.Box):
         page_size: int = 15,
         empty_text: str = "Nothing here yet.",
         on_page_size_changed: Callable[[int], None] | None = None,
+        scroll: bool = True,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self._make_row = make_row
         self._match = match_text
         self._empty_text = empty_text
         self._on_size = on_page_size_changed
+        self._scroll = scroll
         self._all: list = []
         self._page = 0
 
@@ -62,10 +64,16 @@ class PagedList(Gtk.Box):
         self.listbox = Gtk.ListBox(
             selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"]
         )
-        scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_child(self.listbox)
-        self.append(scroller)
+        if scroll:
+            # standalone page: the list owns a bounded scroll region
+            scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_child(self.listbox)
+            self.append(scroller)
+        else:
+            # embedded in an outer scroller (dashboard): size to content so the whole
+            # page scrolls as one and the list takes exactly the space its rows need.
+            self.append(self.listbox)
 
         self.empty = Adw.StatusPage(
             icon_name="folder-symbolic", title=empty_text, vexpand=True

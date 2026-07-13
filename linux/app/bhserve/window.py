@@ -42,44 +42,59 @@ class MainWindow(Adw.ApplicationWindow):
         self.applog: list = []   # recent verb activity, shown in the Dashboard activity log
 
         self.toast_overlay = Adw.ToastOverlay()
-        split = Adw.NavigationSplitView()
+        split = Adw.OverlaySplitView()
+        self.split = split
         self.toast_overlay.set_child(split)
         self.set_content(self.toast_overlay)
 
-        # ── sidebar ──
-        sidebar_tv = Adw.ToolbarView()
-        sb_header = Adw.HeaderBar(show_title=False)
-        brand = Gtk.Box(spacing=6)
-        dot = Gtk.Label(label="●", css_classes=["bh-brand-dot"])
-        brand.append(dot)
-        brand.append(Gtk.Label(label="BHServe", css_classes=["bh-brand"]))
-        sb_header.set_title_widget(brand)
-        self.spinner = Gtk.Spinner()
-        sb_header.pack_end(self.spinner)
-        sidebar_tv.add_top_bar(sb_header)
+        # ── sidebar: app icon + name at the top, nav in the middle, Settings pinned
+        #    at the bottom (parity with the Windows NavigationView / macOS source list) ──
+        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["bh-sidebar"])
 
+        brand = Gtk.Box(spacing=10, margin_top=14, margin_bottom=14, margin_start=14, margin_end=12)
+        app_icon = Gtk.Image.new_from_icon_name("com.biswashost.bhserve")
+        app_icon.set_pixel_size(28)
+        brand.append(app_icon)
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
+        name_box.append(Gtk.Label(label="BHServe", xalign=0, css_classes=["bh-brand"]))
+        name_box.append(Gtk.Label(label="Local server", xalign=0, css_classes=["dim-label", "caption"]))
+        brand.append(name_box)
+        self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
+        brand.append(self.spinner)
+        sidebar_box.append(brand)
+        sidebar_box.append(Gtk.Separator())
+
+        # nav items (everything except Settings)
         self.sidebar_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
         self.sidebar_list.connect("row-selected", self._on_nav)
         for key, label, icon, _cls in NAV:
-            row = Gtk.ListBoxRow()
-            b = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
-            b.append(Gtk.Image.new_from_icon_name(icon))
-            b.append(Gtk.Label(label=label, xalign=0))
-            row.set_child(b)
-            row.nav_key = key
-            self.sidebar_list.append(row)
+            if key == "settings":
+                continue
+            self.sidebar_list.append(self._nav_row(key, label, icon))
         sb_scroll = Gtk.ScrolledWindow(vexpand=True)
+        sb_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sb_scroll.set_child(self.sidebar_list)
-        sidebar_tv.set_content(sb_scroll)
-        sidebar_page = Adw.NavigationPage(title="BHServe", child=sidebar_tv)
-        sidebar_page.set_tag("sidebar")
-        split.set_sidebar(sidebar_page)
+        sidebar_box.append(sb_scroll)
+
+        # Settings pinned to the bottom
+        sidebar_box.append(Gtk.Separator())
+        self.settings_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
+        self.settings_list.connect("row-selected", self._on_nav)
+        self.settings_list.append(self._nav_row("settings", "Settings", "preferences-system-symbolic"))
+        sidebar_box.append(self.settings_list)
+
+        split.set_sidebar(sidebar_box)
         split.set_min_sidebar_width(220)
         split.set_max_sidebar_width(260)
 
         # ── content ──
         content_tv = Adw.ToolbarView()
         self.content_header = Adw.HeaderBar()
+        self.sidebar_toggle = Gtk.ToggleButton(icon_name="sidebar-show-symbolic",
+                                                tooltip_text="Toggle sidebar", active=True)
+        self.sidebar_toggle.connect("toggled",
+                                    lambda b: self.split.set_show_sidebar(b.get_active()))
+        self.content_header.pack_start(self.sidebar_toggle)
         self.content_title = Adw.WindowTitle(title="Dashboard", subtitle="")
         self.content_header.set_title_widget(self.content_title)
         refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Refresh")
@@ -93,9 +108,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.pages[key] = page
             self.stack.add_named(page, key)
         content_tv.set_content(self.stack)
-        content_page = Adw.NavigationPage(title="Dashboard", child=content_tv)
-        split.set_content(content_page)
-        self._content_nav = content_page
+        split.set_content(content_tv)
+        # keep the toggle button in sync when the split collapses/expands on its own
+        split.connect("notify::show-sidebar",
+                      lambda s, _p: self.sidebar_toggle.set_active(s.get_show_sidebar()))
 
         self.sidebar_list.select_row(self.sidebar_list.get_row_at_index(0))
         self.refresh()
@@ -105,14 +121,27 @@ class MainWindow(Adw.ApplicationWindow):
         GLib.timeout_add_seconds(24 * 3600, lambda: (self.check_updates(False), True)[1])
 
     # ── navigation ──
-    def _on_nav(self, _list, row) -> None:
+    def _nav_row(self, key: str, label: str, icon: str) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        b = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=8, margin_end=8)
+        b.append(Gtk.Image.new_from_icon_name(icon))
+        b.append(Gtk.Label(label=label, xalign=0))
+        row.set_child(b)
+        row.nav_key = key
+        return row
+
+    def _on_nav(self, listbox, row) -> None:
         if not row:
             return
+        # nav and Settings are two separate lists — clear the other so only one row
+        # stays highlighted at a time.
+        other = self.settings_list if listbox is self.sidebar_list else self.sidebar_list
+        if other.get_selected_row() is not None:
+            other.unselect_all()
         key = row.nav_key
         self.stack.set_visible_child_name(key)
         label = next(l for k, l, _i, _c in NAV if k == key)
         self.content_title.set_title(label)
-        self._content_nav.set_title(label)
         page = self.pages[key]
         if hasattr(page, "refresh") and self.last_data:
             page.refresh(self.last_data)
