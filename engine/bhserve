@@ -1179,6 +1179,10 @@ site_provision(){
     && ok "database '$db' ready  (user: root · password: none · host: localhost)" \
     || warn "could not create database '$db'"
   [ "$type" = wordpress ] && site_install_wordpress "$root" "$db"
+  # Always return success: for a non-WordPress site the test above is FALSE (returns 1), which under
+  # `set -e` would ABORT site_add before maybe_reload_nginx — so the vhost is written + DB created but
+  # nginx never reloads and /etc/hosts never syncs → the new site doesn't load until a manual restart.
+  return 0
 }
 
 # Download latest WordPress into the site root and pre-write wp-config.php.

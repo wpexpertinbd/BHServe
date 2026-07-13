@@ -508,8 +508,10 @@ hosts_sync_all(){
 # go through here; in non-tty (GUI) mode it still syncs hosts before deferring the reload.
 maybe_reload_nginx(){
   hosts_sync_all
-  nginx_running || return 0
-  if [ -t 1 ]; then nginx_reload; else info "reload nginx to serve changes (bhserve restart nginx)"; fi
+  # ALWAYS (re)load nginx when a site changes. The old `[ -t 1 ]` tty gate meant the GUI (which runs
+  # us non-interactively) never actually reloaded — so a GUI-added site's vhost wasn't served until a
+  # manual restart. And if nginx is down, START it (else the new site 502s / doesn't load at all).
+  if nginx_running; then nginx_reload; else nginx_start >/dev/null 2>&1 && ok "nginx started" || warn "start nginx to serve the site (bhserve start nginx)"; fi
 }
 
 # nodesite/pysite add + `secure` call nginx_reload DIRECTLY (not via maybe_reload_nginx),

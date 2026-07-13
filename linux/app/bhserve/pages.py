@@ -166,10 +166,19 @@ def _set_dot(img: Gtk.Image, on: bool) -> None:
 
 def _card_flow() -> Gtk.FlowBox:
     """A responsive row of equal-width cards that wraps to fewer-per-line as the window
-    narrows (instead of overflowing off the right edge)."""
-    return Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                       min_children_per_line=1, max_children_per_line=4,
-                       column_spacing=12, row_spacing=12)
+    narrows (instead of overflowing off the right edge). Each card is width-capped
+    (see CARD_MIN below + wrapped labels) so a wide value (e.g. the PHP versions list)
+    can't inflate `homogeneous` and push the 4th card onto its own line (the 3+1 bug)."""
+    fb = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                     min_children_per_line=1, max_children_per_line=4,
+                     column_spacing=12, row_spacing=12)
+    fb.set_hexpand(True)
+    return fb
+
+
+# Base width for a dashboard card. All 8 cards share it so both rows lay out the SAME
+# (4-per-line on a medium/large window, reflowing to 2 then 1 as it narrows).
+CARD_MIN = 190
 
 
 class DashboardPage(Gtk.Box):
@@ -258,12 +267,16 @@ class DashboardPage(Gtk.Box):
     # ── card builders ──
     def _status_card(self, title):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.set_size_request(CARD_MIN, -1)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         top.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=["bh-metric-cap", "dim-label"]))
         dot = status_dot(False)
         top.append(dot)
         card.append(top)
-        val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"], ellipsize=Pango.EllipsizeMode.END)
+        # Wrap (don't stretch) a long value like the PHP-versions list, so it can't inflate the card
+        # width and break the 4-per-row grid; it flows to a 2nd line inside the fixed-width card.
+        val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"], wrap=True,
+                        wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=18)
         sub = Gtk.Label(label="", xalign=0, css_classes=["dim-label"])
         card.append(val)
         card.append(sub)
@@ -271,6 +284,7 @@ class DashboardPage(Gtk.Box):
 
     def _cpu_card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label="CPU", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         val = Gtk.Label(label="0%", xalign=0, css_classes=["bh-metric-val"])
         card.append(val)
@@ -282,6 +296,7 @@ class DashboardPage(Gtk.Box):
 
     def _bar_card(self, title):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label=title, xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"])
         card.append(val)
@@ -291,6 +306,7 @@ class DashboardPage(Gtk.Box):
 
     def _net_card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
+        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label="Network", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         down = Gtk.Label(label="Down  —", xalign=0)
         up = Gtk.Label(label="Up  —", xalign=0)
