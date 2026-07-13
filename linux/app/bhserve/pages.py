@@ -164,21 +164,39 @@ def _set_dot(img: Gtk.Image, on: bool) -> None:
     img.add_css_class("dot-on" if on else "dot-off")
 
 
-def _card_flow() -> Gtk.FlowBox:
-    """A responsive row of equal-width cards that wraps to fewer-per-line as the window
-    narrows (instead of overflowing off the right edge). Each card is width-capped
-    (see CARD_MIN below + wrapped labels) so a wide value (e.g. the PHP versions list)
-    can't inflate `homogeneous` and push the 4th card onto its own line (the 3+1 bug)."""
-    fb = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                     min_children_per_line=1, max_children_per_line=4,
-                     column_spacing=12, row_spacing=12)
-    fb.set_hexpand(True)
-    return fb
+class CardGrid(Gtk.Grid):
+    """Responsive grid of equal-width cards — the GTK equivalent of the Windows dashboard's
+    4×`*`-column Grid: every card is STRETCHED to an equal share of the width (so 4 always
+    fill a row, never 3+1), and the column count reflows 4 → 2 → 1 as the window narrows.
+    A FlowBox can't do this (it sizes to the widest card's natural width, not a forced N)."""
+    __gtype_name__ = "BHCardGrid"
 
+    def __init__(self) -> None:
+        super().__init__(column_spacing=12, row_spacing=12, column_homogeneous=True, hexpand=True)
+        self._cards: list[Gtk.Widget] = []
+        self._cols = 0
 
-# Base width for a dashboard card. All 8 cards share it so both rows lay out the SAME
-# (4-per-line on a medium/large window, reflowing to 2 then 1 as it narrows).
-CARD_MIN = 190
+    def add_card(self, w: Gtk.Widget) -> None:
+        w.set_hexpand(True)
+        w.set_halign(Gtk.Align.FILL)
+        i = len(self._cards)
+        self._cards.append(w)
+        self.attach(w, i % 4, i // 4, 1, 1)   # provisional 4-col (a sane default); do_size_allocate refines
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        cols = 4 if width >= 700 else 2 if width >= 360 else 1
+        if cols != self._cols:
+            self._cols = cols
+            GLib.idle_add(self._relayout, cols)          # defer: never mutate layout inside allocate
+        Gtk.Grid.do_size_allocate(self, width, height, baseline)
+
+    def _relayout(self, cols: int) -> bool:
+        for c in list(self._cards):
+            if c.get_parent() is self:
+                self.remove(c)
+        for i, c in enumerate(self._cards):
+            self.attach(c, i % cols, i // cols, 1, 1)
+        return False
 
 
 class DashboardPage(Gtk.Box):
@@ -217,25 +235,21 @@ class DashboardPage(Gtk.Box):
             head.append(b)
         body.append(head)
 
-        # ── status cards ──
-        row1 = _card_flow()
+        # ── all 8 cards in ONE responsive grid: Web/PHP/DB/Cache + CPU/Mem/Storage/Net,
+        #    laid out 4+4 on wide, 2+2+2+2 on medium, stacked on narrow ──
+        cards = CardGrid()
         self.c_web = self._status_card("Web Server")
         self.c_php = self._status_card("PHP")
         self.c_db = self._status_card("Database")
         self.c_cache = self._status_card("Cache")
-        for c in (self.c_web, self.c_php, self.c_db, self.c_cache):
-            row1.append(c["card"])
-        body.append(row1)
-
-        # ── metrics: CPU(+spark) / Memory / Storage / Network ──
-        row2 = _card_flow()
         self.cpu_val, cpu_card = self._cpu_card()
         self.mem = self._bar_card("Memory")
         self.disk = self._bar_card("Storage")
         self.net_down, self.net_up, net_card = self._net_card()
-        for c in (cpu_card, self.mem["card"], self.disk["card"], net_card):
-            row2.append(c)
-        body.append(row2)
+        for c in (self.c_web["card"], self.c_php["card"], self.c_db["card"], self.c_cache["card"],
+                  cpu_card, self.mem["card"], self.disk["card"], net_card):
+            cards.add_card(c)
+        body.append(cards)
 
         # ── websites panel ──
         self.web_header = Gtk.Label(label="Websites", xalign=0, css_classes=["title-4"])
@@ -248,12 +262,12 @@ class DashboardPage(Gtk.Box):
 
         # ── web tools ──
         body.append(Gtk.Label(label="Web tools", xalign=0, css_classes=["title-4"]))
-        tools = _card_flow()
+        tools = CardGrid()
         self.t_pma = self._tool_card("phpMyAdmin", "phpmyadmin", ["pma", "install"])
         self.t_adm = self._tool_card("Adminer", "adminer", ["adminer", "install"])
         self.t_mail = self._tool_card("Mailpit", "mailpit", ["mailpit", "setup"])
         for t in (self.t_pma, self.t_adm, self.t_mail):
-            tools.append(t["card"])
+            tools.add_card(t["card"])
         body.append(tools)
 
         # ── activity log ──
@@ -267,7 +281,6 @@ class DashboardPage(Gtk.Box):
     # ── card builders ──
     def _status_card(self, title):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
-        card.set_size_request(CARD_MIN, -1)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         top.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=["bh-metric-cap", "dim-label"]))
         dot = status_dot(False)
@@ -284,7 +297,6 @@ class DashboardPage(Gtk.Box):
 
     def _cpu_card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
-        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label="CPU", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         val = Gtk.Label(label="0%", xalign=0, css_classes=["bh-metric-val"])
         card.append(val)
@@ -296,7 +308,6 @@ class DashboardPage(Gtk.Box):
 
     def _bar_card(self, title):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
-        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label=title, xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         val = Gtk.Label(label="—", xalign=0, css_classes=["bh-metric-val"])
         card.append(val)
@@ -306,7 +317,6 @@ class DashboardPage(Gtk.Box):
 
     def _net_card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, css_classes=["card", "bh-metric"])
-        card.set_size_request(CARD_MIN, -1)
         card.append(Gtk.Label(label="Network", xalign=0, css_classes=["bh-metric-cap", "dim-label"]))
         down = Gtk.Label(label="Down  —", xalign=0)
         up = Gtk.Label(label="Up  —", xalign=0)
