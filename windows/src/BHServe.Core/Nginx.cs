@@ -84,6 +84,37 @@ public static class Nginx
                 Process.GetProcessById(pid).Kill(true);
         }
         catch { }
+
+        // `-s stop` is asynchronous and depends on a valid pid file — if either falls short the
+        // old master keeps running, Stop() returns "done", and the next Start() sees Running()==true
+        // and no-ops. Then a cert/config change never takes effect (only a manual stop-all +
+        // start-all worked). So GUARANTEE nginx is actually gone: wait briefly for a graceful exit,
+        // then force-kill any BHServe nginx.exe still alive, and block until none remain.
+        for (var i = 0; i < 20 && Running(); i++) System.Threading.Thread.Sleep(150);
+        KillStrayNginx(exe);
+        for (var i = 0; i < 20 && Running(); i++) System.Threading.Thread.Sleep(100);
+        try { File.Delete(PidFile); } catch { }
+    }
+
+    /// <summary>Force-kill any lingering BHServe nginx.exe (matched by install path so an unrelated
+    /// nginx elsewhere on the machine is left alone; if the path can't be read it's almost certainly
+    /// ours, so kill it).</summary>
+    private static void KillStrayNginx(string? ourExe)
+    {
+        foreach (var p in Process.GetProcessesByName("nginx"))
+        {
+            try
+            {
+                string? path = null;
+                try { path = p.MainModule?.FileName; } catch { }
+                var ours = ourExe is null || path is null
+                    || string.Equals(path, ourExe, StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith(Paths.Home, StringComparison.OrdinalIgnoreCase);
+                if (ours) p.Kill(true);
+            }
+            catch { }
+            finally { p.Dispose(); }
+        }
     }
 
     public static void Reload(Config cfg)
