@@ -869,6 +869,21 @@ final class AppState {
         await control("restart", "nginx")
     }
 
+    /// Reinstall HTTPS with a completely fresh cert (new key + serial) — the fix when a site's
+    /// certificate shows untrusted. Same shape as secure(): the unprivileged verb re-issues + re-renders,
+    /// then a PRIVILEGED full nginx restart actually applies it (a plain reload leaves stale workers on
+    /// the old cert; a restart is what makes it take — the in-verb restart can't get root from the GUI).
+    func resecure(domain: String) async {
+        await runUser(["resecure", domain], note: "reinstalling HTTPS for \(domain)…")
+        await control("restart", "nginx")
+    }
+
+    /// Remove HTTPS: delete the cert + key and re-render the vhost back to http-only.
+    func unsecure(domain: String) async {
+        await runUser(["unsecure", domain], note: "removing HTTPS from \(domain)…")
+        await control("restart", "nginx")
+    }
+
     private func runUser(_ args: [String], note: String, env: [String: String] = [:]) async {
         guard !busy else { return }
         busy = true

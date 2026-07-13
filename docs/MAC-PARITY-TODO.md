@@ -27,6 +27,22 @@
 > (no `-v`, no newline/backslash/`$`/`&` escape processing) → all 8 salts land verbatim, `php -l` clean.
 > The .NET-specific `$`/`Regex.Replace` corruption never applied to the Mac.
 >
+> ✅ **#8 + #9/#9b done in `v1.7.6`.** **#8 checks:** mailpit pipe/env — **macOS unaffected** (brew
+> services owns env + logging, no pipe redirect). mkcert machine-store — macOS `mkcert -install` writes
+> the **system keychain** (machine-wide) already, so HTTPS-scanning AVs validate fine. Full-restart-on-
+> cert-change — **already covered**: the Mac's `secure`/`resecure`/`unsecure` all finish with a
+> **privileged `control("restart","nginx")`** = full stop+start (not a reload), so no stale-worker
+> window. **#9/#9b — per-site SSL Install/Reinstall/Remove:** the shared `engine/bhserve` already has
+> `cmd_unsecure`/`cmd_resecure`/`_rerender_site_vhost` (+ the multi-label `${domain%.$tld}` fix — Mac
+> inherits it; verified `resecure api.foo.test`-style names re-render the right `.conf`). Added the
+> three items to the php **Websites-panel row `…` menu**: **Install SSL** (http-only) / **Reinstall SSL
+> (fresh certificate)** + **Remove SSL** (confirm) when secured → `AppState.resecure`/`unsecure`, each
+> mirroring `secure()` (unprivileged verb re-issues + re-renders, then a privileged full nginx restart
+> applies it). **The #9b "needs manual restart-all" latent bug does NOT bite the Mac** because the Mac
+> already applies via that privileged restart (the proven `secure()` path), not the in-verb unprivileged
+> one — verified `resecure` re-issues a fresh cert on a real site. (Node/Python rows keep their
+> add-time HTTPS; the three-item menu is on php rows where untrusted-cert fixes are needed.)
+>
 > ✅ **#7 done in `v1.7.5`.** (A) **Generic default page** was already shipping on macOS via the shared
 > `engine/bhserve` (the "🎉 Congratulations! Your website is live now!" page — no web-server name, no
 > branding footer). (B) **Clearer server picker + Apache requirement guard**: relabeled the Add-site

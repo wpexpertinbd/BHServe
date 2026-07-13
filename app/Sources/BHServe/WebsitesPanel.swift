@@ -187,6 +187,7 @@ struct WebsiteRow: View {
     @State private var showingNodeLogs = false
     @State private var showingPyLogs = false
     @State private var removing = false        // php-site Remove sheet (with purge option)
+    @State private var confirmUnsecure = false // Remove-SSL confirm
 
     private var runDot: Bool { site.node ? site.nodeRunning : (site.python ? site.pyRunning : site.enabled) }
 
@@ -232,6 +233,11 @@ struct WebsiteRow: View {
         .sheet(item: Binding(get: { envPart.map { EnvTarget(part: $0) } },
                              set: { envPart = $0?.part })) { t in
             EnvEditorSheet(site: site, part: t.part)
+        }
+        .confirmationDialog("Remove HTTPS from “\(site.domain)”? It will serve over http until you install SSL again.",
+                            isPresented: $confirmUnsecure, titleVisibility: .visible) {
+            Button("Remove SSL", role: .destructive) { Task { await state.unsecure(domain: site.domain) } }
+            Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog("Remove “\(site.name)”? (project files are kept on disk)",
                             isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -288,8 +294,12 @@ struct WebsiteRow: View {
             } else {
                 Button { Task { await state.setSiteServer(site.name, "apache") } } label: { Label("Switch to apache", systemImage: "server.rack") }
             }
+            Divider()
             if !site.secure {
-                Button { Task { await state.secure(domain: site.domain) } } label: { Label("Enable HTTPS", systemImage: "lock") }
+                Button { Task { await state.secure(domain: site.domain) } } label: { Label("Install SSL (HTTPS)", systemImage: "lock") }
+            } else {
+                Button { Task { await state.resecure(domain: site.domain) } } label: { Label("Reinstall SSL (fresh certificate)", systemImage: "arrow.clockwise.circle") }
+                Button { confirmUnsecure = true } label: { Label("Remove SSL", systemImage: "lock.slash") }
             }
             Divider()
             Button(role: .destructive) { removing = true } label: { Label("Delete", systemImage: "trash") }
