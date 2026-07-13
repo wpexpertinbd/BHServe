@@ -442,6 +442,27 @@ mailpit_platform_setup(){ [ -f /etc/systemd/system/mailpit.service ] || _mailpit
 # queried and no socket file is present yet (the shared default /tmp/mysql.sock is macOS-only).
 db_default_socket(){ echo /run/mysqld/mysqld.sock; }
 
+# cloudflared (Cloudflare quick tunnels). Installed under the USER-owned config root (~/.bhserve/bin),
+# NOT /usr/local/bin — because `tunnel` is not a privileged verb (the GUI runs it without pkexec), so
+# the auto-install on first share must not need sudo. cloudflared_installed() (shared) -x's this path.
+cloudflared_bin(){ echo "$BH_HOME/bin/cloudflared"; }
+
+# Install cloudflared from Cloudflare's official static binary (no apt repo/account/sudo needed).
+# Called by the shared cmd_tunnel/tunnel_start, so the GUI "Share publicly" auto-installs on first use.
+cloudflared_install(){
+  local arch url bin tmp
+  case "$(uname -m)" in aarch64|arm64) arch=arm64 ;; armv7*|armhf|arm) arch=arm ;; *) arch=amd64 ;; esac
+  url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch"
+  bin="$(cloudflared_bin)"; tmp="$(mktemp)"
+  hdr "Installing cloudflared  (linux-$arch)"
+  mkdir -p "$(dirname "$bin")"
+  if curl $_CURL_HTTPS -fsSL "$url" -o "$tmp" && [ -s "$tmp" ]; then
+    install -m 0755 "$tmp" "$bin"; rm -f "$tmp"   # ~/.bhserve is user-owned → no sudo
+    cloudflared_installed && { ok "cloudflared installed ($bin)"; return 0; } || { no "cloudflared install failed"; return 1; }
+  fi
+  rm -f "$tmp"; no "cloudflared download failed (network blocked?)"; return 1
+}
+
 # php-fpm<v> binary path for a version (portable symlink or distro), else its cli, else "".
 _php_bin_for(){
   local v="$1" b="/usr/sbin/php-fpm$v"

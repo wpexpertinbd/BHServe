@@ -384,3 +384,20 @@ where `db_socket()` = live `SHOW VARIABLES LIKE 'socket'` → first existing soc
 re-renders a pool conf that predates the pin (heals old sites on next start). `pma_socket` is now an alias
 of `db_socket`. On macOS brew's PHP default socket already matches brew MariaDB, so this is a harmless
 belt-and-suspenders pin — just confirm brew sites still connect.
+
+---
+
+## L8. Cloudflare tunnel ("Share publicly") on Linux  *(Linux: linux-v1.0.32)*
+
+Was missing entirely on Linux; now at parity with Windows/macOS.
+- **Shared engine:** refactored `cmd_tunnel install` + `tunnel_start` to call a new `cloudflared_install`
+  hook (default = `brew install cloudflared`), and `tunnel_start` now **auto-installs on first share**
+  (was `die "not installed"`). **macOS benefit:** the first "Share publicly" now auto-installs cloudflared
+  via brew instead of erroring — verify.
+- **Linux:** `cloudflared_bin` → `$BH_HOME/bin/cloudflared` (USER-owned, since `tunnel` isn't a privileged
+  verb → GUI runs it without pkexec, so install must be sudo-free); `cloudflared_install` downloads
+  Cloudflare's official `cloudflared-linux-<arch>` static binary to there (verified: 38MB, runs).
+- **Linux GUI:** per-site kebab menu gets **"Share publicly (Cloudflare)"** → `site_share` runs
+  `tunnel start` async (spinner while cloudflared connects) then a **share sheet** (live dot + URL +
+  copy + open + Stop sharing). A **SHARED** pill shows on rows with a live tunnel; the sheet reopens via
+  "Sharing publicly — manage…". Mirrors Windows `SiteListControl` Share_Click/ShowShareDialog.

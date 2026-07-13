@@ -2144,9 +2144,14 @@ tunnel_urlf(){ echo "$BH_HOME/run/tunnel-$1.url"; }
 tunnel_running(){ pid_alive "$(cat "$(tunnel_pidf "$1")" 2>/dev/null)"; }
 tunnel_url(){ cat "$(tunnel_urlf "$1")" 2>/dev/null || true; }
 
+# Install cloudflared. Default = Homebrew (macOS); Linux overrides with a direct binary download.
+cloudflared_install(){ hdr "Installing cloudflared"; brew install cloudflared && ok "cloudflared installed"; }
+
 tunnel_start(){
   local name="$1"; valid_site_name "$name"
-  cloudflared_installed || die "cloudflared not installed — bhserve tunnel install"
+  # First share auto-installs cloudflared (no separate step needed), matching the GUI's one-click flow.
+  cloudflared_installed || cloudflared_install || die "cloudflared install failed"
+  cloudflared_installed || die "cloudflared not installed"
   local conf="$BH_HOME/nginx/sites/$name.conf"
   [ -f "$conf" ] || die "no site '$name'"
   nginx_running || die "nginx not running — start it first"
@@ -2191,7 +2196,7 @@ cmd_tunnel(){
   need_init
   local sub="${1:-list}"; shift || true
   case "$sub" in
-    install) cloudflared_installed && ok "cloudflared already installed" || { hdr "Installing cloudflared"; brew install cloudflared && ok "cloudflared installed" || die "install failed"; } ;;
+    install) cloudflared_installed && ok "cloudflared already installed" || cloudflared_install || die "install failed" ;;
     start)   [ -n "${1:-}" ] || die "usage: bhserve tunnel start <name>"; tunnel_start "$1" ;;
     stop)    [ -n "${1:-}" ] || die "usage: bhserve tunnel stop <name>"; tunnel_stop "$1" ;;
     url)     [ -n "${1:-}" ] || die "usage: bhserve tunnel url <name>"; tunnel_url "$1" ;;

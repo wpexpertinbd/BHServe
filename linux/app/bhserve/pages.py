@@ -130,6 +130,12 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
     if not s.get("secure"):
         item("Enable HTTPS", "security-high-symbolic",
              lambda: win.run_verb(["secure", s["domain"]], f"Securing {s['domain']}…"))
+    if s.get("tunnel"):
+        item("Sharing publicly — manage…", "network-transmit-receive-symbolic",
+             lambda: win.site_share(name))
+    else:
+        item("Share publicly (Cloudflare)", "network-wireless-symbolic",
+             lambda: win.site_share(name))
     item("Open folder", "folder-symbolic", lambda: _open(s["root"]))
     item("Open in editor", "text-editor-symbolic", lambda: _open_editor(s["root"]))
     item("Open terminal", "utilities-terminal-symbolic", lambda: _open_terminal(s["root"]))
@@ -148,6 +154,10 @@ def build_site_row(win, s: dict) -> Adw.ActionRow:
     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, valign=Gtk.Align.CENTER)
     if s.get("secure"):
         box.append(pill("HTTPS", "bh-pill-blue"))
+    if s.get("tunnel"):
+        shared = pill("SHARED", "bh-pill-warn")
+        shared.set_tooltip_text(f"Public: {s['tunnel']}")
+        box.append(shared)
     openb = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in browser")
     openb.connect("clicked", lambda *_: _open(f"{scheme}://{s['domain']}"))
     box.append(openb)

@@ -519,6 +519,72 @@ class MainWindow(Adw.ApplicationWindow):
             "This cannot be undone.",
             lambda: self.run_verb(["db", "drop", name, "--engine", engine], f"Dropping {name}…"))
 
+    # ── Cloudflare quick tunnel: "Share publicly" (parity with Windows/macOS) ──
+    def _copy(self, text) -> None:
+        try:
+            self.get_clipboard().set(text)
+            self.toast("Link copied")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def site_share(self, name) -> None:
+        site = next((x for x in self.last_data.get("sites", []) if x.get("name") == name), None)
+        url = (site or {}).get("tunnel", "")
+        if url:                       # already sharing → just show the manage sheet
+            self._share_dialog(name, url)
+            return
+        self.toast(f"Starting public share for {name}…")
+        self._applog(f"Sharing {name} via Cloudflare…")
+        self.spinner.start()
+
+        def done(rc, out):
+            self.spinner.stop()
+            self.refresh()
+            m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", out)
+            if m:
+                self._share_dialog(name, m.group(0))
+            else:
+                err = Adw.MessageDialog(
+                    transient_for=self, heading="Couldn’t share publicly",
+                    body=(_first_line(out) or "The tunnel didn’t return a public URL. "
+                          "Check Logs and try again."))
+                err.add_response("close", "Close")
+                err.present()
+
+        # First share auto-downloads cloudflared — can take a few extra seconds.
+        self.engine.run_async(["tunnel", "start", name], done)
+
+    def _share_dialog(self, name, url) -> None:
+        dlg = Adw.MessageDialog(
+            transient_for=self, heading=f"Share “{name}” publicly",
+            body="Cloudflare Tunnel gives this site a temporary public https address — no account "
+                 "or port-forwarding. The link works while sharing is on.")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_size_request(460, -1)
+        live = Gtk.Box(spacing=8)
+        live.append(Gtk.Label(label="●", css_classes=["dot-on"]))
+        live.append(Gtk.Label(label="Live — anyone with this link can reach your site.",
+                              xalign=0, css_classes=["bh-step-ok"]))
+        box.append(live)
+        row = Gtk.Box(spacing=6)
+        entry = Gtk.Entry(text=url, hexpand=True)
+        entry.set_editable(False)
+        row.append(entry)
+        cp = Gtk.Button(icon_name="edit-copy-symbolic", tooltip_text="Copy link", valign=Gtk.Align.CENTER)
+        cp.connect("clicked", lambda *_: self._copy(url))
+        row.append(cp)
+        ob = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in browser", valign=Gtk.Align.CENTER)
+        ob.connect("clicked", lambda *_: P._open(url))
+        row.append(ob)
+        box.append(row)
+        dlg.set_extra_child(box)
+        dlg.add_response("close", "Close")
+        dlg.add_response("stop", "Stop sharing")
+        dlg.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.connect("response", lambda d, r: self.run_verb(["tunnel", "stop", name],
+                    f"Stopped sharing {name}") if r == "stop" else None)
+        dlg.present()
+
     # ── GUI prefs (separate from the engine config) ──
     def _gui(self) -> dict:
         try:
