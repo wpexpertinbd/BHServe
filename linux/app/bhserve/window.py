@@ -433,12 +433,22 @@ class MainWindow(Adw.ApplicationWindow):
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         name = Gtk.Entry(placeholder_text="database name")
         eng = Gtk.DropDown.new_from_strings(["mysql", "pg"])
+        pw = Gtk.Entry(placeholder_text="user password (MySQL, optional)", hexpand=True)
+        pwrow = Gtk.Box(spacing=8)
+        pwrow.append(pw)
+        gen = Gtk.Button(label="Generate", valign=Gtk.Align.CENTER)
+        gen.connect("clicked", lambda *_: pw.set_text(self._gen_password()))
+        pwrow.append(gen)
         for w, lab in ((name, "Name"), (eng, "Engine")):
             row = Gtk.Box(spacing=10)
             row.append(Gtk.Label(label=lab, width_chars=10, xalign=0))
             w.set_hexpand(True)
             row.append(w)
             form.append(row)
+        prow = Gtk.Box(spacing=10)
+        prow.append(Gtk.Label(label="Password", width_chars=10, xalign=0))
+        prow.append(pwrow)
+        form.append(prow)
         dlg.set_extra_child(form)
         dlg.add_response("cancel", "Cancel")
         dlg.add_response("ok", "Create")
@@ -450,10 +460,64 @@ class MainWindow(Adw.ApplicationWindow):
             nm = name.get_text().strip()
             if not nm:
                 return
-            self.run_verb(["db", "create", nm, "--engine", ["mysql", "pg"][eng.get_selected()]], f"Creating {nm}…")
+            args = ["db", "create", nm, "--engine", ["mysql", "pg"][eng.get_selected()]]
+            if pw.get_text():
+                args += ["--password", pw.get_text()]
+            self.run_verb(args, f"Creating {nm}…")
 
         dlg.connect("response", resp)
         dlg.present()
+
+    # ── database management (parity with the Windows Databases page) ──
+    @staticmethod
+    def _gen_password(n: int = 16) -> str:
+        import secrets
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+        return "".join(secrets.choice(alphabet) for _ in range(n))
+
+    def _pw_dialog(self, heading, body, hint, on_apply, apply_label="Apply", initial=""):
+        dlg = Adw.MessageDialog(transient_for=self, heading=heading, body=body)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        entry = Gtk.Entry(placeholder_text=hint, text=initial, hexpand=True)
+        rowb = Gtk.Box(spacing=8)
+        entry.set_hexpand(True)
+        rowb.append(entry)
+        gen = Gtk.Button(label="Generate", valign=Gtk.Align.CENTER)
+        gen.connect("clicked", lambda *_: entry.set_text(self._gen_password()))
+        rowb.append(gen)
+        box.append(rowb)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", apply_label)
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        dlg.connect("response", lambda d, r: on_apply(entry.get_text()) if r == "ok" else None)
+        dlg.present()
+
+    def db_root_dialog(self) -> None:
+        self._pw_dialog(
+            "Root password",
+            "Sets the MySQL/MariaDB root password BHServe uses everywhere (new WordPress sites + "
+            "phpMyAdmin). Leave blank to remove it. Local-dev only.",
+            "new root password (blank = remove)",
+            lambda pw: self.run_verb(["db", "root-passwd", "--password", pw],
+                                     "Setting root password…" if pw else "Removing root password…"),
+            apply_label="Apply")
+
+    def db_password_dialog(self, name) -> None:
+        self._pw_dialog(
+            f"Set password · {name}",
+            f"Creates/updates a dedicated user “{name}” (@localhost + @127.0.0.1) for this database.",
+            "new password",
+            lambda pw: self.run_verb(["db", "passwd", name, "--engine", "mysql", "--password", pw],
+                                     f"Setting password for {name}…") if pw else None,
+            apply_label="Set")
+
+    def db_drop(self, name, engine="mysql") -> None:
+        self.confirm(
+            f"Drop database “{name}”?",
+            f"Permanently drops '{name}' ({'PostgreSQL' if engine == 'pg' else 'MySQL/MariaDB'}). "
+            "This cannot be undone.",
+            lambda: self.run_verb(["db", "drop", name, "--engine", engine], f"Dropping {name}…"))
 
     # ── GUI prefs (separate from the engine config) ──
     def _gui(self) -> dict:
