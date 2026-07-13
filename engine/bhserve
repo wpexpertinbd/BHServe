@@ -1361,9 +1361,12 @@ cmd_secure() {
   ok "secured: https://$domain"
 }
 
-# Re-render a site's vhost for the CURRENT cert state (proxy/node/python/php aware) + reload nginx.
-# The renderers emit the ssl block only when the cert file exists (nginx_listen_block), so this
-# turns HTTPS ON after a secure and OFF after an unsecure — one code path for both.
+# Re-render a site's vhost for the CURRENT cert state (proxy/node/python/php aware), then RESTART
+# nginx. The renderers emit the ssl block only when the cert file exists (nginx_listen_block), so
+# this turns HTTPS ON after a secure and OFF after an unsecure — one code path for both.
+# Full restart, NOT reload: a reload leaves OLD workers serving the PREVIOUS cert on kept-alive
+# connections (up to keepalive_timeout, ~65s), so REMOVING https looked like it did nothing until a
+# manual restart-all. stop+start kills those workers so secure/unsecure/resecure apply instantly.
 _rerender_site_vhost() {
   local domain="$1" tld name conf
   tld="$(jget tld test)"
@@ -1373,11 +1376,9 @@ _rerender_site_vhost() {
   conf="$BH_HOME/nginx/sites/$name.conf"
   if [ -f "$BH_HOME/py-sites/$name.json" ]; then
     render_nginx_node_vhost "$name" "$domain" "$(njson "$BH_HOME/py-sites/$name.json" port)" "" "" python
-    maybe_reload_nginx
   elif [ -f "$BH_HOME/node-sites/$name.json" ]; then
     local j="$BH_HOME/node-sites/$name.json"
     render_nginx_node_vhost "$name" "$domain" "$(njson "$j" fe_port)" "$(njson "$j" be_port)" "$(njson "$j" api_paths)"
-    maybe_reload_nginx
   elif [ -f "$conf" ]; then
     local root php server
     server="$(vhost_server "$conf")"
@@ -1389,8 +1390,12 @@ _rerender_site_vhost() {
       php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
       render_site_vhost "$name" "$domain" "$root" "$php" "$server"
     fi
-    maybe_reload_nginx
+  else
+    return 0   # no vhost for this domain — cert changed but nothing to re-render
   fi
+  hosts_sync_all
+  if nginx_running; then nginx_stop >/dev/null 2>&1; nginx_start >/dev/null 2>&1 || warn "restart nginx (bhserve restart nginx)"
+  else nginx_start >/dev/null 2>&1 || true; fi
 }
 
 # Remove HTTPS from a site: delete its cert + key and re-render the vhost (drops the ssl block
