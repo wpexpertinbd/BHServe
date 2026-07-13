@@ -35,9 +35,25 @@ public static class MailpitServer
             FileName = exe,
             Arguments = $"--listen 127.0.0.1:{UiPort} --smtp 127.0.0.1:{SmtpPort}",
             UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            // Do NOT redirect stdout/stderr: nothing reads the pipes, so once the ~4KB pipe
+            // buffer fills with mailpit's logs the process BLOCKS (looks "installed but not
+            // running"), and the pipes die with the parent app. Let it log nowhere.
+            RedirectStandardOutput = false, RedirectStandardError = false,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
+        // Same stripped-env issue as PhpCgi (see PhpCgi.Start): the tray App can launch with an
+        // empty Path/SystemRoot. mailpit is a Go binary — the Go runtime needs SystemRoot to load
+        // system DLLs (crypto/network) and exits immediately without it. Rebuild both.
+        var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var pathParts = new List<string> { Path.GetDirectoryName(exe)!, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
+        if (psi.Environment.TryGetValue("Path", out var inherited) && !string.IsNullOrWhiteSpace(inherited))
+            pathParts.Add(inherited);
+        psi.Environment["Path"] = string.Join(";", pathParts);
+        if (!psi.Environment.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr))
+            psi.Environment["SystemRoot"] = winDir;
+        if (!psi.Environment.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd))
+            psi.Environment["windir"] = winDir;
         var p = Process.Start(psi);
         if (p is null) return false;
         Directory.CreateDirectory(Paths.Run);

@@ -610,10 +610,25 @@ public sealed class Engine
         if (File.Exists(conf))
         {
             var cfg = Config.Load();
-            var (dom, root, phpKey) = ParseVhost(conf);
-            NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
-            if (Nginx.Running()) Nginx.Reload(cfg);
-            Ok("re-rendered vhost with HTTPS");
+            // A proxy vhost (Mailpit, or any ported service) has a proxy_pass and no PHP root —
+            // re-render it with the proxy renderer; RenderPhpVhost would produce a broken vhost.
+            var pm = Regex.Match(File.ReadAllText(conf), @"proxy_pass http://127\.0\.0\.1:(\d+)");
+            if (pm.Success)
+            {
+                NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg);
+                Ok("re-rendered proxy vhost with HTTPS");
+            }
+            else
+            {
+                var (dom, root, phpKey) = ParseVhost(conf);
+                NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
+                Ok("re-rendered vhost with HTTPS");
+            }
+            // Full restart, NOT reload: after a cert change old nginx workers keep serving the
+            // PREVIOUS certs on kept-alive connections (a reload only starts new workers), which
+            // left stale certs live for hours — an HTTPS-scanning AV then kept flagging them as
+            // untrusted. A stop+start guarantees the fresh certs are what's actually served.
+            if (Nginx.Running()) { Nginx.Stop(); System.Threading.Thread.Sleep(300); Nginx.Start(cfg); }
         }
         Ok($"secured: https://{domain}");
     }
@@ -684,17 +699,43 @@ public sealed class Engine
                  "(some antivirus/security tools block edits to the hosts file — allow hosts changes there, or add the line by hand)");
     }
 
-    /// <summary>Ensure mkcert's local CA exists + is trusted (first run needs admin/UAC).</summary>
+    /// <summary>Ensure mkcert's local CA exists + is ACTUALLY TRUSTED (first run needs admin/UAC).
+    /// rootCA.pem merely existing on disk does NOT mean the CA is in the trust stores — mkcert can
+    /// generate it without installing, and HTTPS-scanning AVs additionally require it in the
+    /// MACHINE store. Verify the store by thumbprint before skipping the install.</summary>
     private void EnsureMkcertCa(string mkc)
     {
         var (_, caroot) = RunCapture(mkc, "-CAROOT", null);
         caroot = caroot.Trim();
         var rootPem = string.IsNullOrEmpty(caroot) ? null : Path.Combine(caroot, "rootCA.pem");
-        if (rootPem is not null && File.Exists(rootPem)) return;   // CA already present/trusted
+        if (rootPem is not null && File.Exists(rootPem) && CaTrusted(rootPem)) return;
 
         Info("installing mkcert local CA (one-time, needs admin)…");
-        if (Elevation.Run("mkcert-install")) Ok("mkcert CA installed (browsers will trust BHServe certs)");
+        if (Elevation.Run("mkcert-install")) Ok("mkcert CA installed (browsers + AV scanners will trust BHServe certs)");
         else Warn("mkcert CA not installed in trust store — certs work but show untrusted (curl -k is fine)");
+    }
+
+    /// <summary>True when the given CA pem is present in BOTH the user and machine Root stores.
+    /// The machine store matters because HTTPS-scanning security software (ESET etc.) validates
+    /// against it; user-store-only trust shows ERR_CERT_AUTHORITY_INVALID behind such scanners.</summary>
+    private static bool CaTrusted(string rootPem)
+    {
+        try
+        {
+            using var ca = new System.Security.Cryptography.X509Certificates.X509Certificate2(rootPem);
+            foreach (var loc in new[] { System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser,
+                                        System.Security.Cryptography.X509Certificates.StoreLocation.LocalMachine })
+            {
+                using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                    System.Security.Cryptography.X509Certificates.StoreName.Root, loc);
+                store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly);
+                var hit = store.Certificates.Find(
+                    System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint, ca.Thumbprint, false);
+                if (hit.Count == 0) return false;
+            }
+            return true;
+        }
+        catch { return false; }   // can't verify → run the installer (idempotent)
     }
 
     private static (int code, string output) RunCapture(string exe, string args, string? cwd)

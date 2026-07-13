@@ -33,6 +33,29 @@ try
                 UseShellExecute = false,
             })!;
             p.WaitForExit();
+
+            // mkcert -install only trusts the CA for the CURRENT USER (CurrentUser\Root).
+            // HTTPS-scanning security software (ESET, Kaspersky, Avast…) validates server certs
+            // against the MACHINE store — without the CA there it re-signs every local site with
+            // an "untrusted" placeholder → ERR_CERT_AUTHORITY_INVALID in every browser. We're
+            // already elevated here, so add the CA machine-wide too.
+            try
+            {
+                var caOut = Process.Start(new ProcessStartInfo
+                { FileName = mkc, Arguments = "-CAROOT", UseShellExecute = false, RedirectStandardOutput = true })!;
+                var caroot = caOut.StandardOutput.ReadToEnd().Trim();
+                caOut.WaitForExit();
+                var rootPem = Path.Combine(caroot, "rootCA.pem");
+                if (File.Exists(rootPem))
+                {
+                    var cu = Process.Start(new ProcessStartInfo
+                    { FileName = "certutil.exe", Arguments = $"-addstore -f Root \"{rootPem}\"", UseShellExecute = false, CreateNoWindow = true })!;
+                    cu.WaitForExit();
+                    if (cu.ExitCode != 0) Console.Error.WriteLine("certutil machine-store add failed (user-store trust still installed)");
+                }
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"machine-store CA add failed: {ex.Message}"); }
+
             return p.ExitCode;
         }
 

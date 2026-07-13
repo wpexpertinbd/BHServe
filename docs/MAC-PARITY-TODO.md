@@ -410,3 +410,27 @@ Was missing entirely on Linux; now at parity with Windows/macOS.
   `tunnel start` async (spinner while cloudflared connects) then a **share sheet** (live dot + URL +
   copy + open + Stop sharing). A **SHARED** pill shows on rows with a live tunnel; the sheet reopens via
   "Sharing publicly — manage…". Mirrors Windows `SiteListControl` Share_Click/ShowShareDialog.
+
+---
+
+## 8. Windows win-v1.0.32 — mailpit env/pipes, machine-store CA trust, cert-change nginx restart
+
+Windows fixes; check the Mac/Linux equivalents:
+- **Mailpit died/blocked when launched from the GUI (Windows).** Two causes: (a) stdout/stderr were
+  redirected to pipes nobody read → mailpit BLOCKS once the ~4KB buffer fills (looked "installed but
+  not running"); (b) the tray App's stripped env (empty Path/SystemRoot) kills Go binaries — the Go
+  runtime needs SystemRoot. Fixed in `MailpitServer.Start` (no pipe redirect + env rebuild like
+  PhpCgi). **macOS/Linux unaffected** (brew services / systemd units own the env + logging).
+- **mkcert CA now installed into the MACHINE trust store too** (elevate `mkcert-install` runs
+  `certutil -addstore Root` after `mkcert -install`), and `EnsureMkcertCa` verifies the CA is
+  actually IN the stores by thumbprint (a rootCA.pem existing on disk ≠ trusted). Why: HTTPS-scanning
+  AVs (ESET etc.) validate against the machine store; user-store-only trust = every local site shows
+  ERR_CERT_AUTHORITY_INVALID behind such scanners. **Mac check:** `mkcert -install` on macOS writes
+  the system keychain (machine-wide) already — likely fine, just confirm.
+- **`Secure` now does a full nginx stop+start (not reload) after cert changes** — old workers keep
+  serving the PREVIOUS certs on kept-alive connections after a reload, so re-issued certs weren't
+  actually served for hours. Also `Secure` re-renders **proxy** vhosts with the proxy renderer
+  (mailpit) instead of a broken php vhost — same bug class as L6's shared-engine fix.
+  **Mac/Linux check:** the shared engine's `cmd_secure` → `maybe_reload_nginx` also only RELOADS —
+  the stale-worker window exists there too (mostly harmless without an intercepting AV, but consider
+  restart-on-secure for parity).
