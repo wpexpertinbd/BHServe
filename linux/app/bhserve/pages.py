@@ -127,9 +127,18 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
     name = s["name"]
     item("Change PHP version…", "application-x-php-symbolic", lambda: site_change_php(win, s))
     item("Switch web server…", "network-server-symbolic", lambda: site_change_server(win, s))
+    dom = s["domain"]
     if not s.get("secure"):
-        item("Enable HTTPS", "security-high-symbolic",
-             lambda: win.run_verb(["secure", s["domain"]], f"Securing {s['domain']}…"))
+        item("Install SSL (HTTPS)", "security-high-symbolic",
+             lambda: win.run_verb(["secure", dom], f"Securing {dom}…"))
+    else:
+        item("Reinstall SSL (fresh certificate)", "security-high-symbolic",
+             lambda: win.run_verb(["resecure", dom], f"Reinstalling SSL for {dom}…"))
+        item("Remove SSL", "security-low-symbolic",
+             lambda: win.confirm(f"Remove SSL from “{dom}”?",
+                                 "The site keeps working over http://.",
+                                 lambda: win.run_verb(["unsecure", dom], f"Removing SSL from {dom}…")),
+             destructive=True)
     if s.get("tunnel"):
         item("Sharing publicly — manage…", "network-transmit-receive-symbolic",
              lambda: win.site_share(name))

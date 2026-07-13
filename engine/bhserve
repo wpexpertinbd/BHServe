@@ -1357,36 +1357,63 @@ cmd_secure() {
   fi
   ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) \
     && ok "cert: $BH_HOME/certs/$domain.pem" || die "mkcert failed"
-  # Re-render the vhost if a site for this domain exists, so the ssl block turns on.
-  # Node/Python sites are reverse-proxy vhosts — re-render them with their OWN renderer
-  # (re-rendering them as a php vhost produces an empty-root config that breaks nginx).
-  local name="${domain%.*}"; name="${name%%.*}"
-  local conf="$BH_HOME/nginx/sites/$name.conf"
+  _rerender_site_vhost "$domain"
+  ok "secured: https://$domain"
+}
+
+# Re-render a site's vhost for the CURRENT cert state (proxy/node/python/php aware) + reload nginx.
+# The renderers emit the ssl block only when the cert file exists (nginx_listen_block), so this
+# turns HTTPS ON after a secure and OFF after an unsecure — one code path for both.
+_rerender_site_vhost() {
+  local domain="$1" tld name conf
+  tld="$(jget tld test)"
+  # Strip the TLD suffix, NOT to the first label — else a multi-label site (api.myapp.test) resolves
+  # to "api" and its api.myapp.conf is never found, so the re-render silently no-ops.
+  name="${domain%.$tld}"
+  conf="$BH_HOME/nginx/sites/$name.conf"
   if [ -f "$BH_HOME/py-sites/$name.json" ]; then
     render_nginx_node_vhost "$name" "$domain" "$(njson "$BH_HOME/py-sites/$name.json" port)" "" "" python
-    ok "re-rendered python site with HTTPS"; maybe_reload_nginx
+    maybe_reload_nginx
   elif [ -f "$BH_HOME/node-sites/$name.json" ]; then
     local j="$BH_HOME/node-sites/$name.json"
     render_nginx_node_vhost "$name" "$domain" "$(njson "$j" fe_port)" "$(njson "$j" be_port)" "$(njson "$j" api_paths)"
-    ok "re-rendered node site with HTTPS"; maybe_reload_nginx
+    maybe_reload_nginx
   elif [ -f "$conf" ]; then
     local root php server
     server="$(vhost_server "$conf")"
     if [ "$server" = proxy ]; then
-      # A generic proxy vhost (e.g. Mailpit) has a proxy_pass port + no PHP root — re-render it
-      # with the proxy renderer (render_site_vhost would produce a broken empty-root php vhost).
       local port; port="$(sed -n 's#.*proxy_pass http://127.0.0.1:\([0-9]*\).*#\1#p' "$conf" | head -1)"
       render_nginx_proxy_site "$name" "$domain" "${port:-8025}"
-      ok "re-rendered proxy vhost with HTTPS"
     else
       root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
       php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
       render_site_vhost "$name" "$domain" "$root" "$php" "$server"
-      ok "re-rendered vhost with HTTPS"
     fi
     maybe_reload_nginx
   fi
-  ok "secured: https://$domain"
+}
+
+# Remove HTTPS from a site: delete its cert + key and re-render the vhost (drops the ssl block
+# since the cert files are gone). The site keeps serving over http. Use resecure for a fresh cert.
+cmd_unsecure() {
+  need_init
+  [ $# -ge 1 ] || die "usage: bhserve unsecure <domain>"
+  local domain="$1"
+  hdr "Removing HTTPS from $domain"
+  [ -f "$BH_HOME/certs/$domain.pem" ] && ok "certificate removed" || info "no certificate found (already http-only)"
+  rm -f "$BH_HOME/certs/$domain.pem" "$BH_HOME/certs/$domain-key.pem"
+  _rerender_site_vhost "$domain"
+  ok "unsecured: http://$domain"
+}
+
+# Reinstall HTTPS: drop the old cert + key and issue a completely fresh one (new key + serial).
+# The GUI remedy when a site's certificate shows as untrusted (AV/OS trust hiccup).
+cmd_resecure() {
+  need_init
+  [ $# -ge 1 ] || die "usage: bhserve resecure <domain>"
+  hdr "Reinstalling HTTPS for $1"
+  rm -f "$BH_HOME/certs/$1.pem" "$BH_HOME/certs/$1-key.pem"
+  cmd_secure "$1"
 }
 
 # ── process management ──────────────────────────────────────────────────────
@@ -2466,7 +2493,9 @@ case "${1:-doctor}" in
   loginitem) shift; cmd_loginitem "$@" ;;
   config)  shift; cmd_config "$@" ;;
   logs)    shift; cmd_logs "$@" ;;
-  secure)  shift; cmd_secure "$@" ;;
+  secure)   shift; cmd_secure "$@" ;;
+  unsecure) shift; cmd_unsecure "$@" ;;
+  resecure) shift; cmd_resecure "$@" ;;
   dns)     shift; cmd_dns "$@" ;;
   start)   shift; cmd_start "$@" ;;
   stop)    shift; cmd_stop "$@" ;;

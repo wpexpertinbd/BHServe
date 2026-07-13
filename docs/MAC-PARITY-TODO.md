@@ -461,3 +461,27 @@ branch). **Linux TODO:** same three items in `_site_menu` (pages.py) + the share
 (mass-rewrite of *.pem looks ransomware-like to protection layers, which silently RESTORE the old
 files — bulk-re-issued certs kept "reverting" to June copies). Per-site product pacing (one secure at a
 time, seconds apart) is never rolled back. The GUI Reinstall-SSL is inherently per-site = safe.
+
+---
+
+## 9b. Per-site SSL Install/Reinstall/Remove — Linux done (linux-v1.0.35); macOS still needs the GUI
+
+**Shared engine (macOS gets these FREE — verify):** `engine/bhserve` now has `cmd_unsecure` +
+`cmd_resecure` (dispatched as `bhserve unsecure|resecure <domain>`) + a factored `_rerender_site_vhost`
+(proxy/node/python/php aware) used by secure AND unsecure. **Multi-label bug FIXED in the shared engine:**
+`cmd_secure` derived the site name as `${domain%.*}` then `${name%%.*}` (first label) → a multi-label site
+like `api.amarmedi.test` resolved to `api`, its `api.amarmedi.conf` was never found, and the re-render
+silently no-op'd. Now strips the `.$tld` suffix → `api.amarmedi`. This is the same bug I fixed in the
+Windows C# `Secure` (`domain.Split('.')[0]`) — macOS inherits the shell fix automatically.
+
+**Checked, NOT applicable to Linux/Mac (unlike Windows):** the daemon-stop-by-tracked-pid orphan bug
+(nginx_stop kills by config-path pgrep fallback; fpm_stop kills a real php-fpm master) and the
+reload-vs-restart cert staleness (Linux `nginx -s reload` cleanly re-reads certs, no intercepting-AV
+compounding). So no restart change needed on the shell side.
+
+**Linux GUI (done):** site-row `_site_menu` (pages.py) now shows **Install SSL (HTTPS)** when http-only,
+and **Reinstall SSL (fresh certificate)** + **Remove SSL** (confirm) when secured — wired to the new verbs.
+
+**macOS TODO:** add the same three items to the Websites-panel row menu (Reinstall → `bhserve resecure`,
+Remove → `bhserve unsecure`) — the engine verbs already exist. Also confirm the multi-label fix (a Mac
+site like `api.foo.test` now re-renders correctly on secure).
