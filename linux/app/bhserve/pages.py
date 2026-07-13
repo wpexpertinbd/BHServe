@@ -555,7 +555,9 @@ class SitesPage(Gtk.Box):
         self.append(self.list)
 
     def refresh(self, data: dict) -> None:
-        self.list.set_items(data.get("sites", []))
+        # phpMyAdmin / Adminer / Mailpit are built-in tools, not user sites — they're managed
+        # from Services + the dashboard web-tools, so keep them out of the Sites list.
+        self.list.set_items([s for s in data.get("sites", []) if not is_tool(s.get("name", ""))])
 
     def _add_dialog(self):
         self.win.add_site_dialog()

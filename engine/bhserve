@@ -1359,11 +1359,19 @@ cmd_secure() {
     ok "re-rendered node site with HTTPS"; maybe_reload_nginx
   elif [ -f "$conf" ]; then
     local root php server
-    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
-    php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
     server="$(vhost_server "$conf")"
-    render_site_vhost "$name" "$domain" "$root" "$php" "$server"
-    ok "re-rendered vhost with HTTPS"
+    if [ "$server" = proxy ]; then
+      # A generic proxy vhost (e.g. Mailpit) has a proxy_pass port + no PHP root — re-render it
+      # with the proxy renderer (render_site_vhost would produce a broken empty-root php vhost).
+      local port; port="$(sed -n 's#.*proxy_pass http://127.0.0.1:\([0-9]*\).*#\1#p' "$conf" | head -1)"
+      render_nginx_proxy_site "$name" "$domain" "${port:-8025}"
+      ok "re-rendered proxy vhost with HTTPS"
+    else
+      root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+      php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
+      render_site_vhost "$name" "$domain" "$root" "$php" "$server"
+      ok "re-rendered vhost with HTTPS"
+    fi
     maybe_reload_nginx
   fi
   ok "secured: https://$domain"
@@ -2069,11 +2077,13 @@ pma_install(){
 PHP
   ok "wrote config.inc.php (socket: $sock)"
   local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
+  db_ext_ensure "$phpkey"   # phpMyAdmin needs mysqli — make sure the serving PHP has it
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost "phpmyadmin" "phpmyadmin.$tld" "$dir" "$phpkey"
+  tool_autosecure "phpmyadmin.$tld"
   hdr "phpMyAdmin ready"
-  info "URL  : http://phpmyadmin.$tld   (HTTPS: bhserve secure phpmyadmin.$tld)"
+  info "URL  : https://phpmyadmin.$tld"
   info "login: your DB user (e.g. '$USER_NAME' with a blank password, or 'root' if you set one)"
   info "uploads allowed up to 2GB"
   maybe_reload_nginx
@@ -2089,11 +2099,13 @@ adminer_install(){
     ok "Adminer in $dir"
   else ok "Adminer already present ($dir)"; fi
   local tld phpkey; tld="$(jget tld test)"; phpkey="$(php_key default)"
+  db_ext_ensure "$phpkey"   # Adminer needs mysqli/pdo_mysql to talk to MySQL/MariaDB
   render_fpm_pool "$phpkey" >/dev/null 2>&1 || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the pool is up (no 502)
   render_site_vhost adminer "adminer.$tld" "$dir" "$phpkey" nginx
+  tool_autosecure "adminer.$tld"
   hdr "Adminer ready"
-  info "URL  : http://adminer.$tld"
+  info "URL  : https://adminer.$tld"
   info "login: System=MySQL, Server=localhost, Username=$USER_NAME (blank pass) or root"
   maybe_reload_nginx
 }
@@ -2213,17 +2225,36 @@ PLIST
   esac
 }
 
+# Platform hook: ensure any OS-level plumbing a running Mailpit needs exists (Linux overrides
+# this to install its systemd unit for pre-existing installs). No-op on macOS (brew handles it).
+mailpit_platform_setup(){ :; }
+
+# Platform hook: make sure the given PHP has the MySQL client extensions (mysqli/pdo_mysql)
+# that phpMyAdmin/Adminer need. No-op on macOS (brew's PHP ships them). Linux overrides this
+# to apt-install php<v>-mysql when the serving PHP is a distro build.
+db_ext_ensure(){ :; }
+
+# Best-effort trusted HTTPS for a built-in tool domain (phpMyAdmin / Adminer / Mailpit) so it
+# works over https out of the box. Silent no-op when mkcert isn't installed yet.
+tool_autosecure(){
+  local domain="$1"
+  svc_installed mkcert || { info "install mkcert for HTTPS on $domain (bhserve install mkcert)"; return 0; }
+  cmd_secure "$domain" >/dev/null 2>&1 && ok "secured: https://$domain" || warn "could not auto-secure $domain (run: bhserve secure $domain)"
+}
+
 cmd_mailpit(){ need_init; case "${1:-setup}" in setup) mailpit_setup ;; *) die "usage: bhserve mailpit setup" ;; esac; }
 mailpit_setup(){
   svc_installed mailpit || die "mailpit not installed — bhserve install mailpit"
+  mailpit_platform_setup
   brew services start mailpit >/dev/null 2>&1 || true
   enable_svc mailpit   # keep it in the auto-start set so Start All restarts it
   local tld; tld="$(jget tld test)"
   render_nginx_proxy_site mailpit "mailpit.$tld" 8025
+  tool_autosecure "mailpit.$tld"   # re-renders the proxy vhost with HTTPS if mkcert is present
   # route PHP mail() to Mailpit for every pool (sendmail_path picked up on regen)
   local k; for k in $(fpm_keys); do render_fpm_pool "$k" >/dev/null 2>&1 || true; done
   hdr "Mailpit ready"
-  info "URL : http://mailpit.$tld   (SMTP 127.0.0.1:1025 · UI 127.0.0.1:8025)"
+  info "URL : https://mailpit.$tld   (SMTP 127.0.0.1:1025 · UI 127.0.0.1:8025)"
   info "PHP mail() now delivers to Mailpit (restart pools already done)"
   maybe_reload_nginx
 }
@@ -2272,8 +2303,12 @@ cmd_api() {
     local tun=""; tunnel_running "$n" && tun="$(tunnel_url "$n")"
     local nx=""; [ "$srv" = node ] && nx="$(node_api_fields "$n")"
     [ "$srv" = python ] && nx="$(py_api_fields "$n")"
-    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s"%s}' \
-      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$nx")"
+    # Built-in web tools (phpMyAdmin / Adminer / Mailpit) live as vhosts too, but they aren't
+    # user websites — the GUI hides them from the Sites tab + dashboard list (managed from
+    # Services / dashboard web-tools instead).
+    local tool=false; case "$n" in phpmyadmin|adminer|mailpit) tool=true;; esac
+    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s","tool":%s%s}' \
+      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$tool" "$nx")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 

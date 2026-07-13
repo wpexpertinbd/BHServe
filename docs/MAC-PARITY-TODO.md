@@ -322,3 +322,37 @@ diverged from the Windows `NavigationView` + single-`ScrollViewer` dashboard. Ma
 
 **Mac check:** confirm the macOS dashboard scrolls as one region (not a nested list scroll) and the
 source list has app-branding at top + Settings reachable at the bottom, with a working sidebar toggle.
+
+---
+
+## L6. Built-in tools (phpMyAdmin/Adminer/Mailpit) + tool HTTPS + mailpit daemon  *(Linux: linux-v1.0.24)*
+
+Several fixes; the **shared-engine** ones already apply to macOS, the **GUI** one is a Mac TODO.
+
+**Shared engine (macOS gets these automatically — verify):**
+- `cmd_api` now tags each site row with **`"tool":true`** for `phpmyadmin`/`adminer`/`mailpit`, so the GUI
+  can hide them from the Sites list.
+- **Tool auto-HTTPS.** `pma_install`/`adminer_install`/`mailpit_setup` now call a shared `tool_autosecure`
+  → `bhserve secure <tool>.test` (best-effort, when mkcert is installed) so the tools work over https out
+  of the box; their info URLs now say `https://`.
+- **`cmd_secure` proxy-vhost fix.** Securing a **proxy** vhost (Mailpit) used to re-render it as a *php*
+  vhost (empty root → broken). It now detects `server=proxy`, extracts the `proxy_pass` port, and
+  re-renders with `render_nginx_proxy_site` (SSL turns on via the shared `nginx_listen_block`). **This was
+  a real Mac bug too** — `bhserve secure mailpit.test` on macOS would have broken the Mailpit vhost.
+- New shared no-op hooks `mailpit_platform_setup` + `db_ext_ensure` (Linux overrides them; macOS keeps the
+  no-ops since brew's PHP ships mysqli/pdo_mysql and brew manages the mailpit service).
+
+**Linux-only:**
+- **Mailpit now actually runs.** It shipped no systemd unit and `brew services start mailpit` was a Linux
+  no-op → installed-but-never-running, no UI, no SSL. Now: `install mailpit` writes
+  `/etc/systemd/system/mailpit.service` (loopback SMTP :1025 + UI :8025), the `brew()` shim handles
+  `services start|stop|restart` → systemctl, and `mailpit_platform_setup` back-fills the unit for older
+  installs.
+- **phpMyAdmin mysqli.** `db_ext_ensure` apt-installs `php<v>-mysql` (+`phpenmod`) when the serving distro
+  PHP lacks mysqli; portable static builds have it compiled in.
+- **dnsmasq shows active once installed** (Ubuntu ships dnsmasq-base with no running unit; BHServe-Linux
+  DNS is hosts-file based, so dnsmasq is optional) — `dnsmasq_running` override.
+
+**Mac GUI TODO:** hide `tool` sites (or name ∈ {phpmyadmin, adminer, mailpit}) from the macOS **Sites**
+list + dashboard website list — they belong under Services / dashboard web-tools only. Linux does this via
+`is_tool(name)`; the engine now also exposes the `tool` flag per site.

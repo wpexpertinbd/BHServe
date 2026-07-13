@@ -324,7 +324,7 @@ cmd_install() {
       mailpit)
         hdr "Installing Mailpit"
         if curl $_CURL_HTTPS -fsSL https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh | $SUDO bash >/dev/null 2>&1 \
-           && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; else no "install mailpit failed (download blocked?)"; failed=1; fi ;;
+           && [ -x /usr/local/bin/mailpit ]; then ok "mailpit installed"; _mailpit_unit; else no "install mailpit failed (download blocked?)"; failed=1; fi ;;
       postgresql@*)
         hdr "Installing $pkg  (apt)"
         if _apt install -y "$pkg"; then _disable_system_unit postgresql; ok "$key installed"; else no "install $key failed"; failed=1; fi ;;
@@ -409,21 +409,100 @@ brew_svc(){ # action key
   $SUDO systemctl "$action" "$unit" >/dev/null 2>&1 && ok "$key $action" || no "$key $action failed"
 }
 
-# cmd_api builds the db/cache/mail "running" flag from `brew services list` output (empty on
-# Linux → everything looked stopped). Shim `brew services list` to emit one "<formula> <state>"
-# line per service from systemd, so the api's existing awk detection works unchanged.
-brew(){
-  [ "${1:-}" = services ] && [ "${2:-}" = list ] || return 0
-  local key formula _p role unit
-  while IFS='|' read -r key formula _p role; do
-    case "$role" in
-      db|cache|mail)
-        svc_installed "$key" || continue   # don't report state for a not-really-installed engine
-        unit="$(_systemd_unit "$key")"
-        if systemctl is-active --quiet "$unit" 2>/dev/null; then echo "$formula started"; else echo "$formula stopped"; fi ;;
-    esac
-  done < <(services)
+# Mailpit ships no systemd unit — its install script only drops the binary. Write a system
+# unit so start/stop/enable + the api status shim all work via systemctl like every other
+# daemon. Binds loopback only: SMTP 127.0.0.1:1025, web UI 127.0.0.1:8025 (nginx proxies it).
+_mailpit_unit(){
+  local unit=/etc/systemd/system/mailpit.service
+  $SUDO tee "$unit" >/dev/null <<'UNIT'
+[Unit]
+Description=Mailpit (BHServe mail catcher)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mailpit --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025
+Restart=on-failure
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  $SUDO systemctl daemon-reload >/dev/null 2>&1 || true
+  ok "mailpit systemd unit installed"
 }
+# Called by the shared mailpit_setup — create the unit if an earlier install predates it.
+mailpit_platform_setup(){ [ -f /etc/systemd/system/mailpit.service ] || _mailpit_unit; }
+
+# phpMyAdmin/Adminer need mysqli + pdo_mysql. A distro php-fpm loads them from php<v>-mysql
+# (via the compiled-in conf.d that our PHP_INI_SCAN_DIR leading ':' preserves). A portable
+# static build has them compiled in already. So: for a distro PHP that's missing the ext,
+# apt-install php<v>-mysql and bounce the pool; for a static build, nothing to do.
+db_ext_ensure(){
+  local key="${1:-}" v="${1#php@}"; v="${v:-$(jget default_php 8.4)}"; v="${v#php@}"
+  _is_static_php "$v" && return 0                    # compiled-in on the portable build
+  local binp; binp="/usr/sbin/php-fpm$v"
+  [ -x "$binp" ] || binp="$(command -v php$v 2>/dev/null || command -v php 2>/dev/null)"
+  # already has mysqli? nothing to do.
+  if [ -n "$binp" ] && "$binp" -m 2>/dev/null | grep -qi '^mysqli$'; then return 0; fi
+  hdr "Adding the MySQL PHP extension (php$v-mysql)"
+  _apt_update_once
+  if _apt install -y "php$v-mysql"; then
+    $SUDO phpenmod -v "$v" mysqli pdo_mysql >/dev/null 2>&1 || true
+    ok "php$v-mysql installed (mysqli + pdo_mysql)"
+    fpm_running "php@$v" && { fpm_stop "php@$v" >/dev/null 2>&1; fpm_start "php@$v" >/dev/null 2>&1; } || true
+  else
+    warn "could not install php$v-mysql — phpMyAdmin needs the mysqli extension"
+  fi
+}
+
+# Resolve a brew formula OR a BHServe service key to its systemd unit name.
+_unit_for(){
+  case "$1" in
+    mariadb|mariadb-server)  echo mariadb ;;
+    mysql|mysql-server)      echo mysql ;;
+    postgresql*|postgres)    echo postgresql ;;
+    redis|redis-server)      echo redis-server ;;
+    memcached)               echo memcached ;;
+    dnsmasq)                 echo dnsmasq ;;
+    mailpit)                 echo mailpit ;;
+    *)                       echo "$1" ;;
+  esac
+}
+
+# cmd_api builds the db/cache/mail "running" flag from `brew services list` output (empty on
+# Linux → everything looked stopped). Also, shared code calls `brew services start|stop <formula>`
+# directly (e.g. mailpit_setup) — on Linux route those to systemctl. Shim `brew services …`:
+brew(){
+  [ "${1:-}" = services ] || return 0
+  local sub="${2:-}"
+  case "$sub" in
+    list)
+      local key formula _p role unit
+      while IFS='|' read -r key formula _p role; do
+        case "$role" in
+          db|cache|mail)
+            svc_installed "$key" || continue   # don't report state for a not-really-installed engine
+            unit="$(_systemd_unit "$key")"
+            if systemctl is-active --quiet "$unit" 2>/dev/null; then echo "$formula started"; else echo "$formula stopped"; fi ;;
+        esac
+      done < <(services) ;;
+    start|stop|restart)
+      local unit; unit="$(_unit_for "${3:-}")"
+      $SUDO systemctl "$sub" "$unit" >/dev/null 2>&1 || true ;;
+  esac
+  return 0
+}
+# dnsmasq status on Linux. BHServe-Linux resolves *.test via a managed /etc/hosts block by
+# default (systemd-resolved owns 127.0.0.53:53), so dnsmasq is an OPTIONAL wildcard enhancement,
+# not a required daemon — Ubuntu even ships dnsmasq-base with no running unit. Treat it like
+# mkcert/fnm: "active" once installed, but still report the live daemon if one IS running.
+dnsmasq_running(){
+  pgrep -x dnsmasq >/dev/null 2>&1 && return 0
+  systemctl is-active --quiet dnsmasq 2>/dev/null && return 0
+  svc_installed dnsmasq
+}
+
 # Called in places with either the service key or the brew formula; match on the unit.
 brew_svc_running(){
   local arg="$1" unit
