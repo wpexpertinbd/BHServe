@@ -354,6 +354,7 @@ class MainWindow(Adw.ApplicationWindow):
             heading=("Site created" if ok else "Couldn’t create site"),
             body=(f"{nm}.{tld} is ready." if ok else f"Something went wrong creating {nm}."))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(480, -1)   # widen the dialog so long paths read on one/two lines
         if ok:
             box.append(Gtk.Label(label=url, xalign=0, selectable=True,
                                   css_classes=["bh-brand"], wrap=True))
@@ -371,7 +372,9 @@ class MainWindow(Adw.ApplicationWindow):
             if shown >= 14:
                 break
         if shown:
-            sc = Gtk.ScrolledWindow(max_content_height=240, propagate_natural_height=True)
+            sc = Gtk.ScrolledWindow(max_content_height=260, propagate_natural_height=True)
+            sc.set_min_content_width(460)
+            sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             sc.set_child(steps)
             box.append(sc)
         dlg.set_extra_child(box)
