@@ -25,7 +25,8 @@ from gi.repository import GLib
 # anything it creates back to the user. Everything else (api/status/logs/config/db/php) runs
 # unprivileged as the user.
 _PRIVILEGED = {"install", "update", "uninstall", "start", "stop", "restart",
-               "secure", "dns", "helper", "loginitem", "pma", "adminer", "mailpit"}
+               "secure", "unsecure", "resecure", "dns", "helper", "loginitem",
+               "pma", "adminer", "mailpit"}
 
 
 def _needs_root(args: tuple) -> bool:
