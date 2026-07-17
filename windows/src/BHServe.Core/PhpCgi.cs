@@ -53,6 +53,54 @@ public static class PhpCgi
     public static bool Start(string version)
     {
         if (Running(version)) return true;
+        // ⚠️ THE ionCube-in-php-cgi ROOT CAUSE (win-v1.0.38): when the WinUI3 GUI process
+        // (BHServe.App) spawns php-cgi, its worker children SILENTLY FAIL to load zend_extensions
+        // like ionCube — a WinUI3/WindowsAppSDK process-context quirk. Proven exhaustively: a plain
+        // console process (the bhserve.exe CLI, a bare .NET console, even Python) spawning the SAME
+        // php-cgi with the SAME env/args loads ionCube fine; only GUI-spawned workers fail. So when
+        // we're the GUI, DELEGATE the real spawn to the plain bhserve.exe CLI; when we're already a
+        // console (the CLI itself, incl. the hidden __spawn-php verb), spawn directly.
+        if (IsGuiProcess()) return SpawnViaCli(version);
+        return SpawnWorker(version);
+    }
+
+    /// <summary>True when we're running inside the WinUI GUI (BHServe.App) rather than the console CLI.</summary>
+    private static bool IsGuiProcess()
+    {
+        try { return Process.GetCurrentProcess().ProcessName.Equals("BHServe.App", StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    /// <summary>GUI path: run `bhserve.exe __spawn-php &lt;version&gt;` so php-cgi is a child of the plain
+    /// console (where ionCube loads), then confirm via the runfile. No handle inheritance / no window
+    /// so nothing of the GUI's process context leaks into the CLI or its php-cgi grandchildren.</summary>
+    private static bool SpawnViaCli(string version)
+    {
+        try
+        {
+            var cli = Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
+            if (!File.Exists(cli)) return SpawnWorker(version);   // last-resort fallback
+            var psi = new ProcessStartInfo
+            {
+                FileName = cli,
+                Arguments = $"__spawn-php {version}",
+                UseShellExecute = false,
+                CreateNoWindow = true,      // no redirect => bInheritHandles=false => clean context
+            };
+            var p = Process.Start(psi);
+            if (p is null) return false;
+            p.WaitForExit(30000);
+            return Running(version);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>The REAL php-cgi spawn. MUST run in a plain console process (bhserve.exe) — never the
+    /// WinUI app, or the workers won't load ionCube. Called by Start() when already a console, and by
+    /// the hidden <c>bhserve.exe __spawn-php &lt;version&gt;</c> verb the GUI delegates to.</summary>
+    public static bool SpawnWorker(string version)
+    {
+        if (Running(version)) return true;
         var exe = Tools.PhpCgiExe(version);
         if (exe is null) return false;
 

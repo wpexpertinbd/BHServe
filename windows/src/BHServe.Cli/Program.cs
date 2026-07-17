@@ -25,6 +25,9 @@ try
         case "resecure":  engine.Resecure(Arg(rest, 0)); break;
         case "status":    engine.Status(); break;
         case "api":       Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(engine.Api())); break;
+        // Hidden: the GUI delegates php-cgi startup here so the worker is a child of THIS plain
+        // console (where ionCube loads) instead of the WinUI app (where it silently doesn't).
+        case "__spawn-php": PhpCgi.SpawnWorker(Arg(rest, 0)); break;
 
         case "site":
             switch (Arg(rest, 0))
