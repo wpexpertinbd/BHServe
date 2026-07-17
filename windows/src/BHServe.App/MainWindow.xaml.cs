@@ -227,11 +227,14 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(DashboardPage));
     }
 
+    private bool _sitesAddPending;
+
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.IsSettingsSelected) { ContentFrame.Navigate(typeof(SettingsPage)); return; }
         if (args.SelectedItemContainer is NavigationViewItem { Tag: string tag })
-            ContentFrame.Navigate(tag switch
+        {
+            var page = tag switch
             {
                 "sites"     => typeof(SitesPage),
                 "databases" => typeof(DatabasesPage),
@@ -240,6 +243,28 @@ public sealed partial class MainWindow : Window
                 "services"  => typeof(ServicesPage),
                 "logs"      => typeof(LogsPage),
                 _           => typeof(DashboardPage),
-            });
+            };
+            object? param = null;
+            if (tag == "sites" && _sitesAddPending) { param = "add"; _sitesAddPending = false; }
+            ContentFrame.Navigate(page, param);
+        }
+    }
+
+    /// <summary>Jump to the Sites tab from elsewhere (e.g. the Dashboard "Add site" button). When
+    /// <paramref name="addNew"/> is true the Sites page focuses its name box so the user can type a
+    /// site name immediately.</summary>
+    public void GoToSites(bool addNew)
+    {
+        _sitesAddPending = addNew;
+        NavigationViewItem? sites = null;
+        foreach (var it in Nav.MenuItems)
+            if (it is NavigationViewItem nvi && (nvi.Tag as string) == "sites") { sites = nvi; break; }
+        if (sites is null) return;
+        if (Nav.SelectedItem == sites)   // already on Sites → SelectionChanged won't fire; navigate directly
+        {
+            object? param = _sitesAddPending ? "add" : null; _sitesAddPending = false;
+            ContentFrame.Navigate(typeof(SitesPage), param);
+        }
+        else Nav.SelectedItem = sites;   // fires Nav_SelectionChanged, which honors _sitesAddPending
     }
 }

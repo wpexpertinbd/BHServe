@@ -29,7 +29,14 @@ public sealed partial class SitesPage : Page
         SiteList.Changed += (_, _) => Refresh();   // re-pull after any per-site action
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e) => Refresh();
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        Refresh();
+        // Arriving via the Dashboard "Add site" button → put the cursor in the name box, ready to type.
+        if (e.Parameter as string == "add")
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => { try { NameBox.Focus(FocusState.Programmatic); } catch { } });
+    }
 
     private async void Refresh()
     {

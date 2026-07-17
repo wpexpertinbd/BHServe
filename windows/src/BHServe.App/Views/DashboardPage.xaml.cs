@@ -162,6 +162,9 @@ public sealed partial class DashboardPage : Page
     private async void StopAll_Click(object sender, RoutedEventArgs e)    => await Op(() => EngineHost.Instance.Engine.Stop("all"));
     private async void RestartAll_Click(object sender, RoutedEventArgs e) => await Op(() => EngineHost.Instance.Engine.Restart("all"));
 
+    // Quick "Add site" from the dashboard → jump to the Sites tab with the name box focused.
+    private void AddSite_Click(object sender, RoutedEventArgs e) => App.Window?.GoToSites(addNew: true);
+
     private void SetBtn(Button b, bool enabled, bool accent)
     {
         b.IsEnabled = enabled;

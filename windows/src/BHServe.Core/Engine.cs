@@ -255,9 +255,8 @@ public sealed class Engine
         var cfg = Config.Load();
         if (svc is "all" or "")
         {
-            // Start only ACTIVE (auto-start ★) + installed services — never an installed-but-inactive one.
-            // php-cgi is on-demand for sites, so it always starts for the versions sites use.
-            foreach (var v in SitePhpVersions(cfg))
+            // Start every ACTIVE php version: the ones sites use + the ones the user starred (★).
+            foreach (var v in ActivePhpVersions(cfg))
                 if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
                 else Warn($"php {v} not installed — bhserve install php@{v}");
 
@@ -302,7 +301,10 @@ public sealed class Engine
         if (svc is "all" or "")
         {
             Nginx.Stop(); Ok("nginx stopped");
-            foreach (var v in SitePhpVersions(cfg)) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
+            // Stop every active version + any that happens to be running (so nothing is left behind).
+            var toStop = new HashSet<string>(ActivePhpVersions(cfg));
+            foreach (var v in Services.PhpVersions) if (PhpCgi.Running(v)) toStop.Add(v);
+            foreach (var v in toStop) { PhpCgi.Stop(v); Ok($"php-cgi {v} stopped"); }
             if (DbServer.Running()) { DbServer.Stop(); Ok("database stopped"); }
             if (PgServer.Running()) { PgServer.Stop(); Ok("PostgreSQL stopped"); }
             if (Redis.Running()) { Redis.Stop(); Ok("redis stopped"); }
@@ -805,6 +807,20 @@ public sealed class Engine
                 var m = Regex.Match(File.ReadAllText(f), @"php=php@?([0-9.]+)");
                 if (m.Success) set.Add(m.Groups[1].Value);
             }
+        return set;
+    }
+
+    /// <summary>PHP versions that "start all" / "stop all" should act on: every version a site uses
+    /// (SitePhpVersions) PLUS every installed version whose auto-start ★ is on (Services.Enabled).
+    /// Fixes starred-but-siteless versions (e.g. php@8.2, php@7.4) never starting/stopping with the
+    /// global Start/Stop/Restart-all.</summary>
+    private static IEnumerable<string> ActivePhpVersions(Config cfg)
+    {
+        var set = new HashSet<string>(SitePhpVersions(cfg));
+        if (Services.Enabled("php", cfg)) set.Add(cfg.DefaultPhp);   // the default "php" ★
+        foreach (var v in Services.PhpVersions)
+            if (Services.Enabled($"php@{v}", cfg) && Tools.PhpCgiExe(v) is not null)
+                set.Add(v);
         return set;
     }
 
