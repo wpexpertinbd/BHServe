@@ -89,16 +89,152 @@ public static class PhpCgi
             };
             var p = Process.Start(psi);
             if (p is null) return false;
-            p.WaitForExit(30000);
+            p.WaitForExit(120000);   // generous: the helper may respawn-heal several times at boot
             return Running(version);
         }
         catch { return false; }
     }
 
-    /// <summary>The REAL php-cgi spawn. MUST run in a plain console process (bhserve.exe) — never the
-    /// WinUI app, or the workers won't load ionCube. Called by Start() when already a console, and by
-    /// the hidden <c>bhserve.exe __spawn-php &lt;version&gt;</c> verb the GUI delegates to.</summary>
+    /// <summary>The REAL php-cgi spawn + VERIFY-AND-HEAL. MUST run in a plain console process
+    /// (bhserve.exe) — see Start(). After binding, when ionCube is configured for this version we
+    /// PROBE the actual FastCGI workers for the loaded extension; if missing (an intermittent
+    /// load race — seen reliably after a cold reboot when all versions burst-start, err 126 on the
+    /// loader DLL), we kill and respawn with backoff until the workers really have ionCube. This
+    /// makes ionCube survive reboots by construction, independent of WHY a given load failed.</summary>
     public static bool SpawnWorker(string version)
+    {
+        if (Running(version)) return true;
+        var wantIonCube = IonCubeConfigured(version);
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            if (!SpawnOnce(version)) return false;            // php not installed etc.
+            if (!wantIonCube) return true;                     // nothing to verify
+            if (ProbeIonCube(version)) { if (attempt > 1) Heal($"php {version}: ionCube OK after respawn #{attempt}"); return true; }
+            Heal($"php {version}: workers came up WITHOUT ionCube (attempt {attempt}) — respawning");
+            Stop(version);
+            System.Threading.Thread.Sleep(500 * attempt);      // backoff: let the load contention pass
+        }
+        Heal($"php {version}: ionCube still not loading after 4 attempts — leaving php running without it");
+        return SpawnOnce(version);                             // php still serves, just without ionCube
+    }
+
+    /// <summary>Is an ionCube zend_extension configured for this version (php.ini or our conf.d)?</summary>
+    private static bool IonCubeConfigured(string version)
+    {
+        try
+        {
+            var exe = Tools.PhpCgiExe(version);
+            if (exe is null) return false;
+            var ini = Path.Combine(Path.GetDirectoryName(exe)!, "php.ini");
+            if (File.Exists(ini) &&
+                Regex.IsMatch(File.ReadAllText(ini), @"(?im)^\s*zend_extension\s*=.*ioncube")) return true;
+            var confd = ConfDir(version);
+            if (Directory.Exists(confd))
+                foreach (var f in Directory.EnumerateFiles(confd, "*.ini"))
+                    if (Regex.IsMatch(File.ReadAllText(f), @"(?im)^\s*zend_extension\s*=.*ioncube")) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>Ask the RUNNING FastCGI workers whether ionCube is loaded — a real end-to-end check
+    /// against the serving processes (a fresh `php-cgi -m` proves nothing about them). Writes a tiny
+    /// probe script and FastCGI-requests it twice (two different pool children).</summary>
+    private static bool ProbeIonCube(string version)
+    {
+        try
+        {
+            Directory.CreateDirectory(Paths.Tmp);
+            var probe = Path.Combine(Paths.Tmp, "_bh_icprobe.php");
+            File.WriteAllText(probe, "<?php echo extension_loaded('ionCube Loader') ? 'ICOK' : 'ICNO';");
+            var port = PortFor(version);
+            // wait for the listener to accept (children may still be starting)
+            for (var i = 0; i < 20; i++)
+            {
+                var r = FcgiRequest(port, probe);
+                if (r is not null)
+                {
+                    if (!r.Contains("ICOK")) return false;
+                    var r2 = FcgiRequest(port, probe);          // sample a 2nd pool child
+                    return r2 is null || r2.Contains("ICOK");
+                }
+                System.Threading.Thread.Sleep(250);
+            }
+        }
+        catch { }
+        return true;   // probe machinery failed → don't respawn-loop on a broken probe
+    }
+
+    /// <summary>Minimal FastCGI responder request to 127.0.0.1:port for a script. Returns the raw
+    /// response body, or null when the connection failed (listener not up yet).</summary>
+    private static string? FcgiRequest(int port, string scriptPath)
+    {
+        try
+        {
+            using var sock = new System.Net.Sockets.TcpClient();
+            if (!sock.ConnectAsync("127.0.0.1", port).Wait(2000)) return null;
+            using var s = sock.GetStream();
+            s.ReadTimeout = 5000; s.WriteTimeout = 5000;
+
+            static byte[] Rec(byte type, byte[] data)
+            {
+                var r = new byte[8 + data.Length];
+                r[0] = 1; r[1] = type; r[2] = 0; r[3] = 1;                       // version, type, requestId=1
+                r[4] = (byte)(data.Length >> 8); r[5] = (byte)(data.Length & 0xFF);
+                data.CopyTo(r, 8);
+                return r;
+            }
+            static void Kv(System.IO.MemoryStream m, string k, string v)
+            {
+                var kb = System.Text.Encoding.UTF8.GetBytes(k);
+                var vb = System.Text.Encoding.UTF8.GetBytes(v);
+                m.WriteByte((byte)kb.Length); m.WriteByte((byte)vb.Length);      // our names/values are < 128
+                m.Write(kb); m.Write(vb);
+            }
+            var ps = new System.IO.MemoryStream();
+            Kv(ps, "SCRIPT_FILENAME", scriptPath.Replace('\\', '/'));
+            Kv(ps, "REQUEST_METHOD", "GET");
+            Kv(ps, "SERVER_PROTOCOL", "HTTP/1.1");
+            Kv(ps, "GATEWAY_INTERFACE", "CGI/1.1");
+            Kv(ps, "SCRIPT_NAME", "/_bh_icprobe.php");
+            Kv(ps, "QUERY_STRING", "");
+
+            s.Write(Rec(1, new byte[] { 0, 1, 0, 0, 0, 0, 0, 0 }));              // BEGIN_REQUEST responder
+            s.Write(Rec(4, ps.ToArray())); s.Write(Rec(4, Array.Empty<byte>())); // PARAMS + end
+            s.Write(Rec(5, Array.Empty<byte>()));                                // STDIN end
+
+            var outBuf = new System.IO.MemoryStream();
+            var hdr = new byte[8];
+            while (true)
+            {
+                var read = 0;
+                while (read < 8) { var n = s.Read(hdr, read, 8 - read); if (n <= 0) goto done; read += n; }
+                int clen = (hdr[4] << 8) | hdr[5]; int plen = hdr[6];
+                var body = new byte[clen + plen]; var got = 0;
+                while (got < body.Length) { var n = s.Read(body, got, body.Length - got); if (n <= 0) goto done; got += n; }
+                if (hdr[1] == 6) outBuf.Write(body, 0, clen);                    // STDOUT
+                if (hdr[1] == 3) break;                                          // END_REQUEST
+            }
+        done:
+            return System.Text.Encoding.UTF8.GetString(outBuf.ToArray());
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Append a line to the php-heal log (best-effort) so post-reboot behavior is auditable.</summary>
+    private static void Heal(string msg)
+    {
+        try
+        {
+            Directory.CreateDirectory(Paths.Logs);
+            File.AppendAllText(Path.Combine(Paths.Logs, "php-heal.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {msg}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
+    /// <summary>One raw spawn of php-cgi.exe -b (no verification) + runfile write.</summary>
+    private static bool SpawnOnce(string version)
     {
         if (Running(version)) return true;
         var exe = Tools.PhpCgiExe(version);
