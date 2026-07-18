@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.46"
+#define MyAppVersion "1.0.47"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -58,8 +58,6 @@ Name: "addtopath"; Description: "Add the bhserve CLI to PATH"; GroupDescription:
 ; restartreplace an in-use copy is silently replaced on the next reboot instead of erroring.
 Source: "..\publish\*"; DestDir: "{app}"; Excludes: "Microsoft.WindowsAppRuntime.Insights.Resource.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\publish\Microsoft.WindowsAppRuntime.Insights.Resource.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete
-; Post-login ionCube heal wrapper, run by the BHServeHeal Scheduled Task (see [Run]).
-Source: "boot-heal.cmd"; DestDir: "{app}"; Flags: ignoreversion
 #ifdef Bundle
 ; Bundled server binaries (nginx/php/mysql/redis/...) so the install needs NO runtime
 ; downloads - which is what stops antivirus flagging bhserve.exe as a downloader.
@@ -77,10 +75,9 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
     Tasks: addtopath; Check: NeedsAddPath('{app}')
 
 [Run]
-; OS-level ionCube heal guarantee: a logon Scheduled Task (runs 1 min after login, independent of the
-; app) that verifies php workers actually loaded ionCube and respawns any that didn't. The installer
-; is elevated, so /SC ONLOGON is allowed here.
-Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN BHServeHeal /SC ONLOGON /DELAY 0001:00 /RL LIMITED /TR ""\""{app}\boot-heal.cmd\"""""; Flags: runhidden
+; Clean up the old BHServeHeal logon task from 1.0.44–46 (it caused a visible CMD popup at login).
+; The reboot-proofing is now done inside the app (warm-delayed PHP start), so no task is needed.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN BHServeHeal"; Flags: runhidden; Check: FileExists(ExpandConstant('{sys}\schtasks.exe'))
 Filename: "{app}\{#MyAppExe}"; Description: "Launch BHServe"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
