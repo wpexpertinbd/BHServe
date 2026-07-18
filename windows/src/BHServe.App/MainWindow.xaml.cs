@@ -47,7 +47,24 @@ public sealed partial class MainWindow : Window
         // without needing a restart. Same gating + prompt as the launch check.
         _updateTimer.Tick += (_, _) => _ = CheckForUpdateOnLaunch();
         _updateTimer.Start();
+
+        // REDUNDANT php heal trigger. The async scheduler in App.OnLaunched failed to fire at a real
+        // cold boot while this DispatcherTimer mechanism (the update timer) demonstrably works there —
+        // so drive the same heal pass from a UI timer too. 2-minute ticks, 8 ticks (16 min), each
+        // launching the mutex-guarded helper on a background thread (no-op when healthy). Belt+braces:
+        // whichever mechanism survives boot runs the pass; the mutex dedupes.
+        var healTicks = 0;
+        _healTimer.Tick += (_, _) =>
+        {
+            healTicks++;
+            var n = healTicks;                                     // capture for the log line
+            if (n > 8) { _healTimer.Stop(); return; }
+            System.Threading.Tasks.Task.Run(() => App.LaunchHealPass($"ui-timer tick {n}/8"));
+        };
+        _healTimer.Start();
     }
+
+    private readonly DispatcherTimer _healTimer = new() { Interval = TimeSpan.FromMinutes(2) };
 
     /// <summary>On launch: if it's a fresh install with no core stack, offer one-click setup; otherwise
     /// run the normal update check. (A fresh install is on the latest version, so the two never collide.)</summary>

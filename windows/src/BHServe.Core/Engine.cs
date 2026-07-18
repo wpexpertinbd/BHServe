@@ -333,15 +333,23 @@ public sealed class Engine
     public void PhpHealPass()
     {
         NeedInit();
-        var cfg = Config.Load();
-        var versions = ActivePhpVersions(cfg).ToList();
-        PhpCgi.HealLog($"heal pass: verifying php {string.Join(", ", versions)}");
-        foreach (var v in versions)
+        // Two triggers can fire near-simultaneously (App async scheduler + MainWindow timer) —
+        // let the second one no-op instead of racing respawns.
+        using var mutex = new System.Threading.Mutex(false, "BHServePhpHealPass");
+        if (!mutex.WaitOne(0)) { Ok("php verify pass already running — skipped"); return; }
+        try
         {
-            try { PhpCgi.EnsureIonCube(v); } catch { }
+            var cfg = Config.Load();
+            var versions = ActivePhpVersions(cfg).ToList();
+            PhpCgi.HealLog($"heal pass: verifying php {string.Join(", ", versions)}");
+            foreach (var v in versions)
+            {
+                try { PhpCgi.EnsureIonCube(v); } catch (Exception e) { PhpCgi.HealLog($"php {v}: heal error {e.GetType().Name}: {e.Message}"); }
+            }
+            PhpCgi.HealLog("heal pass: done");
+            Ok("php verify pass complete");
         }
-        PhpCgi.HealLog("heal pass: done");
-        Ok("php verify pass complete");
+        finally { mutex.ReleaseMutex(); }
     }
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
     public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
