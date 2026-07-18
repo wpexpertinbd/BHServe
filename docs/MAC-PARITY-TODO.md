@@ -518,3 +518,21 @@ and **Reinstall SSL (fresh certificate)** + **Remove SSL** (confirm) when secure
 **macOS TODO:** add the same three items to the Websites-panel row menu (Reinstall → `bhserve resecure`,
 Remove → `bhserve unsecure`) — the engine verbs already exist. Also confirm the multi-label fix (a Mac
 site like `api.foo.test` now re-renders correctly on secure).
+
+---
+
+## win-v1.0.47 — ionCube reboot reliability (Windows-specific timing fix; verify Mac is unaffected)
+
+**Windows symptom + fix:** ionCube-encoded sites lost the Loader after a reboot because Windows
+autostart brought php-cgi up *during the login storm* (a degraded early-session context where the
+Loader's VC-runtime dependency DLLs fail to resolve → error 126). Fix = when autostarted at login
+(`--tray`), the app now **waits 75s for the session to warm before `Start("all")`**; a user-opened
+window starts immediately. Removed all the prior heal machinery (5-pass scheduler, UI-timer trigger,
+`BHServeHeal` logon Scheduled Task + its visible CMD popup, `boot-heal.cmd`, `__boot-heal` verb).
+`PhpCgi.SpawnWorker`'s in-process verify-and-heal stays as an invisible net.
+
+**macOS action:** likely **NONE** — this is a Windows DLL-dependency-resolution-vs-login-storm issue.
+macOS launchd starts services differently and the ionCube `.so` deps resolve via dyld regardless of
+session warmth, so there's no equivalent failure. Just **confirm** on a Mac reboot that an
+ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after login; if it ever
+doesn't, the analogous fix is to delay the launchd-triggered `start all` similarly.
