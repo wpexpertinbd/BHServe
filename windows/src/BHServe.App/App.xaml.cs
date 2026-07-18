@@ -36,6 +36,27 @@ public partial class App : Application
             {
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
             });
+
+        // Delayed php verify-and-heal passes. At COLD BOOT the spawn-time ionCube probe can time out
+        // (workers too slow to answer during the login storm) and php then serves WITHOUT ionCube.
+        // Re-verify on a warm system — 90s and 5min after launch — via the console helper (spawns must
+        // never come from this GUI process). Cheap no-ops when everything is healthy.
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            foreach (var delayMs in new[] { 90_000, 300_000 })
+            {
+                await System.Threading.Tasks.Task.Delay(delayMs);
+                try
+                {
+                    var cli = System.IO.Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
+                    if (!System.IO.File.Exists(cli)) continue;
+                    var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = cli, Arguments = "__heal-php", UseShellExecute = false, CreateNoWindow = true });
+                    p?.WaitForExit(180000);
+                }
+                catch { }
+            }
+        });
     }
 
     /// <summary>Fully exit the app — including the tray — bypassing the "hide to tray on close"

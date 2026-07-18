@@ -28,6 +28,8 @@ try
         // Hidden: the GUI delegates php-cgi startup here so the worker is a child of THIS plain
         // console (where ionCube loads) instead of the WinUI app (where it silently doesn't).
         case "__spawn-php": PhpCgi.SpawnWorker(Arg(rest, 0)); break;
+        // Hidden: delayed verify-and-heal pass (App schedules it after launch; also runnable manually).
+        case "__heal-php": engine.PhpHealPass(); break;
 
         case "site":
             switch (Arg(rest, 0))

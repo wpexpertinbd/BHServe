@@ -326,6 +326,23 @@ public sealed class Engine
     }
 
     public void Restart(string svc) { Stop(svc); Start(svc); }
+
+    /// <summary>Verify-and-heal every active php version's ionCube (see PhpCgi.EnsureIonCube).
+    /// Run from the CLI (`bhserve __heal-php`) — the App schedules it 90s + 5min after launch so a
+    /// boot-storm probe timeout can't leave a version serving without ionCube.</summary>
+    public void PhpHealPass()
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var versions = ActivePhpVersions(cfg).ToList();
+        PhpCgi.HealLog($"heal pass: verifying php {string.Join(", ", versions)}");
+        foreach (var v in versions)
+        {
+            try { PhpCgi.EnsureIonCube(v); } catch { }
+        }
+        PhpCgi.HealLog("heal pass: done");
+        Ok("php verify pass complete");
+    }
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
     public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
 

@@ -148,8 +148,10 @@ public static class PhpCgi
             var probe = Path.Combine(Paths.Tmp, "_bh_icprobe.php");
             File.WriteAllText(probe, "<?php echo extension_loaded('ionCube Loader') ? 'ICOK' : 'ICNO';");
             var port = PortFor(version);
-            // wait for the listener to accept (children may still be starting)
-            for (var i = 0; i < 20; i++)
+            // Wait for the listener to actually answer (children may still be starting). At COLD BOOT
+            // this can take a long time (login storm), so the window is generous — a silent give-up
+            // here is exactly how ionCube used to slip through to a served site.
+            for (var i = 0; i < 60; i++)
             {
                 var r = FcgiRequest(port, probe);
                 if (r is not null)
@@ -158,12 +160,29 @@ public static class PhpCgi
                     var r2 = FcgiRequest(port, probe);          // sample a 2nd pool child
                     return r2 is null || r2.Contains("ICOK");
                 }
-                System.Threading.Thread.Sleep(250);
+                System.Threading.Thread.Sleep(500);
             }
+            Heal($"php {version}: probe could not reach workers within 30s — verification SKIPPED (delayed heal pass will re-check)");
         }
-        catch { }
-        return true;   // probe machinery failed → don't respawn-loop on a broken probe
+        catch (Exception e) { Heal($"php {version}: probe failed ({e.GetType().Name}) — verification SKIPPED"); }
+        return true;   // probe machinery failed → don't respawn-loop on a broken probe (logged above)
     }
+
+    /// <summary>Verify-and-heal pass for an already-running version (called by the CLI `__heal-php`
+    /// verb some minutes after launch, when the boot storm has settled). MUST run in a console
+    /// process. No-op when ionCube isn't configured or the workers already have it.</summary>
+    public static void EnsureIonCube(string version)
+    {
+        if (!IonCubeConfigured(version)) return;
+        if (!Running(version)) { SpawnWorker(version); return; }
+        if (ProbeIonCube(version)) return;
+        Heal($"php {version}: heal pass found workers WITHOUT ionCube — respawning");
+        Stop(version);
+        SpawnWorker(version);
+    }
+
+    /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
+    public static void HealLog(string msg) => Heal(msg);
 
     /// <summary>Minimal FastCGI responder request to 127.0.0.1:port for a script. Returns the raw
     /// response body, or null when the connection failed (listener not up yet).</summary>
