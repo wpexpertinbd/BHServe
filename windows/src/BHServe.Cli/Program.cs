@@ -30,6 +30,19 @@ try
         case "__spawn-php": PhpCgi.SpawnWorker(Arg(rest, 0)); break;
         // Hidden: delayed verify-and-heal pass (App schedules it after launch; also runnable manually).
         case "__heal-php": engine.PhpHealPass(); break;
+        // Hidden: the OS Scheduled Task "BHServeHeal" runs this at LOGON (+1 min) — the App-independent
+        // guarantee that a boot-storm ionCube failure gets healed even if the App's own triggers die.
+        // Ten mutex-guarded passes over ~9 minutes; each is a cheap no-op when workers are healthy.
+        case "__boot-heal":
+            PhpCgi.HealLog("boot-heal (scheduled task) started");
+            for (var i = 0; i < 10; i++)
+            {
+                try { engine.PhpHealPass(); }
+                catch (Exception ex) { PhpCgi.HealLog($"boot-heal pass {i + 1} error: {ex.GetType().Name}: {ex.Message}"); }
+                if (i < 9) System.Threading.Thread.Sleep(60000);
+            }
+            PhpCgi.HealLog("boot-heal (scheduled task) finished");
+            break;
 
         case "site":
             switch (Arg(rest, 0))

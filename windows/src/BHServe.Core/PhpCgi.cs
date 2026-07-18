@@ -79,7 +79,8 @@ public static class PhpCgi
         try
         {
             var cli = Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
-            if (!File.Exists(cli)) return SpawnWorker(version);   // last-resort fallback
+            if (!File.Exists(cli))
+            { Heal($"gui: bhserve.exe helper NOT FOUND — spawning php {version} directly from the GUI"); return SpawnWorker(version); }
             var psi = new ProcessStartInfo
             {
                 FileName = cli,
@@ -88,11 +89,12 @@ public static class PhpCgi
                 CreateNoWindow = true,      // no redirect => bInheritHandles=false => clean context
             };
             var p = Process.Start(psi);
-            if (p is null) return false;
+            if (p is null) { Heal($"gui: helper Process.Start returned null for php {version}"); return false; }
             p.WaitForExit(120000);   // generous: the helper may respawn-heal several times at boot
+            if (!p.HasExited) Heal($"gui: helper for php {version} still running after 120s (continuing)");
             return Running(version);
         }
-        catch { return false; }
+        catch (Exception e) { Heal($"gui: helper launch FAILED for php {version}: {e.GetType().Name}: {e.Message}"); return false; }
     }
 
     /// <summary>The REAL php-cgi spawn + VERIFY-AND-HEAL. MUST run in a plain console process
@@ -103,11 +105,14 @@ public static class PhpCgi
     /// makes ionCube survive reboots by construction, independent of WHY a given load failed.</summary>
     public static bool SpawnWorker(string version)
     {
-        if (Running(version)) return true;
+        if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
         var wantIonCube = IonCubeConfigured(version);
+        // Breadcrumb EVERY spawn (a few lines per boot) — a boot where "nothing was logged" must be
+        // impossible: if this line is absent from a boot, the spawn simply didn't go through here.
+        Heal($"spawn php {version} (ioncube={(wantIonCube ? "verify" : "not-configured")})");
         for (var attempt = 1; attempt <= 4; attempt++)
         {
-            if (!SpawnOnce(version)) return false;            // php not installed etc.
+            if (!SpawnOnce(version)) { Heal($"spawn php {version}: SpawnOnce failed (php missing?)"); return false; }
             if (!wantIonCube) return true;                     // nothing to verify
             if (ProbeIonCube(version)) { if (attempt > 1) Heal($"php {version}: ionCube OK after respawn #{attempt}"); return true; }
             Heal($"php {version}: workers came up WITHOUT ionCube (attempt {attempt}) — respawning");
@@ -133,7 +138,12 @@ public static class PhpCgi
                 foreach (var f in Directory.EnumerateFiles(confd, "*.ini"))
                     if (Regex.IsMatch(File.ReadAllText(f), @"(?im)^\s*zend_extension\s*=.*ioncube")) return true;
         }
-        catch { }
+        catch (Exception e)
+        {
+            // A transient read failure here must NOT silently disable verification for this spawn.
+            Heal($"php {version}: ioncube-config check FAILED ({e.GetType().Name}) — assuming configured");
+            return true;
+        }
         return false;
     }
 
@@ -153,16 +163,30 @@ public static class PhpCgi
             // here is exactly how ionCube used to slip through to a served site.
             for (var i = 0; i < 60; i++)
             {
-                var r = FcgiRequest(port, probe);
-                if (r is not null)
-                {
-                    if (!r.Contains("ICOK")) return false;
-                    var r2 = FcgiRequest(port, probe);          // sample a 2nd pool child
-                    return r2 is null || r2.Contains("ICOK");
-                }
+                if (FcgiRequest(port, probe) is not null) break;    // listener is up
                 System.Threading.Thread.Sleep(500);
+                if (i == 59)
+                {
+                    Heal($"php {version}: probe could not reach workers within 30s — verification SKIPPED (delayed heal pass will re-check)");
+                    return true;   // never respawn-loop on an unreachable listener
+                }
             }
-            Heal($"php {version}: probe could not reach workers within 30s — verification SKIPPED (delayed heal pass will re-check)");
+            // Sample MANY pool children (with PHP_FCGI_CHILDREN=12 the load races PER CHILD; a fresh
+            // master can have some children with ionCube and some without). Give the pool a moment to
+            // finish starting, then require EVERY sampled child to report ionCube — one ICNO ⇒ respawn.
+            // A false "OK" here is exactly what left a site serving without ionCube (2-sample probe).
+            System.Threading.Thread.Sleep(1500);
+            var reached = 0;
+            for (var i = 0; i < 24; i++)                            // 24 samples across 12 children
+            {
+                var r = FcgiRequest(port, probe);
+                if (r is null) { System.Threading.Thread.Sleep(200); continue; }
+                reached++;
+                if (!r.Contains("ICOK")) return false;             // a child without ionCube ⇒ heal
+            }
+            if (reached == 0)
+            { Heal($"php {version}: probe reached NO worker in the sampling window — verification SKIPPED"); return true; }
+            return true;                                            // every sampled child had ionCube
         }
         catch (Exception e) { Heal($"php {version}: probe failed ({e.GetType().Name}) — verification SKIPPED"); }
         return true;   // probe machinery failed → don't respawn-loop on a broken probe (logged above)
@@ -240,16 +264,23 @@ public static class PhpCgi
         catch { return null; }
     }
 
-    /// <summary>Append a line to the php-heal log (best-effort) so post-reboot behavior is auditable.</summary>
+    /// <summary>Append a line to the php-heal log so post-reboot behavior is auditable. Concurrent
+    /// writers (app + several helpers at boot) can collide on the file — RETRY on IOException so a
+    /// collision can't silently eat evidence (a silent skip here cost us a whole reboot cycle).</summary>
     private static void Heal(string msg)
     {
-        try
+        for (var t = 0; t < 4; t++)
         {
-            Directory.CreateDirectory(Paths.Logs);
-            File.AppendAllText(Path.Combine(Paths.Logs, "php-heal.log"),
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {msg}{Environment.NewLine}");
+            try
+            {
+                Directory.CreateDirectory(Paths.Logs);
+                File.AppendAllText(Path.Combine(Paths.Logs, "php-heal.log"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Environment.ProcessId}] {msg}{Environment.NewLine}");
+                return;
+            }
+            catch (IOException) { System.Threading.Thread.Sleep(50); }
+            catch { return; }
         }
-        catch { }
     }
 
     /// <summary>One raw spawn of php-cgi.exe -b (no verification) + runfile write.</summary>
