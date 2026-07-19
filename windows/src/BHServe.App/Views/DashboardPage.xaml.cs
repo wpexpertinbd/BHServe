@@ -37,37 +37,17 @@ public sealed partial class DashboardPage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e) => _timer.Stop();
 
     // ── ionCube ──────────────────────────────────────────────────────────────────────────────
-    // Engine.EnableIonCube does the real work in-process: re-installs the loader DLL when the FILE is
+    // Fully automatic — no button. Engine.EnableIonCube re-installs the loader DLL when the FILE is
     // missing (the actual 2026-07 root cause — respawning could never fix that), then verifies the
-    // running workers and respawns any that didn't load it.
-    private bool _ionCubeBusy;
+    // running workers and respawns any that didn't load it. Runs at app launch (App.xaml.cs) and
+    // whenever the window is opened (below).
     private DateTime _lastIonCubeAuto = DateTime.MinValue;
-
-    /// <summary>Manual "Enable ionCube" button → verify + heal (re-install/respawn), then report.</summary>
-    private async void EnableIonCube_Click(object sender, RoutedEventArgs e)
-    {
-        if (_ionCubeBusy) return;
-        _ionCubeBusy = true; IonCubeBtn.IsEnabled = false; Busy.IsActive = true;
-        IonCubeResult.Title = "Enabling ionCube";
-        IonCubeResult.Message = "Checking every PHP version's workers and healing — a few seconds…";
-        IonCubeResult.Severity = InfoBarSeverity.Informational;
-        IonCubeResult.IsOpen = true;
-        (bool ok, string summary) r;
-        try { r = await Task.Run(() => EngineHost.Instance.Engine.EnableIonCube()); }
-        catch (Exception ex) { r = (false, ex.Message); }
-        IonCubeResult.Title = r.ok ? "ionCube enabled" : "ionCube — not fully loaded";
-        IonCubeResult.Message = r.summary;
-        IonCubeResult.Severity = r.ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
-        Busy.IsActive = false; IonCubeBtn.IsEnabled = true; _ionCubeBusy = false;
-        Refresh();
-    }
 
     /// <summary>When the user OPENS the window, heal ionCube if broken. Read-only health check first —
     /// a no-op when already healthy, so it's never disruptive. Debounced. Callable from MainWindow when
     /// the window is shown from the tray.</summary>
     public void AutoEnableIonCube()
     {
-        if (_ionCubeBusy) return;
         if ((DateTime.UtcNow - _lastIonCubeAuto).TotalSeconds < 30) return;
         _lastIonCubeAuto = DateTime.UtcNow;
         _ = Task.Run(() =>
