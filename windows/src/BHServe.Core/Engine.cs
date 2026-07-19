@@ -255,10 +255,26 @@ public sealed class Engine
         var cfg = Config.Load();
         if (svc is "all" or "")
         {
+            // ⚠️ Start the WEB SERVERS FIRST, before php. nginx/apache don't need php up to start (they
+            // just 502 until a php port answers), and starting them first means NO php problem can ever
+            // leave every site down. php then comes up (and the heal loop warms ionCube) behind them.
+            if (Services.Enabled("apache", cfg) && Tools.HttpdExe() is not null)
+            { try { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); } catch (Exception e) { Warn($"apache: {e.Message}"); } }
+            if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null)
+            { try { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); } catch (Exception e) { Warn($"nginx: {e.Message}"); } }
+
             // Start every ACTIVE php version: the ones sites use + the ones the user starred (★).
+            // ⚠️ Each start is isolated in try/catch: a single php version that fails to spawn must
+            // NEVER abort this loop. (PhpCgi.Start spawns directly now and can throw.)
             foreach (var v in ActivePhpVersions(cfg))
-                if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
-                else Warn($"php {v} not installed — bhserve install php@{v}");
+            {
+                try
+                {
+                    if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
+                    else Warn($"php {v} not installed — bhserve install php@{v}");
+                }
+                catch (Exception e) { Warn($"php {v} failed to start: {e.Message}"); }
+            }
 
             if ((Services.Enabled("mariadb", cfg) || Services.Enabled("mysql", cfg)) && Tools.MysqldExe() is not null && !DbServer.Running())
             {
@@ -270,8 +286,7 @@ public sealed class Engine
             if (Services.Enabled("redis", cfg) && Tools.RedisServerExe() is not null && Redis.Start()) Ok($"redis on :{Redis.Port}");
             if (Services.Enabled("memcached", cfg) && Tools.MemcachedExe() is not null && Memcached.Start()) Ok($"memcached on :{Memcached.Port}");
             if (Services.Enabled("mailpit", cfg) && Tools.MailpitExe() is not null && MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort}");
-            if (Services.Enabled("apache", cfg) && Tools.HttpdExe() is not null) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
-            if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null) { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
+            // (nginx + apache were already started FIRST, above, so a php problem can't take sites down.)
             return;
         }
         // python (and fnm/node) are TOOLS, not daemons — "active once installed", nothing to start.

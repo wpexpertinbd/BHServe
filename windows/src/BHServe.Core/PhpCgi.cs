@@ -70,14 +70,18 @@ public static class PhpCgi
     /// makes ionCube survive reboots by construction, independent of WHY a given load failed.</summary>
     public static bool SpawnWorker(string version)
     {
-        if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
-        // Just spawn — FAST, no nested verify/retry (that used to block this call for up to ~2 min per
-        // version and made Start("all") crawl, delaying nginx). ionCube verification + respawn-until-warm
-        // is owned entirely by the out-of-band heal loop (Engine.PhpHealUntilHealthy). Breadcrumb every
-        // spawn so a boot with "nothing logged" is impossible.
-        var ok = SpawnOnce(version);
-        Heal($"spawn php {version}: {(ok ? "started" : "FAILED — php missing?")}");
-        return ok;
+        try
+        {
+            if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
+            // Just spawn — FAST, no nested verify/retry (that used to block this call for up to ~2 min per
+            // version and made Start("all") crawl, delaying nginx). ionCube verification + respawn-until-warm
+            // is owned entirely by the out-of-band heal loop (Engine.PhpHealUntilHealthy). Breadcrumb every
+            // spawn so a boot with "nothing logged" is impossible.
+            var ok = SpawnOnce(version);
+            Heal($"spawn php {version}: {(ok ? "started" : "FAILED — php missing?")}");
+            return ok;
+        }
+        catch (Exception e) { Heal($"spawn php {version}: EXCEPTION {e.GetType().Name}: {e.Message}"); return false; }
     }
 
     /// <summary>Is an ionCube zend_extension configured for this version (php.ini or our conf.d)?</summary>
