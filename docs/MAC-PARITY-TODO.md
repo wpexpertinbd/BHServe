@@ -521,51 +521,41 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## win-v1.0.50 — ionCube reboot reliability (Windows-specific; verify Mac is unaffected)
+## ionCube on Windows — FINAL (win-v1.0.58). ⚠️ Earlier 1.0.44–1.0.57 entries were WRONG and are removed
 
-**1.0.50 update — the real freeze:** after more reboots still failing, live diagnosis found the heal loop
-was wedging in `PhpCgi.Stop()`, which reads `Process.MainModule.FileName` for every php-cgi to kill
-orphans — at cold boot (~78 churning php-cgi under I/O contention) that Win32 call HANGS (it's instant
-warm, so every warm test passed). Fix: time-bound each MainModule read (400ms) + cap the orphan scan (3s)
-so `Stop()` can never wedge; robust log writes so boot lines aren't lost. The invisible-console-helper +
-fast-direct-respawn design from 1.0.49 is kept. **Mac note:** the analogous risk is any per-process
-inspection in the Mac stop/restart path (reading a proc's exe path over many procs) — if the Mac ever
-adds one, bound it. The temporal ionCube retry itself is still expected to be a no-op on macOS (dyld
-resolves the loader's deps regardless of session warmth).
+**Correction:** this file previously carried entries (win-v1.0.47/48/49/50) claiming the after-reboot
+ionCube failure was *temporal* — "cold php-cgi can't resolve the loader's VC-runtime dependency (err
+126); a warm respawn loads it". That analysis was wrong, contaminated by the dev environment: the dev
+shell ran inside an MSIX-packaged app whose AppData writes are virtualized, so the ionCube loader DLLs
+existed only in that package's private store. Dev-spawned php saw the DLLs (tests "passed"); the app /
+Task Scheduler / the real user never had the file at all. The "boot-vs-warm A/B proof" was actually
+comparing dev-context spawns vs real-context spawns.
 
-## win-v1.0.48 — ionCube reboot reliability (superseded by 1.0.49)
+**The one real root cause:** `php.ini` referenced an ionCube loader DLL **file that did not exist on
+the real filesystem**. Respawning PHP can never fix a missing file — which is why every retry/delay/
+console/environment scheme across 1.0.44–1.0.57 failed.
 
-**Windows symptom + fix (supersedes the 1.0.47 75s-delay attempt):** ionCube-encoded sites lost the
-Loader after a reboot because php-cgi's workers, spawned in the first *minutes* of a cold session,
-can't resolve the ionCube loader's VC-runtime dependency (error 126) and never self-correct. Proven
-purely temporal by a boot-vs-warm A/B: a worker spawned at +75s → no ionCube; the same version
-respawned minutes later (warm) → ionCube loads. So there's no static/one-shot fix. Fix =
-`Engine.PhpHealUntilHealthy()`: after `Start("all")`, keep verifying + respawning any php version that
-lacks ionCube (growing delay 12s→60s, up to 20 min) until all load it — fully in-process, **no console
-window, no scheduled task**, no-ops once healthy. (All the older heal machinery — 5-pass scheduler,
-UI-timer, `BHServeHeal` schtask + CMD popup, `boot-heal.cmd` — was already removed.)
+**Fix shipped in win-v1.0.58:**
+- `PhpCgi.MissingIonCubeDll(version)` — parse the ini's `zend_extension=…ioncube…` path; report when
+  the FILE is absent.
+- `Engine.ReinstallIonCubeIfDllMissing` — missing file → re-download + re-extract the loader bundle +
+  rewrite the ini (also purges a stale/partially-extracted loader-bundle cache before giving up).
+  Called first by `EnableIonCube` (app launch + window-open auto-check) and by the boot heal loop;
+  only then verify workers / respawn. Covers real-user cases too: AV-quarantined or deleted loader
+  DLLs, interrupted installs.
+- Removed the Scheduled-Task restart machinery (BHServeIonRestart) and the dashboard "Enable ionCube"
+  button — healing is fully automatic and silent.
+- `PhpHealUntilHealthy` remains as a plain verify-and-respawn safety net after `Start("all")` (no-ops
+  once healthy).
 
-**macOS action:** likely **NONE** — this is a Windows DLL-dependency-resolution-during-cold-boot issue;
-macOS launchd + dyld resolve the ionCube `.so` deps regardless of session warmth. Just **confirm** on a
-Mac reboot that an ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after
-login. If it ever DOESN'T, the analogous fix is a launchd-side "verify workers → restart php until the
-Loader is present" retry, not a fixed delay.
+**Still true from that era (kept):** `PhpCgi.Stop()` used to wedge reading `Process.MainModule.FileName`
+across ~78 churning php-cgi processes at cold boot; it now time-bounds each read (400ms) and caps the
+orphan scan (3s). **Mac note:** if the Mac stop/restart path ever inspects many processes' exe paths,
+bound those reads the same way.
 
-## win-v1.0.58 — ionCube FINAL root cause + "re-install loader if the DLL file is missing" heal
-The entire Windows "ionCube never loads after reboot" saga (1.0.44–1.0.57) had ONE real cause: the
-loader DLL file referenced by php.ini **did not exist on the real filesystem** (on the dev machine it
-lived only inside an MSIX package's virtualized AppData store, so the dev shell saw it and the app/user
-never did). Respawning php could never fix a missing file. The temporal/cold-boot/console/env theories
-in the entry above are WRONG — superseded.
-
-Fix shipped in 1.0.58 (Windows):
-- `PhpCgi.MissingIonCubeDll(version)` — parse the ini's `zend_extension=…ioncube…` path; report if the
-  FILE is absent.
-- `Engine.EnableIonCube` + the boot heal loop now call `ReinstallIonCubeIfDllMissing` first: missing
-  file → re-download + re-extract the loader bundle + rewrite the ini (also purges a stale/partial
-  loader-bundle cache dir before giving up). Then verify workers / respawn as before.
-- Removed the Scheduled-Task restart machinery (BHServeIonRestart) — unnecessary.
-
-**macOS action:** add the same self-heal — before verifying/restarting php over ionCube, check the
-`zend_extension` path in the loaded ini actually EXISTS; if not, re-run the ionCube install (download +
-ini rewrite). Covers AV-quarantined/deleted loader `.so`/`.dylib` files and interrupted installs.
+**macOS actions:**
+1. Add the same self-heal — before verifying/restarting php over ionCube, check the `zend_extension`
+   path in the loaded ini actually EXISTS on disk; if not, re-run the ionCube install (download + ini
+   rewrite) instead of restarting php.
+2. Nothing else — the temporal/cold-boot theory is retracted, so there is no "warm-up retry" behavior
+   to port.
