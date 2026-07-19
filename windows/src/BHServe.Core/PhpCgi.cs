@@ -305,16 +305,23 @@ public static class PhpCgi
     /// collision can't silently eat evidence (a silent skip here cost us a whole reboot cycle).</summary>
     private static void Heal(string msg)
     {
-        for (var t = 0; t < 4; t++)
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Environment.ProcessId}] {msg}{Environment.NewLine}";
+        var path = Path.Combine(Paths.Logs, "php-heal.log");
+        // Open with FileShare.ReadWrite so CONCURRENT writers (the app breadcrumb + the helper's START
+        // line fire microseconds apart at boot) don't lose lines to a sharing violation — File.AppendAllText
+        // uses FileShare.Read, which is exactly why boot-time lines vanished. Retry longer to ride out a
+        // transient AV lock during the login storm. A lost audit line once cost a whole reboot cycle.
+        for (var t = 0; t < 8; t++)
         {
             try
             {
                 Directory.CreateDirectory(Paths.Logs);
-                File.AppendAllText(Path.Combine(Paths.Logs, "php-heal.log"),
-                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Environment.ProcessId}] {msg}{Environment.NewLine}");
+                using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                var bytes = System.Text.Encoding.UTF8.GetBytes(line);
+                fs.Write(bytes, 0, bytes.Length);
                 return;
             }
-            catch (IOException) { System.Threading.Thread.Sleep(50); }
+            catch (IOException) { System.Threading.Thread.Sleep(80); }
             catch { return; }
         }
     }
@@ -457,12 +464,21 @@ public static class PhpCgi
         var exe = Tools.PhpCgiExe(version);
         if (exe is not null)
         {
+            // ⚠️ THE BOOT-FREEZE FIX (win-v1.0.50): reading p.MainModule.FileName opens each process
+            // and walks its module list — at COLD BOOT, with ~78 php-cgi processes churning under heavy
+            // I/O contention, that call is very slow and can HANG. It wedged the heal loop before it made
+            // any progress (CPU burned then frozen, holding the mutex, ionCube never healed) — the real
+            // cause of the "still no ionCube after reboot" reports. So: TIME-BOUND every module read AND
+            // cap the whole orphan scan. A read that doesn't answer fast is skipped (leftovers get caught
+            // on the next heal pass, when the box is warmer and the read is instant). The tracked-pid
+            // Kill above already frees the port in the common case; this scan only mops up stale orphans.
+            var deadline = DateTime.UtcNow.AddSeconds(3);
             foreach (var p in Process.GetProcessesByName("php-cgi"))
             {
                 try
                 {
-                    string? path = null;
-                    try { path = p.MainModule?.FileName; } catch { }
+                    if (DateTime.UtcNow > deadline) { p.Dispose(); continue; }   // stop scanning — never wedge
+                    var path = SafeMainModulePath(p, 400);
                     if (path is not null && string.Equals(path, exe, StringComparison.OrdinalIgnoreCase))
                         p.Kill(true);
                 }
@@ -471,5 +487,21 @@ public static class PhpCgi
             }
         }
         try { File.Delete(RunFile(version)); } catch { }
+    }
+
+    /// <summary>Read a process's main-module path with a hard timeout. MainModule can be very slow or
+    /// hang for a process that is starting/exiting or under boot-time contention; a bounded read means a
+    /// single bad process can never wedge Stop() (and thus the heal loop). Returns null on timeout/error.</summary>
+    private static string? SafeMainModulePath(Process p, int timeoutMs)
+    {
+        try
+        {
+            var t = System.Threading.Tasks.Task.Run(() =>
+            {
+                try { return p.MainModule?.FileName; } catch { return null; }
+            });
+            return t.Wait(timeoutMs) ? t.Result : null;
+        }
+        catch { return null; }
     }
 }
