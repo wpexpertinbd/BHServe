@@ -8,6 +8,10 @@ public partial class App : Application
 {
     public static MainWindow? Window { get; private set; }
 
+    // Held so the async stdout/stderr drain on the heal-loop helper keeps running (and the Process
+    // isn't GC'd). One per app lifetime.
+    private static System.Diagnostics.Process? _healHelper;
+
     public App() => InitializeComponent();
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -62,11 +66,26 @@ public partial class App : Application
                     if (System.IO.File.Exists(cli))
                     {
                         BHServe.Core.PhpCgi.HealLog($"app: launching heal-loop helper (tray={startInTray})");
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        // ⚠️ MUST redirect+drain the child's stdout/stderr. This is a WinUI (GUI-subsystem)
+                        // app → it has NO console, so its std handles are invalid. A console child launched
+                        // WITHOUT redirection inherits those bad handles and HANGS before it does anything
+                        // (proven: the same bhserve.exe __heal-loop runs fine from a real console but froze
+                        // when the app launched it un-redirected). php-cgi never hit this because SpawnOnce
+                        // launches it WITH redirection. So give the helper fresh, drained pipe handles too.
+                        var psi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = cli, Arguments = "__heal-loop 1800",
                             UseShellExecute = false, CreateNoWindow = true,
-                        });
+                            RedirectStandardOutput = true, RedirectStandardError = true,
+                        };
+                        _healHelper = System.Diagnostics.Process.Start(psi);
+                        if (_healHelper is not null)
+                        {
+                            _healHelper.OutputDataReceived += (_, __) => { };   // drain (helper logs to a file, not stdout)
+                            _healHelper.ErrorDataReceived  += (_, __) => { };
+                            _healHelper.BeginOutputReadLine();
+                            _healHelper.BeginErrorReadLine();
+                        }
                     }
                 }
                 catch { }
