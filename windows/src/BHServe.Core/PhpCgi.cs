@@ -53,48 +53,13 @@ public static class PhpCgi
     public static bool Start(string version)
     {
         if (Running(version)) return true;
-        // ⚠️ THE ionCube-in-php-cgi ROOT CAUSE (win-v1.0.38): when the WinUI3 GUI process
-        // (BHServe.App) spawns php-cgi, its worker children SILENTLY FAIL to load zend_extensions
-        // like ionCube — a WinUI3/WindowsAppSDK process-context quirk. Proven exhaustively: a plain
-        // console process (the bhserve.exe CLI, a bare .NET console, even Python) spawning the SAME
-        // php-cgi with the SAME env/args loads ionCube fine; only GUI-spawned workers fail. So when
-        // we're the GUI, DELEGATE the real spawn to the plain bhserve.exe CLI; when we're already a
-        // console (the CLI itself, incl. the hidden __spawn-php verb), spawn directly.
-        if (IsGuiProcess()) return SpawnViaCli(version);
+        // Always spawn php-cgi DIRECTLY (in this process). History: win-v1.0.38 thought "the WinUI GUI
+        // can't spawn ionCube-capable workers" and delegated to a child bhserve.exe (__spawn-php). The
+        // real cause was a stripped Path/SystemRoot, now rebuilt in SpawnOnce — and PROVEN: the app's own
+        // in-process spawn produces php that loads ionCube. Meanwhile the child-bhserve.exe path proved
+        // UNRELIABLE when launched by the WinUI app at boot (it hung / silently did nothing). So no child
+        // helper — spawn here, whether we're the GUI app or the console CLI.
         return SpawnWorker(version);
-    }
-
-    /// <summary>True when we're running inside the WinUI GUI (BHServe.App) rather than the console CLI.</summary>
-    private static bool IsGuiProcess()
-    {
-        try { return Process.GetCurrentProcess().ProcessName.Equals("BHServe.App", StringComparison.OrdinalIgnoreCase); }
-        catch { return false; }
-    }
-
-    /// <summary>GUI path: run `bhserve.exe __spawn-php &lt;version&gt;` so php-cgi is a child of the plain
-    /// console (where ionCube loads), then confirm via the runfile. No handle inheritance / no window
-    /// so nothing of the GUI's process context leaks into the CLI or its php-cgi grandchildren.</summary>
-    private static bool SpawnViaCli(string version)
-    {
-        try
-        {
-            var cli = Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
-            if (!File.Exists(cli))
-            { Heal($"gui: bhserve.exe helper NOT FOUND — spawning php {version} directly from the GUI"); return SpawnWorker(version); }
-            var psi = new ProcessStartInfo
-            {
-                FileName = cli,
-                Arguments = $"__spawn-php {version}",
-                UseShellExecute = false,
-                CreateNoWindow = true,      // no redirect => bInheritHandles=false => clean context
-            };
-            var p = Process.Start(psi);
-            if (p is null) { Heal($"gui: helper Process.Start returned null for php {version}"); return false; }
-            p.WaitForExit(120000);   // generous: the helper may respawn-heal several times at boot
-            if (!p.HasExited) Heal($"gui: helper for php {version} still running after 120s (continuing)");
-            return Running(version);
-        }
-        catch (Exception e) { Heal($"gui: helper launch FAILED for php {version}: {e.GetType().Name}: {e.Message}"); return false; }
     }
 
     /// <summary>The REAL php-cgi spawn + VERIFY-AND-HEAL. MUST run in a plain console process
