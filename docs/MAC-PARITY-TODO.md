@@ -521,18 +521,20 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## win-v1.0.47 — ionCube reboot reliability (Windows-specific timing fix; verify Mac is unaffected)
+## win-v1.0.48 — ionCube reboot reliability (Windows-specific temporal fix; verify Mac is unaffected)
 
-**Windows symptom + fix:** ionCube-encoded sites lost the Loader after a reboot because Windows
-autostart brought php-cgi up *during the login storm* (a degraded early-session context where the
-Loader's VC-runtime dependency DLLs fail to resolve → error 126). Fix = when autostarted at login
-(`--tray`), the app now **waits 75s for the session to warm before `Start("all")`**; a user-opened
-window starts immediately. Removed all the prior heal machinery (5-pass scheduler, UI-timer trigger,
-`BHServeHeal` logon Scheduled Task + its visible CMD popup, `boot-heal.cmd`, `__boot-heal` verb).
-`PhpCgi.SpawnWorker`'s in-process verify-and-heal stays as an invisible net.
+**Windows symptom + fix (supersedes the 1.0.47 75s-delay attempt):** ionCube-encoded sites lost the
+Loader after a reboot because php-cgi's workers, spawned in the first *minutes* of a cold session,
+can't resolve the ionCube loader's VC-runtime dependency (error 126) and never self-correct. Proven
+purely temporal by a boot-vs-warm A/B: a worker spawned at +75s → no ionCube; the same version
+respawned minutes later (warm) → ionCube loads. So there's no static/one-shot fix. Fix =
+`Engine.PhpHealUntilHealthy()`: after `Start("all")`, keep verifying + respawning any php version that
+lacks ionCube (growing delay 12s→60s, up to 20 min) until all load it — fully in-process, **no console
+window, no scheduled task**, no-ops once healthy. (All the older heal machinery — 5-pass scheduler,
+UI-timer, `BHServeHeal` schtask + CMD popup, `boot-heal.cmd` — was already removed.)
 
-**macOS action:** likely **NONE** — this is a Windows DLL-dependency-resolution-vs-login-storm issue.
-macOS launchd starts services differently and the ionCube `.so` deps resolve via dyld regardless of
-session warmth, so there's no equivalent failure. Just **confirm** on a Mac reboot that an
-ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after login; if it ever
-doesn't, the analogous fix is to delay the launchd-triggered `start all` similarly.
+**macOS action:** likely **NONE** — this is a Windows DLL-dependency-resolution-during-cold-boot issue;
+macOS launchd + dyld resolve the ionCube `.so` deps regardless of session warmth. Just **confirm** on a
+Mac reboot that an ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after
+login. If it ever DOESN'T, the analogous fix is a launchd-side "verify workers → restart php until the
+Loader is present" retry, not a fixed delay.
