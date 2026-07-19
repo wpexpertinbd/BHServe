@@ -521,13 +521,17 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## win-v1.0.49 — ionCube reboot reliability (Windows-specific temporal fix; verify Mac is unaffected)
+## win-v1.0.50 — ionCube reboot reliability (Windows-specific; verify Mac is unaffected)
 
-**1.0.49 update:** the 1.0.48 in-process heal loop ran but silently stalled after a real reboot (its first
-log came only after several slow probes; per-version respawn blocked up to 120s with a nested probe). Now
-the App launches `bhserve __heal-loop 1800` as an **invisible console helper** (`CreateNoWindow`, no popup);
-the loop logs a START line before any probing + every pass, `HealOnce`=Stop+SpawnOnce direct (no 120s
-wait/nesting), `VerifyIonCube` bails fast. Same idea below, just made fast/loud/robust.
+**1.0.50 update — the real freeze:** after more reboots still failing, live diagnosis found the heal loop
+was wedging in `PhpCgi.Stop()`, which reads `Process.MainModule.FileName` for every php-cgi to kill
+orphans — at cold boot (~78 churning php-cgi under I/O contention) that Win32 call HANGS (it's instant
+warm, so every warm test passed). Fix: time-bound each MainModule read (400ms) + cap the orphan scan (3s)
+so `Stop()` can never wedge; robust log writes so boot lines aren't lost. The invisible-console-helper +
+fast-direct-respawn design from 1.0.49 is kept. **Mac note:** the analogous risk is any per-process
+inspection in the Mac stop/restart path (reading a proc's exe path over many procs) — if the Mac ever
+adds one, bound it. The temporal ionCube retry itself is still expected to be a no-op on macOS (dyld
+resolves the loader's deps regardless of session warmth).
 
 ## win-v1.0.48 — ionCube reboot reliability (superseded by 1.0.49)
 
