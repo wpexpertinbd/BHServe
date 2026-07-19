@@ -32,13 +32,56 @@ public static class PhpCgi
 
     public static PhpRun? Info(string version)
     {
-        try
+        var f = RunFile(version);
+        // ⚠️ Share-tolerant read. The dashboard's 2s status refresh reads EVERY runfile via this method;
+        // if it opens php-<v>.json without allowing concurrent write/DELETE, a simultaneous Stop()/spawn
+        // (e.g. the "Enable ionCube" button respawning) fails with "being used by another process" — which
+        // made the respawn fail and ionCube report ✗ while the app was running (fine with the app stopped).
+        for (var t = 0; t < 3; t++)
         {
-            var f = RunFile(version);
-            if (!File.Exists(f)) return null;
-            return JsonSerializer.Deserialize<PhpRun>(File.ReadAllText(f));
+            try
+            {
+                if (!File.Exists(f)) return null;
+                using var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var sr = new StreamReader(fs);
+                return JsonSerializer.Deserialize<PhpRun>(sr.ReadToEnd());
+            }
+            catch (IOException) { System.Threading.Thread.Sleep(25); }
+            catch { return null; }
         }
-        catch { return null; }
+        return null;
+    }
+
+    /// <summary>Write a version's runfile, tolerating concurrent readers (the 2s status refresh) and
+    /// retrying on a transient lock so a spawn's bookkeeping can't be lost to a race.</summary>
+    private static void WriteRunFile(string version, PhpRun run)
+    {
+        var f = RunFile(version);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(run));
+        for (var t = 0; t < 8; t++)
+        {
+            try
+            {
+                Directory.CreateDirectory(Paths.Run);
+                using var fs = new FileStream(f, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                fs.Write(bytes, 0, bytes.Length);
+                return;
+            }
+            catch (IOException) { System.Threading.Thread.Sleep(40); }
+            catch { return; }
+        }
+    }
+
+    /// <summary>Delete a version's runfile, retrying past a transient reader lock.</summary>
+    private static void DeleteRunFile(string version)
+    {
+        var f = RunFile(version);
+        for (var t = 0; t < 8; t++)
+        {
+            try { if (File.Exists(f)) File.Delete(f); return; }
+            catch (IOException) { System.Threading.Thread.Sleep(40); }
+            catch { return; }
+        }
     }
 
     public static bool Running(string version)
@@ -362,9 +405,7 @@ public static class PhpCgi
 
         var proc = Process.Start(psi);
         if (proc is null) return false;
-        Directory.CreateDirectory(Paths.Run);
-        File.WriteAllText(RunFile(version),
-            JsonSerializer.Serialize(new PhpRun(version, port, proc.Id)));
+        WriteRunFile(version, new PhpRun(version, port, proc.Id));   // share-tolerant + retried
         return true;
     }
 
@@ -458,7 +499,7 @@ public static class PhpCgi
                 finally { p.Dispose(); }
             }
         }
-        try { File.Delete(RunFile(version)); } catch { }
+        DeleteRunFile(version);   // share-tolerant + retried (the 2s status refresh may be reading it)
     }
 
     /// <summary>Read a process's main-module path with a hard timeout. MainModule can be very slow or
