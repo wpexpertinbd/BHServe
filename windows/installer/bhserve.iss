@@ -4,7 +4,7 @@
 ; click "More info -> Run anyway" on SmartScreen (the Windows analog of macOS "Open Anyway").
 
 #define MyAppName "BHServe"
-#define MyAppVersion "1.0.57"
+#define MyAppVersion "1.0.58"
 #define MyAppPublisher "BiswasHost"
 #define MyAppExe "BHServe.App.exe"
 #define MyAppURL "https://www.biswashost.com"
@@ -82,6 +82,7 @@ Filename: "{app}\{#MyAppExe}"; Description: "Launch BHServe"; Flags: nowait post
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN BHServeHeal"; Flags: runhidden; RunOnceId: DelHealTask
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN BHServeIonRestart"; Flags: runhidden; RunOnceId: DelIonTask
 
 [Code]
 // Force-close BHServe before installing. The GUI hides-to-tray on close (so the Restart Manager

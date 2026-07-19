@@ -550,3 +550,22 @@ macOS launchd + dyld resolve the ionCube `.so` deps regardless of session warmth
 Mac reboot that an ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after
 login. If it ever DOESN'T, the analogous fix is a launchd-side "verify workers → restart php until the
 Loader is present" retry, not a fixed delay.
+
+## win-v1.0.58 — ionCube FINAL root cause + "re-install loader if the DLL file is missing" heal
+The entire Windows "ionCube never loads after reboot" saga (1.0.44–1.0.57) had ONE real cause: the
+loader DLL file referenced by php.ini **did not exist on the real filesystem** (on the dev machine it
+lived only inside an MSIX package's virtualized AppData store, so the dev shell saw it and the app/user
+never did). Respawning php could never fix a missing file. The temporal/cold-boot/console/env theories
+in the entry above are WRONG — superseded.
+
+Fix shipped in 1.0.58 (Windows):
+- `PhpCgi.MissingIonCubeDll(version)` — parse the ini's `zend_extension=…ioncube…` path; report if the
+  FILE is absent.
+- `Engine.EnableIonCube` + the boot heal loop now call `ReinstallIonCubeIfDllMissing` first: missing
+  file → re-download + re-extract the loader bundle + rewrite the ini (also purges a stale/partial
+  loader-bundle cache dir before giving up). Then verify workers / respawn as before.
+- Removed the Scheduled-Task restart machinery (BHServeIonRestart) — unnecessary.
+
+**macOS action:** add the same self-heal — before verifying/restarting php over ionCube, check the
+`zend_extension` path in the loaded ini actually EXISTS; if not, re-run the ionCube install (download +
+ini rewrite). Covers AV-quarantined/deleted loader `.so`/`.dylib` files and interrupted installs.

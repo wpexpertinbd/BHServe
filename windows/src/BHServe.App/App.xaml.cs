@@ -30,26 +30,33 @@ public partial class App : Application
             try { BHServe.Core.SiteDbHostFix.Run(BHServe.Core.Config.Load().SitesRoot); } catch { }
         });
 
-        // One-time cleanup: remove the old BHServeHeal scheduled task from 1.0.44–46 (it caused a
-        // visible CMD popup at login). No new task is created — see below for the real fix.
+        // One-time cleanup: remove the old scheduled tasks from earlier builds — BHServeHeal
+        // (1.0.44–46, caused a visible CMD popup at login) and BHServeIonRestart (1.0.57-era
+        // experiment; the real ionCube cause was a missing loader DLL, no task needed).
         System.Threading.Tasks.Task.Run(() =>
         {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                { FileName = "schtasks.exe", Arguments = "/Delete /F /TN BHServeHeal",
-                  UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
+            foreach (var tn in new[] { "BHServeHeal", "BHServeIonRestart" })
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = "schtasks.exe", Arguments = $"/Delete /F /TN {tn}",
+                      UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
         });
 
-        // Bring services up on launch — nginx/apache FIRST, then php (see Engine.Start). We do NOT try
-        // to auto-load ionCube at boot anymore: on a cold boot the login storm reliably breaks it AND a
-        // respawn-until-warm loop gets STUCK there (it held its lock and never recovered, and it caused
-        // start-order regressions). Instead ionCube is loaded WARM — automatically when the user opens
-        // the BHServe window (see MainWindow), and on demand via the Dashboard "Enable ionCube" button.
-        // A warm respawn loads ionCube every time; that is the reliable path.
+        // Bring services up on launch (fast reachability), then — once the boot storm settles — verify
+        // ionCube actually loaded in the workers and heal if not (re-installs the loader DLL when the
+        // file itself is missing; respawns cold workers otherwise). Fully in-process.
         if (BHServe.Core.Config.Load().StartServicesOnLaunch)
             System.Threading.Tasks.Task.Run(async () =>
             {
                 if (startInTray) await System.Threading.Tasks.Task.Delay(15_000);   // brief settle after login
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
+
+                await System.Threading.Tasks.Task.Delay(startInTray ? 90_000 : 5_000);
+                try
+                {
+                    var eng = BHServe.App.Services.EngineHost.Instance.Engine;
+                    if (!eng.IonCubeAllHealthy()) eng.EnableIonCube(quiet: true);
+                }
+                catch { }
             });
     }
 
@@ -62,4 +69,5 @@ public partial class App : Application
         Window?.QuitForUpdate();
         Application.Current.Exit();
     }
+
 }

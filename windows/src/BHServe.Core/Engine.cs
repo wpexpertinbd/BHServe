@@ -388,6 +388,10 @@ public sealed class Engine
             var start = DateTime.UtcNow;
             var delayMs = 12000;                        // 12s → grows to 60s between passes
             var pass = 0;
+            // Before any respawn passes: a version whose configured loader DLL is MISSING on disk can
+            // never be fixed by respawning — re-install the loader first (the actual 2026-07 root cause).
+            foreach (var v in versions)
+                try { ReinstallIonCubeIfDllMissing(v); } catch { }
             while ((DateTime.UtcNow - start).TotalSeconds < maxSeconds)
             {
                 pass++;
@@ -412,12 +416,34 @@ public sealed class Engine
         }
         finally { mutex.ReleaseMutex(); }
     }
+    /// <summary>⭐ If a version's ini points at an ionCube loader DLL that does NOT exist on disk,
+    /// re-run the full loader install (download + extract + rewrite the ini). THE actual fix for the
+    /// long "ionCube never loads" saga: the referenced DLL was simply missing from the real filesystem,
+    /// so respawning php forever could never help — the FILE had to be (re)installed. Also covers a
+    /// user machine where the AV quarantines the (unsigned) loader DLL. Returns true if it reinstalled.</summary>
+    private bool ReinstallIonCubeIfDllMissing(string v)
+    {
+        var missing = PhpCgi.MissingIonCubeDll(v);
+        if (missing is null) return false;
+        PhpCgi.HealLog($"php {v}: configured ionCube loader DLL is MISSING on disk ({missing}) — re-installing");
+        try
+        {
+            Php.Ioncube(v, m => PhpCgi.HealLog($"php {v}: {m}"));
+            return true;
+        }
+        catch (Exception e)
+        {
+            PhpCgi.HealLog($"php {v}: ionCube re-install FAILED: {e.Message}");
+            return false;
+        }
+    }
+
     /// <summary>USER-TRIGGERED "Enable ionCube" — the reliable warm path. For every active PHP version
-    /// that has ionCube configured, verify its running workers actually loaded it; if not, respawn (up
-    /// to 3 quick tries) until they do. A DIRECT one-shot — no persistent loop, no shared mutex — so it
-    /// can NEVER get stuck the way the boot auto-heal did, and it can't be blocked by a stuck heal. All
-    /// operations are bounded (VerifyIonCube + the time-capped Stop). Returns a per-version summary.
-    /// `quiet` skips the versions that are already OK (used by the auto-run-on-window-open path).</summary>
+    /// that has ionCube configured: if the loader DLL file is missing, re-install it first; then verify
+    /// the running workers actually loaded it and respawn (up to 3 quick tries) until they do. A DIRECT
+    /// one-shot — no persistent loop, no shared mutex — so it can NEVER get stuck, and it can't be
+    /// blocked by a stuck heal. All operations are bounded (VerifyIonCube + the time-capped Stop).
+    /// Returns a per-version summary. `quiet` marks the auto-run-on-app-open path in the log.</summary>
     public (bool ok, string summary) EnableIonCube(bool quiet = false)
     {
         NeedInit();
@@ -429,14 +455,30 @@ public sealed class Engine
         var changed = false;
         foreach (var v in versions)
         {
+            if (ReinstallIonCubeIfDllMissing(v)) changed = true;   // missing FILE → re-install, not respawn
             var ok = PhpCgi.VerifyIonCube(v);
             for (var a = 0; a < 3 && !ok; a++) { changed = true; PhpCgi.HealOnce(v); ok = PhpCgi.VerifyIonCube(v); }
             parts.Add($"PHP {v} {(ok ? "✓" : "✗")}");
             if (!ok) allOk = false;
         }
         var summary = string.Join("   ", parts);
-        PhpCgi.HealLog($"EnableIonCube ({(quiet ? "auto" : "manual")}{(changed ? ", respawned" : "")}): {summary}");
+        PhpCgi.HealLog($"EnableIonCube ({(quiet ? "auto" : "manual")}{(changed ? ", healed" : "")}): {summary}");
         return (allOk, summary);
+    }
+
+    /// <summary>READ-ONLY: are all ionCube-configured PHP versions' running workers actually loading it?
+    /// No spawning — a cheap health probe used by the app's auto-check and the Dashboard button.</summary>
+    public bool IonCubeAllHealthy()
+    {
+        try
+        {
+            NeedInit();
+            var cfg = Config.Load();
+            foreach (var v in ActivePhpVersions(cfg).Where(PhpCgi.HasIonCube))
+                if (!PhpCgi.VerifyIonCube(v)) return false;
+            return true;
+        }
+        catch { return true; }   // never nag on an error
     }
 
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }

@@ -37,43 +37,48 @@ public sealed partial class DashboardPage : Page
     protected override void OnNavigatedFrom(NavigationEventArgs e) => _timer.Stop();
 
     // ── ionCube ──────────────────────────────────────────────────────────────────────────────
-    private bool _ionCubeRunning;
+    // Engine.EnableIonCube does the real work in-process: re-installs the loader DLL when the FILE is
+    // missing (the actual 2026-07 root cause — respawning could never fix that), then verifies the
+    // running workers and respawns any that didn't load it.
+    private bool _ionCubeBusy;
     private DateTime _lastIonCubeAuto = DateTime.MinValue;
 
-    /// <summary>Manual "Enable ionCube" button: always runs + always shows the result.</summary>
-    private async void EnableIonCube_Click(object sender, RoutedEventArgs e) => await RunEnableIonCube(quiet: false);
-
-    /// <summary>Auto-run when the user OPENS the window (warm = reliable). Debounced, and stays silent
-    /// unless something is still wrong — a no-op when ionCube is already loaded. Callable from
-    /// MainWindow when the window is shown from the tray.</summary>
-    public void AutoEnableIonCube()
+    /// <summary>Manual "Enable ionCube" button → verify + heal (re-install/respawn), then report.</summary>
+    private async void EnableIonCube_Click(object sender, RoutedEventArgs e)
     {
-        if ((DateTime.UtcNow - _lastIonCubeAuto).TotalSeconds < 20) return;   // debounce rapid activations
-        _lastIonCubeAuto = DateTime.UtcNow;
-        _ = RunEnableIonCube(quiet: true);
+        if (_ionCubeBusy) return;
+        _ionCubeBusy = true; IonCubeBtn.IsEnabled = false; Busy.IsActive = true;
+        IonCubeResult.Title = "Enabling ionCube";
+        IonCubeResult.Message = "Checking every PHP version's workers and healing — a few seconds…";
+        IonCubeResult.Severity = InfoBarSeverity.Informational;
+        IonCubeResult.IsOpen = true;
+        (bool ok, string summary) r;
+        try { r = await Task.Run(() => EngineHost.Instance.Engine.EnableIonCube()); }
+        catch (Exception ex) { r = (false, ex.Message); }
+        IonCubeResult.Title = r.ok ? "ionCube enabled" : "ionCube — not fully loaded";
+        IonCubeResult.Message = r.summary;
+        IonCubeResult.Severity = r.ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        Busy.IsActive = false; IonCubeBtn.IsEnabled = true; _ionCubeBusy = false;
+        Refresh();
     }
 
-    private async Task RunEnableIonCube(bool quiet)
+    /// <summary>When the user OPENS the window, heal ionCube if broken. Read-only health check first —
+    /// a no-op when already healthy, so it's never disruptive. Debounced. Callable from MainWindow when
+    /// the window is shown from the tray.</summary>
+    public void AutoEnableIonCube()
     {
-        if (_ionCubeRunning) return;
-        _ionCubeRunning = true;
-        if (!quiet) { IonCubeBtn.IsEnabled = false; Busy.IsActive = true; }
-        (bool ok, string summary) res;
-        try { res = await Task.Run(() => EngineHost.Instance.Engine.EnableIonCube(quiet)); }
-        catch (Exception ex) { res = (false, ex.Message); }
-        if (!quiet) { Busy.IsActive = false; IonCubeBtn.IsEnabled = true; }
-        _ionCubeRunning = false;
-
-        // Manual click → always show the outcome. Auto run → only surface it if something is still wrong
-        // (a healthy no-op stays silent so we never nag the user).
-        if (!quiet || !res.ok)
+        if (_ionCubeBusy) return;
+        if ((DateTime.UtcNow - _lastIonCubeAuto).TotalSeconds < 30) return;
+        _lastIonCubeAuto = DateTime.UtcNow;
+        _ = Task.Run(() =>
         {
-            IonCubeResult.Title = res.ok ? "ionCube enabled" : "ionCube — check needed";
-            IonCubeResult.Message = res.summary;
-            IonCubeResult.Severity = res.ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
-            IonCubeResult.IsOpen = true;
-        }
-        Refresh();
+            try
+            {
+                var eng = EngineHost.Instance.Engine;
+                if (!eng.IonCubeAllHealthy()) eng.EnableIonCube(quiet: true);
+            }
+            catch { }
+        });
     }
 
     private void OnLog(string line) =>

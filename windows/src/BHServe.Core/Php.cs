@@ -84,8 +84,20 @@ public static class Php
         }
 
         // NTS loader (our php-cgi builds are NTS): ioncube_loader_win_<mm>.dll (NOT *_ts.dll)
-        var dll = Directory.EnumerateFiles(loadersDir, $"ioncube_loader_win_{version}.dll", SearchOption.AllDirectories)
-                           .FirstOrDefault(d => !d.Contains("_ts.dll", StringComparison.OrdinalIgnoreCase));
+        static string? FindDll(string dir, string version) =>
+            Directory.EnumerateFiles(dir, $"ioncube_loader_win_{version}.dll", SearchOption.AllDirectories)
+                     .FirstOrDefault(d => !d.Contains("_ts.dll", StringComparison.OrdinalIgnoreCase));
+        var dll = FindDll(loadersDir, version);
+        if (dll is null)
+        {
+            // A stale/partial cache dir (InstallIoncube early-returns when the dir exists) can lack this
+            // version's DLL — e.g. an interrupted extract, or an AV that quarantined the file. Purge the
+            // cache and download the bundle fresh, ONCE, before giving up.
+            log($"ionCube {vc} cache is missing the PHP {version} loader — re-downloading the bundle");
+            try { Directory.Delete(loadersDir, true); } catch { }
+            loadersDir = Downloader.InstallIoncube(vc).GetAwaiter().GetResult();
+            dll = FindDll(loadersDir, version);
+        }
         if (dll is null)
             throw new BhException($"no NTS ionCube loader for PHP {version} in the {vc} bundle");
 

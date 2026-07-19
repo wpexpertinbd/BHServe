@@ -257,6 +257,35 @@ public static class PhpCgi
     /// <summary>Public check: is an ionCube zend_extension configured for this version?</summary>
     public static bool HasIonCube(string version) => IonCubeConfigured(version);
 
+    /// <summary>⭐ If ionCube is CONFIGURED but the loader DLL file the ini points at does NOT exist,
+    /// return that missing path (else null). THE final root cause of the "ionCube after reboot" saga:
+    /// php.ini referenced a loader DLL that wasn't on the real filesystem (here: it lived only inside
+    /// an MSIX package's virtualized AppData store), so every spawn printed "Failed loading …" and no
+    /// amount of respawning could ever fix it. A missing FILE needs a re-install (download), not a
+    /// respawn — Engine.EnableIonCube uses this to re-run the loader install instead of spinning.</summary>
+    public static string? MissingIonCubeDll(string version)
+    {
+        try
+        {
+            var exe = Tools.PhpCgiExe(version);
+            if (exe is null) return null;
+            var files = new List<string>();
+            var ini = Path.Combine(Path.GetDirectoryName(exe)!, "php.ini");
+            if (File.Exists(ini)) files.Add(ini);
+            var confd = ConfDir(version);
+            if (Directory.Exists(confd)) files.AddRange(Directory.EnumerateFiles(confd, "*.ini"));
+            foreach (var f in files)
+                foreach (Match m in Regex.Matches(File.ReadAllText(f),
+                             @"(?im)^\s*zend_extension\s*=\s*""?([^""\r\n;]*ioncube[^""\r\n;]*?)""?\s*$"))
+                {
+                    var dll = m.Groups[1].Value.Trim().Replace('/', '\\');
+                    if (dll.Length > 0 && Path.IsPathRooted(dll) && !File.Exists(dll)) return dll;
+                }
+        }
+        catch { }
+        return null;
+    }
+
     /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
     public static void HealLog(string msg) => Heal(msg);
 
@@ -362,14 +391,12 @@ public static class PhpCgi
         var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);   // C:\Windows\System32
         var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);  // C:\Windows
 
-        // ⭐⭐ THE ionCube ROOT-CAUSE FIX (proven on Benjamin's machine): give php-cgi a CLEAN, WHITELISTED
-        // environment — do NOT inherit the app's full process env. When BHServe runs, ESET injects
-        // EFC_*/ESET_OPTIONS variables AND the WindowsAppSDK bootstrap sets
-        // MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY into the app process; when php-cgi inherited those
-        // (we used to pass the whole env), the ionCube loader FAILED to load in the workers. Proven with
-        // the SAME php-cgi at the SAME instant: polluted env → ICNO, clean env → ICOK. That is also why it
-        // always worked from a terminal (clean env) and never from the app (polluted). So: copy ONLY the
-        // standard Windows + PHP vars a worker actually needs; nothing injected reaches php-cgi.
+        // Clean, WHITELISTED environment — do NOT inherit the app's full process env. Hygiene, not the
+        // ionCube fix (that turned out to be a missing loader DLL — see MissingIonCubeDll): the app's env
+        // carries injected vars (AV hooks, WindowsAppSDK MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY, …)
+        // that long-lived php workers have no business seeing, and a stripped/stale Path or SystemRoot
+        // from a bad parent has bitten us before. Copy ONLY the standard Windows + PHP vars a worker
+        // actually needs; rebuild the essentials explicitly below.
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         void Keep(string k) { var v = Environment.GetEnvironmentVariable(k); if (!string.IsNullOrEmpty(v)) env[k] = v; }
         foreach (var k in new[]
@@ -391,20 +418,18 @@ public static class PhpCgi
         env["PHP_FCGI_CHILDREN"]     = "12";                // worker pool → concurrency (no 502 under multi-site load)
         env["PHP_INI_SCAN_DIR"]      = ";" + confd;         // load our per-version conf.d on top of php.ini
 
-        // ⭐ THE ionCube FIX: give php-cgi its OWN real console, HIDDEN — exactly how Laragon / the
-        // standard Windows nginx+php-cgi setup do it (via RunHiddenConsole.exe). Launched console-less
-        // (CreateNoWindow + redirected pipes, as we did before), php-cgi's FastCGI worker CHILDREN
-        // intermittently fail to load the ionCube loader on Windows; launched with a real console (a
-        // terminal, or RunHiddenConsole) they load it every time. CREATE_NEW_CONSOLE + SW_HIDE = real,
-        // invisible console. No handle inheritance (it has its own console) → also no pipe/handle hangs.
+        // Spawn windowless via raw CreateProcess: no console, no window, NO inherited handles and no
+        // redirected pipes (a parent-held pipe once hung Stop/spawn paths). Not the ionCube fix — that
+        // was a missing loader DLL (see MissingIonCubeDll) — but the clean way to run php-cgi from
+        // either the GUI app or the CLI with zero popups.
         var pid = SpawnHiddenConsole(exe, $"-b 127.0.0.1:{port}", env, phpDir);
         if (pid <= 0) return false;
         WriteRunFile(version, new PhpRun(version, port, pid));   // share-tolerant + retried
         return true;
     }
 
-    // ── Win32 CreateProcess with a hidden new console (the RunHiddenConsole technique) ───────────────
-    private const uint CREATE_NEW_CONSOLE = 0x00000010;
+    // ── Win32 CreateProcess, no console window, no pipes, no inherited handles ───────────────────────
+    private const uint CREATE_NO_WINDOW = 0x08000000;   // run console app WITHOUT a console (no window, no new console alloc)
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const int  STARTF_USESHOWWINDOW = 0x00000001;
     private const short SW_HIDE = 0;
@@ -444,7 +469,7 @@ public static class PhpCgi
         try
         {
             var ok = CreateProcess(null, $"\"{exe}\" {args}", IntPtr.Zero, IntPtr.Zero, false,
-                CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi);
+                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi);
             if (!ok) { Heal($"CreateProcess(php-cgi) failed: Win32 err {Marshal.GetLastWin32Error()}"); return -1; }
             var pid = pi.dwProcessId;
             CloseHandle(pi.hThread);
