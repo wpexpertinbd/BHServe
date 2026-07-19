@@ -210,6 +210,9 @@ public static class PhpCgi
         SpawnOnce(version);
     }
 
+    /// <summary>Public check: is an ionCube zend_extension configured for this version?</summary>
+    public static bool HasIonCube(string version) => IonCubeConfigured(version);
+
     /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
     public static void HealLog(string msg) => Heal(msg);
 

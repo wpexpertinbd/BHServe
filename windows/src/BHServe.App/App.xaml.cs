@@ -39,33 +39,17 @@ public partial class App : Application
                   UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
         });
 
-        // Bring services up on launch, then GUARANTEE ionCube. THE reboot fix: on a cold boot the
-        // ionCube Loader's VC-runtime dependency fails to resolve for php-cgi's workers during the
-        // first minutes of the session (PROVEN: a spawn at +75s comes up without ionCube, the same
-        // spawn minutes later comes up WITH it) — and those failed workers never self-correct. We
-        // can't reliably predict the "warm enough" moment, so instead of a fixed delay we keep
-        // re-checking and respawning php until ionCube actually loads. nginx/DB come up right away
-        // (only a small settle when autostarted); the heal loop is fully in-process — no console
-        // window, no scheduled task — and no-ops the instant every version reports ionCube.
+        // Bring services up on launch — nginx/apache FIRST, then php (see Engine.Start). We do NOT try
+        // to auto-load ionCube at boot anymore: on a cold boot the login storm reliably breaks it AND a
+        // respawn-until-warm loop gets STUCK there (it held its lock and never recovered, and it caused
+        // start-order regressions). Instead ionCube is loaded WARM — automatically when the user opens
+        // the BHServe window (see MainWindow), and on demand via the Dashboard "Enable ionCube" button.
+        // A warm respawn loads ionCube every time; that is the reliable path.
         if (BHServe.Core.Config.Load().StartServicesOnLaunch)
             System.Threading.Tasks.Task.Run(async () =>
             {
                 if (startInTray) await System.Threading.Tasks.Task.Delay(15_000);   // brief settle after login
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
-                // Run the ionCube heal loop in an INVISIBLE console helper (bhserve.exe __heal-loop),
-                // NOT in-process: (1) a console-spawned php-cgi loads ionCube once the session is warm
-                // (proven), (2) a console reliably writes logs/php-heal.log, (3) it can't wedge the GUI.
-                // CreateNoWindow => no popup (same as the php-cgi helpers, which the user never sees).
-                // Run the ionCube heal loop IN-PROCESS (no child helper). The app is a normal Medium-
-                // integrity, un-jobbed, un-sandboxed process, so php-cgi it spawns directly get a normal
-                // token + the rebuilt Path/SystemRoot and load ionCube. Doing it in-process avoids the
-                // whole app→console-child launch, which proved unreliable at boot.
-                try
-                {
-                    BHServe.Core.PhpCgi.HealLog($"app: starting in-process heal loop (tray={startInTray})");
-                    BHServe.App.Services.EngineHost.Instance.Engine.PhpHealUntilHealthy();
-                }
-                catch (Exception e) { try { BHServe.Core.PhpCgi.HealLog($"app: heal loop error {e.GetType().Name}: {e.Message}"); } catch { } }
             });
     }
 

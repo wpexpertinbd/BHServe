@@ -60,6 +60,11 @@ try
             catch { }
             break;
         }
+        // Enable/reload the ionCube loader on all active PHP versions (the warm, reliable path — same
+        // as the Dashboard "Enable ionCube" button). Prints a per-version summary.
+        case "ioncube" when Arg(rest, 0) is "enable" or "reload" or "":
+        case "enable-ioncube":
+        { var (_, summary) = engine.EnableIonCube(); Console.WriteLine(summary); break; }
         // Hidden: single verify-and-heal pass (respawns any php version whose workers lack ionCube).
         case "__heal-php": engine.PhpHealPass(); break;
         // Hidden: the reboot heal LOOP — keep respawning until every php version loads ionCube (or the

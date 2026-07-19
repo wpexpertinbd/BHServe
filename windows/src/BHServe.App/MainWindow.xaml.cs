@@ -204,6 +204,9 @@ public sealed partial class MainWindow : Window
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter p) p.Restore();
         Activate();
         _ = ShowUpdatePromptIfPending();   // if an update was found while hidden, offer it now that we're visible
+        // The user just opened the window → warm session → quietly ensure ionCube is loaded (no-op if it
+        // already is). This is what makes ionCube "just work" after a reboot without the fragile boot heal.
+        if (ContentFrame.Content is Views.DashboardPage dash) dash.AutoEnableIonCube();
     }
 
     private void QuitApp()

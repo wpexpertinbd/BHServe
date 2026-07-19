@@ -33,8 +33,48 @@ public sealed partial class DashboardPage : Page
         SiteList.Changed += (_, _) => Refresh();   // re-pull after a per-site action
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); }
+    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); AutoEnableIonCube(); }
     protected override void OnNavigatedFrom(NavigationEventArgs e) => _timer.Stop();
+
+    // ── ionCube ──────────────────────────────────────────────────────────────────────────────
+    private bool _ionCubeRunning;
+    private DateTime _lastIonCubeAuto = DateTime.MinValue;
+
+    /// <summary>Manual "Enable ionCube" button: always runs + always shows the result.</summary>
+    private async void EnableIonCube_Click(object sender, RoutedEventArgs e) => await RunEnableIonCube(quiet: false);
+
+    /// <summary>Auto-run when the user OPENS the window (warm = reliable). Debounced, and stays silent
+    /// unless something is still wrong — a no-op when ionCube is already loaded. Callable from
+    /// MainWindow when the window is shown from the tray.</summary>
+    public void AutoEnableIonCube()
+    {
+        if ((DateTime.UtcNow - _lastIonCubeAuto).TotalSeconds < 20) return;   // debounce rapid activations
+        _lastIonCubeAuto = DateTime.UtcNow;
+        _ = RunEnableIonCube(quiet: true);
+    }
+
+    private async Task RunEnableIonCube(bool quiet)
+    {
+        if (_ionCubeRunning) return;
+        _ionCubeRunning = true;
+        if (!quiet) { IonCubeBtn.IsEnabled = false; Busy.IsActive = true; }
+        (bool ok, string summary) res;
+        try { res = await Task.Run(() => EngineHost.Instance.Engine.EnableIonCube(quiet)); }
+        catch (Exception ex) { res = (false, ex.Message); }
+        if (!quiet) { Busy.IsActive = false; IonCubeBtn.IsEnabled = true; }
+        _ionCubeRunning = false;
+
+        // Manual click → always show the outcome. Auto run → only surface it if something is still wrong
+        // (a healthy no-op stays silent so we never nag the user).
+        if (!quiet || !res.ok)
+        {
+            IonCubeResult.Title = res.ok ? "ionCube enabled" : "ionCube — check needed";
+            IonCubeResult.Message = res.summary;
+            IonCubeResult.Severity = res.ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+            IonCubeResult.IsOpen = true;
+        }
+        Refresh();
+    }
 
     private void OnLog(string line) =>
         DispatcherQueue.TryEnqueue(() =>

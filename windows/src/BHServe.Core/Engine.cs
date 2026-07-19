@@ -412,6 +412,33 @@ public sealed class Engine
         }
         finally { mutex.ReleaseMutex(); }
     }
+    /// <summary>USER-TRIGGERED "Enable ionCube" — the reliable warm path. For every active PHP version
+    /// that has ionCube configured, verify its running workers actually loaded it; if not, respawn (up
+    /// to 3 quick tries) until they do. A DIRECT one-shot — no persistent loop, no shared mutex — so it
+    /// can NEVER get stuck the way the boot auto-heal did, and it can't be blocked by a stuck heal. All
+    /// operations are bounded (VerifyIonCube + the time-capped Stop). Returns a per-version summary.
+    /// `quiet` skips the versions that are already OK (used by the auto-run-on-window-open path).</summary>
+    public (bool ok, string summary) EnableIonCube(bool quiet = false)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var versions = ActivePhpVersions(cfg).Where(PhpCgi.HasIonCube).ToList();
+        if (versions.Count == 0) return (true, "No PHP version has ionCube configured.");
+        var parts = new System.Collections.Generic.List<string>();
+        var allOk = true;
+        var changed = false;
+        foreach (var v in versions)
+        {
+            var ok = PhpCgi.VerifyIonCube(v);
+            for (var a = 0; a < 3 && !ok; a++) { changed = true; PhpCgi.HealOnce(v); ok = PhpCgi.VerifyIonCube(v); }
+            parts.Add($"PHP {v} {(ok ? "✓" : "✗")}");
+            if (!ok) allOk = false;
+        }
+        var summary = string.Join("   ", parts);
+        PhpCgi.HealLog($"EnableIonCube ({(quiet ? "auto" : "manual")}{(changed ? ", respawned" : "")}): {summary}");
+        return (allOk, summary);
+    }
+
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
     public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
 
