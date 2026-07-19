@@ -52,7 +52,24 @@ public partial class App : Application
             {
                 if (startInTray) await System.Threading.Tasks.Task.Delay(15_000);   // brief settle after login
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
-                try { BHServe.App.Services.EngineHost.Instance.Engine.PhpHealUntilHealthy(); } catch { }
+                // Run the ionCube heal loop in an INVISIBLE console helper (bhserve.exe __heal-loop),
+                // NOT in-process: (1) a console-spawned php-cgi loads ionCube once the session is warm
+                // (proven), (2) a console reliably writes logs/php-heal.log, (3) it can't wedge the GUI.
+                // CreateNoWindow => no popup (same as the php-cgi helpers, which the user never sees).
+                try
+                {
+                    var cli = System.IO.Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
+                    if (System.IO.File.Exists(cli))
+                    {
+                        BHServe.Core.PhpCgi.HealLog($"app: launching heal-loop helper (tray={startInTray})");
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = cli, Arguments = "__heal-loop 1800",
+                            UseShellExecute = false, CreateNoWindow = true,
+                        });
+                    }
+                }
+                catch { }
             });
     }
 

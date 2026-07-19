@@ -363,24 +363,28 @@ public sealed class Engine
     {
         NeedInit();
         using var mutex = new System.Threading.Mutex(false, "BHServePhpHealLoop");
-        if (!mutex.WaitOne(0)) return;                 // one loop at a time
+        if (!mutex.WaitOne(0)) { PhpCgi.HealLog($"heal loop [pid {Environment.ProcessId}]: another instance already running — skipped"); return; }
         try
         {
             var cfg = Config.Load();
+            var versions = ActivePhpVersions(cfg).ToList();
+            // Log the START before any probing — so a stuck/slow pass can NEVER look like "it never ran".
+            PhpCgi.HealLog($"heal loop START [pid {Environment.ProcessId}] versions={string.Join(",", versions)} cap={maxSeconds}s");
             var start = DateTime.UtcNow;
             var delayMs = 12000;                        // 12s → grows to 60s between passes
             var pass = 0;
             while ((DateTime.UtcNow - start).TotalSeconds < maxSeconds)
             {
                 pass++;
-                var bad = ActivePhpVersions(cfg).Where(v => !PhpCgi.VerifyIonCube(v)).ToList();
+                var bad = new List<string>();
+                foreach (var v in versions)
+                    if (!PhpCgi.VerifyIonCube(v)) bad.Add(v);
                 if (bad.Count == 0)
                 {
-                    if (pass > 1)
-                        PhpCgi.HealLog($"ionCube healthy on all php after {(int)(DateTime.UtcNow - start).TotalSeconds}s ({pass} passes)");
+                    PhpCgi.HealLog($"heal loop DONE — ionCube healthy on {string.Join(",", versions)} after {(int)(DateTime.UtcNow - start).TotalSeconds}s ({pass} passes)");
                     return;
                 }
-                PhpCgi.HealLog($"heal pass {pass}: php still without ionCube: {string.Join(",", bad)} — respawning (warming up)");
+                PhpCgi.HealLog($"heal pass {pass} ({(int)(DateTime.UtcNow - start).TotalSeconds}s): without ionCube = {string.Join(",", bad)} — respawning (warming up)");
                 foreach (var v in bad)
                 {
                     try { PhpCgi.HealOnce(v); }
@@ -389,7 +393,7 @@ public sealed class Engine
                 System.Threading.Thread.Sleep(delayMs);
                 if (delayMs < 60000) delayMs += 6000;
             }
-            PhpCgi.HealLog($"heal loop: gave up after {maxSeconds}s (php serving, ionCube may be missing on some)");
+            PhpCgi.HealLog($"heal loop GAVE UP after {maxSeconds}s (php serving, ionCube may be missing on some)");
         }
         finally { mutex.ReleaseMutex(); }
     }

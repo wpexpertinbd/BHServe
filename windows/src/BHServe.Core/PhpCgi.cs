@@ -106,21 +106,13 @@ public static class PhpCgi
     public static bool SpawnWorker(string version)
     {
         if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
-        var wantIonCube = IonCubeConfigured(version);
-        // Breadcrumb EVERY spawn (a few lines per boot) — a boot where "nothing was logged" must be
-        // impossible: if this line is absent from a boot, the spawn simply didn't go through here.
-        Heal($"spawn php {version} (ioncube={(wantIonCube ? "verify" : "not-configured")})");
-        for (var attempt = 1; attempt <= 4; attempt++)
-        {
-            if (!SpawnOnce(version)) { Heal($"spawn php {version}: SpawnOnce failed (php missing?)"); return false; }
-            if (!wantIonCube) return true;                     // nothing to verify
-            if (ProbeIonCube(version)) { if (attempt > 1) Heal($"php {version}: ionCube OK after respawn #{attempt}"); return true; }
-            Heal($"php {version}: workers came up WITHOUT ionCube (attempt {attempt}) — respawning");
-            Stop(version);
-            System.Threading.Thread.Sleep(500 * attempt);      // backoff: let the load contention pass
-        }
-        Heal($"php {version}: ionCube still not loading after 4 attempts — leaving php running without it");
-        return SpawnOnce(version);                             // php still serves, just without ionCube
+        // Just spawn — FAST, no nested verify/retry (that used to block this call for up to ~2 min per
+        // version and made Start("all") crawl, delaying nginx). ionCube verification + respawn-until-warm
+        // is owned entirely by the out-of-band heal loop (Engine.PhpHealUntilHealthy). Breadcrumb every
+        // spawn so a boot with "nothing logged" is impossible.
+        var ok = SpawnOnce(version);
+        Heal($"spawn php {version}: {(ok ? "started" : "FAILED — php missing?")}");
+        return ok;
     }
 
     /// <summary>Is an ionCube zend_extension configured for this version (php.ini or our conf.d)?</summary>
@@ -223,7 +215,13 @@ public static class PhpCgi
             for (var i = 0; i < 16; i++)                            // 16 samples across the pool
             {
                 var r = FcgiRequest(port, probe);
-                if (r is null) { System.Threading.Thread.Sleep(150); continue; }
+                if (r is null)
+                {
+                    // Listener not answering. If it's been unreachable from the start, don't burn
+                    // 16×2s connect-timeouts — bail as "not healthy" so the loop respawns and re-checks.
+                    if (reached == 0 && i >= 1) return false;
+                    System.Threading.Thread.Sleep(120); continue;
+                }
                 reached++;
                 if (!r.Contains("ICOK")) return false;             // a child without ionCube ⇒ not healthy
             }
@@ -232,13 +230,15 @@ public static class PhpCgi
         catch { return false; }                                    // treat as not-verified ⇒ the loop retries
     }
 
-    /// <summary>Respawn one version through the normal (GUI-delegating) Start path, so the fresh
-    /// workers are spawned exactly like a manual start. Used by the heal-until-healthy loop.</summary>
+    /// <summary>Respawn one version DIRECTLY (Stop + SpawnOnce) — no GUI-delegation, no nested
+    /// verify/retry, so a heal pass stays fast. The caller (the heal loop, run in a console helper)
+    /// re-verifies on the next pass. php-cgi is a child of whatever runs the loop.</summary>
     public static void HealOnce(string version)
     {
         if (!IonCubeConfigured(version)) return;
         Stop(version);
-        Start(version);   // GUI → SpawnViaCli (windowless CLI helper); console → SpawnWorker
+        System.Threading.Thread.Sleep(300);   // let the port free before rebinding
+        SpawnOnce(version);
     }
 
     /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
