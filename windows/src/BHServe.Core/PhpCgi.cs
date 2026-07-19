@@ -362,21 +362,34 @@ public static class PhpCgi
         var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);   // C:\Windows\System32
         var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);  // C:\Windows
 
-        // Build the FULL child environment. CreateProcess REPLACES the env, so start from ours + override.
+        // ⭐⭐ THE ionCube ROOT-CAUSE FIX (proven on Benjamin's machine): give php-cgi a CLEAN, WHITELISTED
+        // environment — do NOT inherit the app's full process env. When BHServe runs, ESET injects
+        // EFC_*/ESET_OPTIONS variables AND the WindowsAppSDK bootstrap sets
+        // MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY into the app process; when php-cgi inherited those
+        // (we used to pass the whole env), the ionCube loader FAILED to load in the workers. Proven with
+        // the SAME php-cgi at the SAME instant: polluted env → ICNO, clean env → ICOK. That is also why it
+        // always worked from a terminal (clean env) and never from the app (polluted). So: copy ONLY the
+        // standard Windows + PHP vars a worker actually needs; nothing injected reaches php-cgi.
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
-            env[(string)e.Key] = e.Value?.ToString() ?? "";
+        void Keep(string k) { var v = Environment.GetEnvironmentVariable(k); if (!string.IsNullOrEmpty(v)) env[k] = v; }
+        foreach (var k in new[]
+        {
+            "SystemDrive", "ComSpec", "PATHEXT",
+            "TEMP", "TMP", "USERPROFILE", "USERNAME", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "LOGONSERVER",
+            "APPDATA", "LOCALAPPDATA", "ALLUSERSPROFILE", "ProgramData",
+            "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+            "CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION",
+            "COMPUTERNAME", "OS",
+        }) Keep(k);
+        // Explicit, clean essentials (never taken from the possibly-polluted inherited values).
+        env["SystemRoot"]            = winDir;
+        env["windir"]                = winDir;
+        env["Path"]                  = string.Join(";", new[] { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir }
+                                                     .Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
         env["PHP_FCGI_MAX_REQUESTS"] = "0";                 // never recycle the listener
         env["PHP_FCGI_CHILDREN"]     = "12";                // worker pool → concurrency (no 502 under multi-site load)
         env["PHP_INI_SCAN_DIR"]      = ";" + confd;         // load our per-version conf.d on top of php.ini
-        // Rebuild a sane Path + SystemRoot so ionCube's VC++-runtime dependency (in System32) always
-        // resolves, regardless of how the app itself was launched. Prepend our dirs; keep inherited after.
-        var pathParts = new List<string> { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
-        if (env.TryGetValue("Path", out var inheritedPath) && !string.IsNullOrWhiteSpace(inheritedPath))
-            pathParts.Add(inheritedPath);
-        env["Path"] = string.Join(";", pathParts.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
-        if (!env.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr)) env["SystemRoot"] = winDir;
-        if (!env.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd)) env["windir"] = winDir;
 
         // ⭐ THE ionCube FIX: give php-cgi its OWN real console, HIDDEN — exactly how Laragon / the
         // standard Windows nginx+php-cgi setup do it (via RunHiddenConsole.exe). Launched console-less
