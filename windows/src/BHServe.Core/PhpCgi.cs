@@ -205,6 +205,42 @@ public static class PhpCgi
         SpawnWorker(version);
     }
 
+    /// <summary>FAST health check for the heal-until-healthy loop: are this version's RUNNING workers
+    /// serving ionCube right now? Unlike ProbeIonCube it never waits for a listener (returns false
+    /// immediately if nothing's up) so it's cheap to call repeatedly. Samples several pool children;
+    /// ALL must report ionCube (one cold child ⇒ not healthy). No ionCube configured ⇒ trivially OK.</summary>
+    public static bool VerifyIonCube(string version)
+    {
+        if (!IonCubeConfigured(version)) return true;
+        if (!Running(version)) return false;
+        try
+        {
+            Directory.CreateDirectory(Paths.Tmp);
+            var probe = Path.Combine(Paths.Tmp, "_bh_icprobe.php");
+            File.WriteAllText(probe, "<?php echo extension_loaded('ionCube Loader') ? 'ICOK' : 'ICNO';");
+            var port = PortFor(version);
+            var reached = 0;
+            for (var i = 0; i < 16; i++)                            // 16 samples across the pool
+            {
+                var r = FcgiRequest(port, probe);
+                if (r is null) { System.Threading.Thread.Sleep(150); continue; }
+                reached++;
+                if (!r.Contains("ICOK")) return false;             // a child without ionCube ⇒ not healthy
+            }
+            return reached > 0;                                     // every reached child had ionCube
+        }
+        catch { return false; }                                    // treat as not-verified ⇒ the loop retries
+    }
+
+    /// <summary>Respawn one version through the normal (GUI-delegating) Start path, so the fresh
+    /// workers are spawned exactly like a manual start. Used by the heal-until-healthy loop.</summary>
+    public static void HealOnce(string version)
+    {
+        if (!IonCubeConfigured(version)) return;
+        Stop(version);
+        Start(version);   // GUI → SpawnViaCli (windowless CLI helper); console → SpawnWorker
+    }
+
     /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
     public static void HealLog(string msg) => Heal(msg);
 

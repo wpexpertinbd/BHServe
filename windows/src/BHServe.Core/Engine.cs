@@ -351,6 +351,48 @@ public sealed class Engine
         }
         finally { mutex.ReleaseMutex(); }
     }
+
+    /// <summary>Keep verifying the running php workers and respawning any that lack ionCube, with a
+    /// growing delay, until ALL configured versions actually load it (or a generous cap). THE reboot
+    /// fix: on a cold boot the ionCube loader's VC-runtime dependency can fail to resolve for the first
+    /// minutes of the session — PROVEN, a spawn at +75s fails while the same spawn minutes later
+    /// succeeds — and the failed workers never self-correct. So instead of guessing a "warm enough"
+    /// moment, we simply retry until it takes. Fully in-process (called from the App on a background
+    /// task): no console window, no scheduled task. Cheap + no-op once healthy.</summary>
+    public void PhpHealUntilHealthy(int maxSeconds = 1200)
+    {
+        NeedInit();
+        using var mutex = new System.Threading.Mutex(false, "BHServePhpHealLoop");
+        if (!mutex.WaitOne(0)) return;                 // one loop at a time
+        try
+        {
+            var cfg = Config.Load();
+            var start = DateTime.UtcNow;
+            var delayMs = 12000;                        // 12s → grows to 60s between passes
+            var pass = 0;
+            while ((DateTime.UtcNow - start).TotalSeconds < maxSeconds)
+            {
+                pass++;
+                var bad = ActivePhpVersions(cfg).Where(v => !PhpCgi.VerifyIonCube(v)).ToList();
+                if (bad.Count == 0)
+                {
+                    if (pass > 1)
+                        PhpCgi.HealLog($"ionCube healthy on all php after {(int)(DateTime.UtcNow - start).TotalSeconds}s ({pass} passes)");
+                    return;
+                }
+                PhpCgi.HealLog($"heal pass {pass}: php still without ionCube: {string.Join(",", bad)} — respawning (warming up)");
+                foreach (var v in bad)
+                {
+                    try { PhpCgi.HealOnce(v); }
+                    catch (Exception e) { PhpCgi.HealLog($"heal {v}: {e.GetType().Name}: {e.Message}"); }
+                }
+                System.Threading.Thread.Sleep(delayMs);
+                if (delayMs < 60000) delayMs += 6000;
+            }
+            PhpCgi.HealLog($"heal loop: gave up after {maxSeconds}s (php serving, ionCube may be missing on some)");
+        }
+        finally { mutex.ReleaseMutex(); }
+    }
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
     public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
 

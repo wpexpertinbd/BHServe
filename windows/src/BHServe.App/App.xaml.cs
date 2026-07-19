@@ -39,17 +39,20 @@ public partial class App : Application
                   UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
         });
 
-        // Bring services up on launch. THE ROOT-CAUSE FIX for "ionCube missing after reboot": on Windows
-        // the ionCube Loader's dependency DLLs (VC runtime) fail to resolve when php-cgi is spawned
-        // during the LOGIN STORM (a degraded early-session context) — the exact thing XAMPP/Laragon
-        // avoid by only starting when the user manually clicks Start on a WARM desktop. So when we
-        // autostart at login (--tray), we WAIT for the session to warm up before starting PHP, mirroring
-        // that manual-start timing. A user-opened window means it's already warm → start immediately.
+        // Bring services up on launch, then GUARANTEE ionCube. THE reboot fix: on a cold boot the
+        // ionCube Loader's VC-runtime dependency fails to resolve for php-cgi's workers during the
+        // first minutes of the session (PROVEN: a spawn at +75s comes up without ionCube, the same
+        // spawn minutes later comes up WITH it) — and those failed workers never self-correct. We
+        // can't reliably predict the "warm enough" moment, so instead of a fixed delay we keep
+        // re-checking and respawning php until ionCube actually loads. nginx/DB come up right away
+        // (only a small settle when autostarted); the heal loop is fully in-process — no console
+        // window, no scheduled task — and no-ops the instant every version reports ionCube.
         if (BHServe.Core.Config.Load().StartServicesOnLaunch)
             System.Threading.Tasks.Task.Run(async () =>
             {
-                if (startInTray) await System.Threading.Tasks.Task.Delay(75_000);   // let the login storm pass
+                if (startInTray) await System.Threading.Tasks.Task.Delay(15_000);   // brief settle after login
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
+                try { BHServe.App.Services.EngineHost.Instance.Engine.PhpHealUntilHealthy(); } catch { }
             });
     }
 

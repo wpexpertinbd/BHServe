@@ -28,9 +28,11 @@ try
         // Hidden: the GUI delegates php-cgi startup here so the worker is a child of THIS plain
         // console (where ionCube loads) instead of the WinUI app (where it silently doesn't).
         case "__spawn-php": PhpCgi.SpawnWorker(Arg(rest, 0)); break;
-        // Hidden: manual verify-and-heal pass (respawns any php version whose workers lack ionCube).
-        // Handy after a manual tweak; the app no longer needs to schedule this — PHP starts warm.
+        // Hidden: single verify-and-heal pass (respawns any php version whose workers lack ionCube).
         case "__heal-php": engine.PhpHealPass(); break;
+        // Hidden: the reboot heal LOOP — keep respawning until every php version loads ionCube (or the
+        // cap). The App runs this in-process at launch; also runnable manually. Optional arg = cap secs.
+        case "__heal-loop": engine.PhpHealUntilHealthy(int.TryParse(Arg(rest, 0), out var hl) ? hl : 1200); break;
 
         case "site":
             switch (Arg(rest, 0))
