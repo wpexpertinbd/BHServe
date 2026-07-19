@@ -521,7 +521,15 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## win-v1.0.48 — ionCube reboot reliability (Windows-specific temporal fix; verify Mac is unaffected)
+## win-v1.0.49 — ionCube reboot reliability (Windows-specific temporal fix; verify Mac is unaffected)
+
+**1.0.49 update:** the 1.0.48 in-process heal loop ran but silently stalled after a real reboot (its first
+log came only after several slow probes; per-version respawn blocked up to 120s with a nested probe). Now
+the App launches `bhserve __heal-loop 1800` as an **invisible console helper** (`CreateNoWindow`, no popup);
+the loop logs a START line before any probing + every pass, `HealOnce`=Stop+SpawnOnce direct (no 120s
+wait/nesting), `VerifyIonCube` bails fast. Same idea below, just made fast/loud/robust.
+
+## win-v1.0.48 — ionCube reboot reliability (superseded by 1.0.49)
 
 **Windows symptom + fix (supersedes the 1.0.47 75s-delay attempt):** ionCube-encoded sites lost the
 Loader after a reboot because php-cgi's workers, spawned in the first *minutes* of a cold session,
