@@ -501,8 +501,12 @@ public static class PhpCgi
         ("opcache.max_accelerated_files",  "20000"),
         ("opcache.validate_timestamps",    "1"),   // still picks up file edits...
         ("opcache.revalidate_freq",        "2"),   // ...but only re-stats every 2s
-        ("opcache.jit",                    "tracing"),
-        ("opcache.jit_buffer_size",        "128M"),
+        // JIT stays OFF: tracing JIT on Windows php-cgi crashes workers (0xc0000005 mid-request → 502)
+        // under real apps (PHP 8.4 + Filament/Livewire, 2026-07-20). It only ever ran on versions
+        // without ionCube anyway (the loader force-disables JIT), and its gain for web apps is minor —
+        // opcache itself is the real win. Stability > JIT.
+        ("opcache.jit",                    "disable"),
+        ("opcache.jit_buffer_size",        "0"),
     };
 
     /// <summary>Apply BHServe's limits + performance directives to a build's php.ini (active or

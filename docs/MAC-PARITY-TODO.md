@@ -559,3 +559,16 @@ bound those reads the same way.
    rewrite) instead of restarting php.
 2. Nothing else — the temporal/cold-boot theory is retracted, so there is no "warm-up retry" behavior
    to port.
+
+## win-v1.0.59 — OPcache JIT disabled (php-cgi workers crashed under real apps)
+
+`opcache.jit = tracing` (BHServe's own php.ini tuning) crashed PHP 8.4 php-cgi workers with
+`0xc0000005` mid-request under a Filament/Livewire admin panel → intermittent 502s on that site only.
+It only ever ran on versions WITHOUT ionCube (the loader force-disables JIT), which is why
+ionCube-configured versions never crashed. Verified: JIT off → 0 crashes under a 40-request hammer
+(was ~10/hour). New defaults in `PhpCgi.Limits`: `opcache.jit = disable`, `opcache.jit_buffer_size = 0`
+— OPcache itself (the real perf win) stays on.
+
+**macOS action:** check whether the Mac engine's php.ini/FPM tuning enables `opcache.jit`; if it does,
+disable it the same way (keep OPcache). JIT's web-app gain is minor and worker crashes surface as
+random 502s that look like an app bug.
