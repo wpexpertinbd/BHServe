@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -355,58 +356,90 @@ public static class PhpCgi
         EnsureLimits(Path.GetDirectoryName(exe)!);
 
         var port = PortFor(version);
-        var psi = new ProcessStartInfo
-        {
-            FileName = exe,
-            Arguments = $"-b 127.0.0.1:{port}",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            // Redirect (and never read) so the daemon does NOT inherit the caller's
-            // console/stdout handle — otherwise a foreground shell stays "open" waiting
-            // on this long-running child. php-cgi -b logs to nginx, not stdout.
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = Path.GetDirectoryName(exe)!,
-        };
-        // PHP_FCGI_MAX_REQUESTS=0 → never recycle the listener.
-        psi.Environment["PHP_FCGI_MAX_REQUESTS"] = "0";
-        // PHP_FCGI_CHILDREN: spawn a pool of worker processes so one slow/cold request (a WordPress
-        // first-load phoning home, a heavy app compile) doesn't block every other site on this PHP
-        // version. Without it, php-cgi -b on Windows serializes to a SINGLE request at a time → 502s
-        // under multi-site load.
-        psi.Environment["PHP_FCGI_CHILDREN"] = "12";
-        // Load BHServe's per-version conf.d (ionCube etc.) on top of the build's php.ini.
-        // Leading ';' keeps the compiled-in scan dir (Windows path-list separator).
+        var phpDir = Path.GetDirectoryName(exe)!;
         var confd = ConfDir(version);
         Directory.CreateDirectory(confd);
-        psi.Environment["PHP_INI_SCAN_DIR"] = ";" + confd;
-
-        // ── Guarantee a usable Path + SystemRoot for the workers ────────────────────────────────
-        // The tray App can be launched with a STRIPPED environment (empty Path/SystemRoot — observed
-        // when it starts via its login-item/elevation path). php-cgi inherits that, and the FastCGI
-        // CHILD workers the master then spawns can't resolve the ionCube loader's dependency DLLs (the
-        // VC++ runtime in System32) → ionCube SILENTLY fails to load, breaking every ionCube-encoded
-        // app (e.g. WHMCS). A directly-launched php-cgi loads ionCube fine even with an empty env; only
-        // the master-spawned children are hit, and only when Path/SystemRoot are missing. Rebuild a
-        // sane Path (php dir + Windows system dirs) + SystemRoot so the workers load ionCube regardless
-        // of how the App itself was launched. Prepend our dirs; keep any inherited Path after them.
         var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);   // C:\Windows\System32
         var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);  // C:\Windows
-        var phpDir = Path.GetDirectoryName(exe)!;
-        var pathParts = new List<string> { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
-        if (psi.Environment.TryGetValue("Path", out var inheritedPath) && !string.IsNullOrWhiteSpace(inheritedPath))
-            pathParts.Add(inheritedPath);
-        psi.Environment["Path"] = string.Join(";",
-            pathParts.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
-        if (!psi.Environment.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr))
-            psi.Environment["SystemRoot"] = winDir;
-        if (!psi.Environment.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd))
-            psi.Environment["windir"] = winDir;
 
-        var proc = Process.Start(psi);
-        if (proc is null) return false;
-        WriteRunFile(version, new PhpRun(version, port, proc.Id));   // share-tolerant + retried
+        // Build the FULL child environment. CreateProcess REPLACES the env, so start from ours + override.
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+            env[(string)e.Key] = e.Value?.ToString() ?? "";
+        env["PHP_FCGI_MAX_REQUESTS"] = "0";                 // never recycle the listener
+        env["PHP_FCGI_CHILDREN"]     = "12";                // worker pool → concurrency (no 502 under multi-site load)
+        env["PHP_INI_SCAN_DIR"]      = ";" + confd;         // load our per-version conf.d on top of php.ini
+        // Rebuild a sane Path + SystemRoot so ionCube's VC++-runtime dependency (in System32) always
+        // resolves, regardless of how the app itself was launched. Prepend our dirs; keep inherited after.
+        var pathParts = new List<string> { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
+        if (env.TryGetValue("Path", out var inheritedPath) && !string.IsNullOrWhiteSpace(inheritedPath))
+            pathParts.Add(inheritedPath);
+        env["Path"] = string.Join(";", pathParts.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
+        if (!env.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr)) env["SystemRoot"] = winDir;
+        if (!env.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd)) env["windir"] = winDir;
+
+        // ⭐ THE ionCube FIX: give php-cgi its OWN real console, HIDDEN — exactly how Laragon / the
+        // standard Windows nginx+php-cgi setup do it (via RunHiddenConsole.exe). Launched console-less
+        // (CreateNoWindow + redirected pipes, as we did before), php-cgi's FastCGI worker CHILDREN
+        // intermittently fail to load the ionCube loader on Windows; launched with a real console (a
+        // terminal, or RunHiddenConsole) they load it every time. CREATE_NEW_CONSOLE + SW_HIDE = real,
+        // invisible console. No handle inheritance (it has its own console) → also no pipe/handle hangs.
+        var pid = SpawnHiddenConsole(exe, $"-b 127.0.0.1:{port}", env, phpDir);
+        if (pid <= 0) return false;
+        WriteRunFile(version, new PhpRun(version, port, pid));   // share-tolerant + retried
         return true;
+    }
+
+    // ── Win32 CreateProcess with a hidden new console (the RunHiddenConsole technique) ───────────────
+    private const uint CREATE_NEW_CONSOLE = 0x00000010;
+    private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+    private const int  STARTF_USESHOWWINDOW = 0x00000001;
+    private const short SW_HIDE = 0;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CreateProcess(
+        string? lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
+        bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    /// <summary>Spawn a background program with its OWN real console, HIDDEN (like RunHiddenConsole).
+    /// Returns the PID or -1. No inherited handles; the process has its own console for stdio.</summary>
+    private static int SpawnHiddenConsole(string exe, string args, IDictionary<string, string> env, string workingDir)
+    {
+        var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_HIDE };
+        var sb = new System.Text.StringBuilder();
+        foreach (var kv in env.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            sb.Append(kv.Key).Append('=').Append(kv.Value).Append('\0');
+        sb.Append('\0');
+        var envPtr = Marshal.StringToHGlobalUni(sb.ToString());
+        try
+        {
+            var ok = CreateProcess(null, $"\"{exe}\" {args}", IntPtr.Zero, IntPtr.Zero, false,
+                CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi);
+            if (!ok) { Heal($"CreateProcess(php-cgi) failed: Win32 err {Marshal.GetLastWin32Error()}"); return -1; }
+            var pid = pi.dwProcessId;
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return pid;
+        }
+        catch (Exception e) { Heal($"SpawnHiddenConsole exception: {e.GetType().Name}: {e.Message}"); return -1; }
+        finally { Marshal.FreeHGlobal(envPtr); }
     }
 
     /// <summary>BHServe's php.ini defaults — generous uploads + performance (OPcache/JIT/realpath).</summary>
