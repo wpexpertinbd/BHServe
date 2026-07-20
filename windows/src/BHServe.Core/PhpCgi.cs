@@ -382,6 +382,7 @@ public static class PhpCgi
         // both nginx- and Apache-served PHP are fast. Idempotent + survives reinstalls (runs on
         // every start, only writes when something differs). OPcache is the big WordPress win —
         // Windows PHP ships it off, so every request recompiles all PHP without this.
+        EnsureCaBundle();
         EnsureLimits(Path.GetDirectoryName(exe)!);
 
         var port = PortFor(version);
@@ -509,6 +510,33 @@ public static class PhpCgi
         ("opcache.jit_buffer_size",        "0"),
     };
 
+    /// <summary>Path of the shared Mozilla CA bundle used by every PHP build's curl/openssl.</summary>
+    private static string CaBundlePath => Path.Combine(Paths.Bin, "cacert.pem");
+
+    /// <summary>Windows PHP ships with NO CA bundle, so every PHP curl/openssl HTTPS call that
+    /// verifies certificates fails with "unable to get local issuer certificate" (curl error 60) —
+    /// e.g. the WHMCS/Blesta license phone-home, payment gateways, any API SDK. Laragon and XAMPP
+    /// both ship a cacert.pem and point php.ini at it; so do we: download the standard Mozilla
+    /// bundle (curl.se) once into bin\cacert.pem, and EnsureLimits wires curl.cainfo +
+    /// openssl.cafile to it. Offline at first start → silently retried on every later spawn.</summary>
+    private static void EnsureCaBundle()
+    {
+        try
+        {
+            if (File.Exists(CaBundlePath)) return;
+            Directory.CreateDirectory(Paths.Bin);
+            using var http = new HttpClient() { Timeout = TimeSpan.FromSeconds(25) };
+            var bytes = http.GetByteArrayAsync("https://curl.se/ca/cacert.pem").GetAwaiter().GetResult();
+            // Sanity: the real bundle is ~200+ KB of PEM blocks — never install an error page.
+            if (bytes.Length > 100_000 &&
+                System.Text.Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4096))
+                      .Contains("##") &&
+                System.Text.Encoding.ASCII.GetString(bytes).Contains("BEGIN CERTIFICATE"))
+                File.WriteAllBytes(CaBundlePath, bytes);
+        }
+        catch { }   // no network yet → PHP still runs; picked up on a later spawn
+    }
+
     /// <summary>Apply BHServe's limits + performance directives to a build's php.ini (active or
     /// commented), enabling the OPcache extension. Only writes if something changed; never throws.</summary>
     private static void EnsureLimits(string phpDir)
@@ -530,6 +558,18 @@ public static class PhpCgi
             {
                 var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
                 text = rx.IsMatch(text) ? rx.Replace(text, $"{key} = {val}", 1) : text.TrimEnd() + $"\n{key} = {val}\n";
+            }
+            // Point curl + openssl at the shared CA bundle (see EnsureCaBundle) so PHP HTTPS calls
+            // verify certificates. Only when the bundle actually exists — never point at a void.
+            if (File.Exists(CaBundlePath))
+            {
+                var ca = CaBundlePath.Replace('\\', '/');
+                foreach (var key in new[] { "curl.cainfo", "openssl.cafile" })
+                {
+                    var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
+                    var line = $"{key} = \"{ca}\"";
+                    text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
+                }
             }
             if (text != orig) File.WriteAllText(ini, text);
         }

@@ -572,3 +572,19 @@ ionCube-configured versions never crashed. Verified: JIT off → 0 crashes under
 **macOS action:** check whether the Mac engine's php.ini/FPM tuning enables `opcache.jit`; if it does,
 disable it the same way (keep OPcache). JIT's web-app gain is minor and worker crashes surface as
 random 502s that look like an app bug.
+
+## win-v1.0.60 — PHP CA bundle (curl error 60 on all PHP HTTPS calls)
+
+Windows PHP ships with NO CA bundle, so every PHP curl/openssl HTTPS call that verifies certificates
+failed with "unable to get local issuer certificate" (curl error 60) — surfaced as the WHMCS
+"LICENSING ERROR" page (its license phone-home), and would equally break payment gateways / any API
+SDK. Laragon + XAMPP ship a cacert.pem; now BHServe does too: `EnsureCaBundle` downloads the Mozilla
+bundle (curl.se/ca/cacert.pem, sanity-checked) to `bin\cacert.pem` once, and the php.ini tuner wires
+`curl.cainfo` + `openssl.cafile` to it for every version. Offline-safe (retries on later spawns;
+never points ini at a missing file).
+
+**macOS action:** brew PHP normally gets a CA bundle via brew's openssl/ca-certificates — VERIFY with
+`php -r 'var_dump(ini_get("openssl.cafile"), ini_get("curl.cainfo"));'` + a live
+`curl_exec` to an https URL. **Linux note (done differently):** distro PHP uses the system
+ca-certificates store natively — fine; but the static-php fallback builds may lack a default CA path —
+worth the same live-probe check there (would need the same ini wiring to /etc/ssl/certs/ca-certificates.crt).
