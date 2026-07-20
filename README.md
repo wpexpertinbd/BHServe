@@ -284,6 +284,6 @@ Data lives in `~/.bhserve/` (macOS) / `%LOCALAPPDATA%\BHServe` (Windows); sites 
 BHServe is free and open-source. If it saved you time, you can **buy me a coffee** — it
 genuinely helps me keep building and maintaining free tools like this. 🙏
 
-- **bKash** (Personal · *Send Money*): **`01710378396`**
+- **bKash/Nagad** (Personal · *Send Money*): **`01710378396`**
 
 ধন্যবাদ! / Thank you!
