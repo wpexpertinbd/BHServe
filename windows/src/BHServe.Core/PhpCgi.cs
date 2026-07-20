@@ -571,6 +571,24 @@ public static class PhpCgi
                     text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
                 }
             }
+            // Pin sessions/uploads/temp to a guaranteed-writable BHServe dir. Unset, PHP falls back
+            // to the process TEMP env — which can be missing for a service-context worker (then
+            // GetTempPath returns C:\Windows, NOT user-writable → "session storage is not writeable").
+            // Sites imported from Linux servers also carry .user.ini `session.save_path=/tmp` — that
+            // still overrides per-site, but at least the php.ini default is always a real, writable dir.
+            var sess = Path.Combine(Paths.Tmp, "php-sessions");
+            Directory.CreateDirectory(sess);
+            foreach (var (key, val) in new[]
+            {
+                ("session.save_path", sess),
+                ("upload_tmp_dir",    Paths.Tmp),
+                ("sys_temp_dir",      Paths.Tmp),
+            })
+            {
+                var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
+                var line = $"{key} = \"{val.Replace('\\', '/')}\"";
+                text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
+            }
             if (text != orig) File.WriteAllText(ini, text);
         }
         catch { }

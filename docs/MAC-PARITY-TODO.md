@@ -588,3 +588,17 @@ never points ini at a missing file).
 `curl_exec` to an https URL. **Linux note (done differently):** distro PHP uses the system
 ca-certificates store natively — fine; but the static-php fallback builds may lack a default CA path —
 worth the same live-probe check there (would need the same ini wiring to /etc/ssl/certs/ca-certificates.crt).
+
+## win-v1.0.60 (part 2) — pin PHP sessions/uploads/temp to a writable BHServe dir
+
+A WHMCS copied from a cPanel server showed "PHP session storage is not writeable": the site's
+`.user.ini` carried `session.save_path=/tmp` (Linux path), and worse, with save_path unset PHP falls
+back to the worker's TEMP env — which can be missing in service-context workers (GetTempPath then
+returns C:\Windows, not user-writable). EnsureLimits now pins `session.save_path` (tmp\php-sessions),
+`upload_tmp_dir` and `sys_temp_dir` to BHServe's tmp in every php.ini. Site-level fix for imports:
+comment out `session.save_path` in the copied `.user.ini` (it overrides php.ini per-site).
+
+**macOS action:** the Mac engine's FPM pools — verify session.save_path/upload_tmp_dir point at a
+BHServe-writable dir (brew PHP defaults may rely on /var/tmp — usually fine on mac, but pinning to
+~/.bhserve/tmp is the same robustness win, and imported-site `.user.ini` Linux paths can bite there
+too, e.g. /tmp exists but per-site paths like /var/cpanel/... don't).
