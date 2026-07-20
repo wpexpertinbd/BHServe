@@ -27,6 +27,18 @@
 > (no `-v`, no newline/backslash/`$`/`&` escape processing) → all 8 salts land verbatim, `php -l` clean.
 > The .NET-specific `$`/`Regex.Replace` corruption never applied to the Mac.
 >
+> ✅ **win-v1.0.48/49/50 (ionCube reboot reliability) — CHECKED, macOS NOT affected (no code change).**
+> **(a) The cold-boot stop-path hang** (Windows `PhpCgi.Stop()` wedged reading `Process.MainModule.FileName`
+> over ~78 churning php-cgi): the Mac stop/restart path has **no per-process exe-path inspection** —
+> `kill_tree` uses `pgrep -P` + `kill` by pid, `pid_alive` is `ps -p <pid>`, fpm/nginx stop kill by
+> pidfile. Nothing scans exe paths across many procs, so it can't wedge. **(b) ionCube lost after reboot**
+> (Windows php-cgi workers spawned in the first minutes can't resolve the loader's VC-runtime DLL): the
+> Mac enables ionCube via a **static ini** (`~/.bhserve/php/conf.d/<ver>/00-ioncube.ini` →
+> `zend_extension=…/ioncube_loader_dar_<ver>.so`) that the FPM pool loads on **every** start, and **dyld**
+> resolves the `.so` deps deterministically — no "session warmth" dependency. Verified ionCube currently
+> **loaded on php@8.1** (`bhserve php status`). So on a Mac reboot, autostart's FPM start loads the loader
+> every time; no launchd-retry needed. macOS is architecturally immune to the Windows cold-boot DLL race.
+>
 > ✅ **#8 + #9/#9b done in `v1.7.6`.** **#8 checks:** mailpit pipe/env — **macOS unaffected** (brew
 > services owns env + logging, no pipe redirect). mkcert machine-store — macOS `mkcert -install` writes
 > the **system keychain** (machine-wide) already, so HTTPS-scanning AVs validate fine. Full-restart-on-
