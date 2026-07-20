@@ -2065,15 +2065,33 @@ php_mm(){
   "$b" -d error_reporting=0 -d display_errors=0 -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || true
 }
 
+# Pick the ionCube macOS bundle matching the PHP binaries' architecture — the loader is a Mach-O
+# of the same arch as PHP, so detect from an ACTUAL installed php binary (`file`), which is robust
+# even if the engine happens to run under Rosetta or a non-standard Homebrew. Falls back to the
+# machine arch when no php is installed yet. Apple Silicon → mac_arm64 (7.4, 8.1–8.5);
+# Intel → mac_x86-64 (…8.3).
+_ioncube_url(){
+  local probe role arch=""
+  while IFS='|' read -r _ _ probe role; do
+    [ "$role" = php ] && [ -x "$BREW_PREFIX/$probe" ] && { arch="$(file -b "$BREW_PREFIX/$probe" 2>/dev/null)"; break; }
+  done < <(services)
+  case "$arch" in
+    *arm64*)  echo "$IONCUBE_URL_ARM" ;;
+    *x86_64*) echo "$IONCUBE_URL_X64" ;;
+    *) [ "$(uname -m)" = x86_64 ] && echo "$IONCUBE_URL_X64" || echo "$IONCUBE_URL_ARM" ;;
+  esac
+}
+
 php_ioncube(){
   local target="${1:-all}"
   local dir="$BH_HOME/ioncube"
   # Download + extract the loader bundle. The `.bundle-mac` marker forces a one-time
   # re-download for installs that cached the OLD `_dar_` bundle (7.4/8.1 only) so they
-  # pick up the current `_mac_` bundle (adds arm64 8.2–8.5).
+  # pick up the current `_mac_` bundle (adds 8.2–8.5 on Apple Silicon).
   if [ ! -f "$dir/.bundle-mac" ] || [ ! -f "$dir/ioncube/ioncube_loader_mac_8.1.so" ]; then
-    rm -rf "$dir"; mkdir -p "$dir"; hdr "Downloading ionCube loaders"
-    local url="$IONCUBE_URL_ARM"; [ "$(uname -m)" = x86_64 ] && url="$IONCUBE_URL_X64"
+    rm -rf "$dir"; mkdir -p "$dir"
+    local url; url="$(_ioncube_url)"
+    hdr "Downloading ionCube loaders ($(case "$url" in *arm64*) echo "Apple Silicon";; *) echo "Intel";; esac))"
     curl -fsSL "$url" -o "$dir/loaders.zip" || die "download failed ($url)"
     ( cd "$dir" && unzip -oq loaders.zip ) || die "unzip failed"
     : > "$dir/.bundle-mac"
@@ -2087,7 +2105,13 @@ php_ioncube(){
     [ "$target" = all ] || [ "$target" = "$key" ] || [ "$target" = "$(php_label "$key")" ] || continue
     local mm so cd_dir; mm="$(php_mm "$key")"
     so="$dir/ioncube/ioncube_loader_mac_$mm.so"
-    if [ ! -f "$so" ]; then warn "$key: ionCube hasn't released a macOS loader for PHP $mm yet (available: 7.4, 8.1–8.5). For ionCube-encoded apps (Blesta/WHMCS), set the site to PHP 8.5 or lower."; continue; fi
+    if [ ! -f "$so" ]; then
+      # List the versions actually present in THIS bundle (arm has more than Intel; both grow
+      # over time) so the guidance is correct per-Mac instead of a hardcoded range.
+      local avail; avail="$(ls "$dir"/ioncube/ioncube_loader_mac_*.so 2>/dev/null | grep -v '_ts' | sed 's#.*/ioncube_loader_mac_##; s/\.so$//' | sort -V | tr '\n' ' ')"
+      warn "$key: ionCube has no macOS loader for PHP $mm on this Mac (available: ${avail:-none}). For ionCube-encoded apps (Blesta/WHMCS), set the site to one of those versions."
+      continue
+    fi
     cd_dir="$BH_HOME/php/conf.d/$(php_label "$key")"; mkdir -p "$cd_dir" 2>/dev/null || true
     # Non-fatal per version: a root-owned conf.d dir (from an earlier privileged run) must not
     # abort the whole loop (set -e) and leave the other versions unconfigured.
