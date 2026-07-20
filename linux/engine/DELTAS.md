@@ -91,3 +91,24 @@ Linux replacement (Ubuntu owns `127.0.0.53:53` via **systemd-resolved**), easies
 - **AppImage needs libfuse2** on 22.04+ (or run `--appimage-extract-and-run`).
 - **Wayland/X11** for the tray `StatusNotifierItem` — test on stock GNOME (may need the AppIndicator
   extension).
+
+## ionCube (linux-v1.0.41)
+
+The shared engine's `php_ioncube` is macOS-only (downloads the Darwin `dar` loader bundle, writes
+`ioncube_loader_dar_<mm>.so` — Mach-O, unloadable on Linux). `platform-linux.sh` overrides it:
+
+- Downloads `ioncube_loaders_lin_x86-64.zip` / `lin_aarch64.zip` (bundle covers 7.4 & 8.1–8.5;
+  no 8.0/8.6 — warned per version). Purges + re-downloads a cache dir with no `lin_*.so` in it
+  (a machine that ran the pre-fix code has a useless `dar` cache).
+- Writes `zend_extension=` to **`/etc/php/<mm>/{fpm,cli}/conf.d/00-bhserve-ioncube.ini`** (sudo),
+  NOT BHServe's own conf.d: ionCube must load before opcache or it aborts, and the distro's
+  `10-opcache.ini` lives in the compiled-in scan dir which PHP reads before the `PHP_INI_SCAN_DIR`
+  extra dir. `00-` sorts before `10-opcache` in the same dir → loads first. Also removes any broken
+  `00-ioncube.ini` the pre-fix code left in BHServe's conf.d.
+- Skips static-php fallback builds (fully static → can't dlopen shared zend extensions) with a warn.
+- `php_mm` override: on Debian the key IS the minor (`php@8.3` → `8.3`); the shared brew probe
+  falls back to the default php and returns the wrong mm. `php_status` override checks the distro
+  conf.d path for "configured".
+
+Verified in WSL2 Ubuntu: 7.4, 8.1, 8.2, 8.3, 8.4 all load `ionCube PHP Loader v15.5.0` (7.4 banner
+says "+ ionCube24"), cleanly before opcache, CLI + FPM.

@@ -844,6 +844,84 @@ cmd_self_update(){
   no "self-update failed (dpkg/apt error) — grab the .deb from the releases page and run: sudo dpkg -i bhserve_${latest}_all.deb && sudo apt-get -f install -y"; return 1
 }
 
+# ── ionCube loaders (Linux override) ─────────────────────────────────────────
+# The shared engine's php_ioncube is macOS-only: it downloads the Darwin ("dar") loader bundle and
+# writes zend_extension=…ioncube_loader_dar_<mm>.so — Mach-O binaries Linux PHP can NEVER load. On
+# Linux we need (a) the "lin" bundle, and (b) the ini placed in the DISTRO's own conf.d with a 00-
+# prefix: ionCube must be the FIRST zend_extension or it aborts ("must appear as the first entry"),
+# and Debian/Ondřej enables opcache via /etc/php/<mm>/*/conf.d/10-opcache.ini in the COMPILED-IN scan
+# dir, which PHP reads BEFORE our PHP_INI_SCAN_DIR extra dir — so an entry in BHServe's conf.d would
+# always load second and abort. 00-bhserve-ioncube.ini in the same distro dir sorts before 10-opcache.
+IONCUBE_URL_ARM="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_aarch64.zip"
+IONCUBE_URL_X64="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.zip"
+
+# On Debian the php key IS the minor version (php@8.1 → 8.1) — no brew binary probe needed
+# (the shared php_mm falls back to $BREW_PREFIX/bin/php = the DEFAULT php, i.e. the wrong mm
+# for every non-default version).
+php_mm(){ php_label "$1"; }
+
+php_ioncube(){
+  local target="${1:-all}"
+  local dir="$BH_HOME/ioncube"
+  # Purge a stale/wrong-platform cache (e.g. macOS "dar" loaders downloaded by the pre-fix code) —
+  # a cache dir that exists but has no Linux loader can never work and must not be trusted.
+  if [ -d "$dir/ioncube" ] && ! ls "$dir/ioncube"/ioncube_loader_lin_*.so >/dev/null 2>&1; then
+    warn "ionCube cache has no Linux loaders (stale or wrong platform) — re-downloading"
+    rm -rf "$dir"
+  fi
+  if [ ! -d "$dir/ioncube" ]; then
+    mkdir -p "$dir"; hdr "Downloading ionCube loaders (Linux)"
+    local url
+    case "$(uname -m)" in aarch64|arm64) url="$IONCUBE_URL_ARM" ;; *) url="$IONCUBE_URL_X64" ;; esac
+    curl -fsSL "$url" -o "$dir/loaders.zip" || die "download failed ($url)"
+    ( cd "$dir" && unzip -oq loaders.zip ) || die "unzip failed"
+    ok "loaders in $dir/ioncube"
+  fi
+  local IFS='|' key formula probe role
+  while read -r key formula probe role; do
+    [ "$role" = php ] || continue
+    svc_installed "$key" || continue
+    [ "$target" = all ] || [ "$target" = "$key" ] || [ "$target" = "$(php_label "$key")" ] || continue
+    local mm so; mm="$(php_mm "$key")"
+    # The static-php fallback builds are FULLY static — they cannot dlopen shared zend extensions.
+    if _is_static_php "$mm"; then
+      warn "$key: this PHP is the static fallback build, which can't load shared extensions like ionCube — use a distro/Ondřej PHP for ionCube sites"
+      continue
+    fi
+    so="$dir/ioncube/ioncube_loader_lin_$mm.so"
+    if [ ! -f "$so" ]; then
+      warn "$key: ionCube ships no Linux loader for PHP $mm yet (bundle covers 7.4 & 8.1–8.5; no 8.0/8.6). WHMCS/Blesta run fine on 8.1–8.3."
+      continue
+    fi
+    local wrote=0 sapi
+    for sapi in fpm cli; do
+      [ -d "/etc/php/$mm/$sapi/conf.d" ] || continue
+      printf 'zend_extension=%s\n' "$so" | $SUDO tee "/etc/php/$mm/$sapi/conf.d/00-bhserve-ioncube.ini" >/dev/null && wrote=1
+    done
+    # Retire any broken entry the pre-fix code wrote into BHServe's own conf.d (a dar .so there
+    # would print "Failed loading" on every fpm start even after this fix).
+    rm -f "$BH_HOME/php/conf.d/$mm/00-ioncube.ini" 2>/dev/null || true
+    if [ "$wrote" = 1 ]; then ok "ionCube configured for $key (PHP $mm)"
+    else warn "$key: no /etc/php/$mm/{fpm,cli}/conf.d found — not an apt-installed PHP?"; fi
+  done < <(services)
+  info "restart PHP-FPM to load it: bhserve restart all  (verify: bhserve php status)"
+}
+
+php_status(){
+  # Same as the shared version, but "configured" is detected at the DISTRO conf.d path this
+  # platform writes to (the shared version only looks in BHServe's own conf.d).
+  local IFS='|' key formula probe role
+  hdr "PHP versions"
+  while read -r key formula probe role; do
+    [ "$role" = php ] || continue
+    svc_installed "$key" || continue
+    local b="${BREW_PREFIX}/${probe}" ic="no" mm; mm="$(php_mm "$key")"
+    [ -f "/etc/php/$mm/fpm/conf.d/00-bhserve-ioncube.ini" ] && ic="yes"
+    if "$b" -v 2>/dev/null | grep -qi ioncube; then ic="loaded"; fi
+    ok "$(printf '%-10s' "$key") PHP $mm   ionCube: $ic"
+  done < <(services)
+}
+
 # Linux-only verb, not in the shared dispatch: intercept it here (platform-linux.sh is sourced just
 # before the shared `case`), so the shared engine + macOS build stay untouched.
 case "${1:-}" in
