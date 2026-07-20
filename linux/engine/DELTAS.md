@@ -91,3 +91,16 @@ Linux replacement (Ubuntu owns `127.0.0.53:53` via **systemd-resolved**), easies
 - **AppImage needs libfuse2** on 22.04+ (or run `--appimage-extract-and-run`).
 - **Wayland/X11** for the tray `StatusNotifierItem` — test on stock GNOME (may need the AppIndicator
   extension).
+
+## 8. ionCube — the shared `php_ioncube` is macOS-only (needs a Linux override)
+
+`php_ioncube` in `../../engine/bhserve` downloads the **macOS** bundle (`ioncube_loaders_mac_arm64.zip`
+/ `..._mac_x86-64.zip`) and configures `ioncube_loader_mac_<ver>.so`. **Override it for Linux** (in
+`platform-linux.sh`): use the Linux loaders — `ioncube_loaders_lin_x86-64.zip` (or `..._lin_aarch64.zip`
+on ARM) and `ioncube_loader_lin_<ver>.so`. ionCube ships Linux loaders for **all** versions (7.4–8.5+),
+better than macOS. **Keep the two cross-platform fixes from the macOS ionCube work (v1.7.7), they apply
+to Linux too:** (a) load BHServe's per-version conf.d **before** the distro default so ionCube is the
+**first `zend_extension`** (`PHP_INI_SCAN_DIR="$cd_dir:"`, trailing colon) — else opcache loads first and
+ionCube fatals *"The Loader must appear as the first entry"*; (b) `php_mm` must run php with
+`-d display_errors=0 -d error_reporting=0` + `grep -oE '[0-9]+\.[0-9]+'` so 8.5's startup deprecations
+don't pollute the detected version.

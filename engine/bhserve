@@ -985,10 +985,12 @@ fpm_start(){
   [ -x "$binp" ] || { warn "$key php-fpm missing"; return 1; }
   pid="$BH_HOME/run/php-$label.pid"
   if [ -f "$pid" ] && pid_alive "$(cat "$pid")"; then ok "php-fpm $key already running (pid $(cat "$pid"))"; return 0; fi
-  # Load BHServe's per-version conf.d (ionCube etc.) in addition to brew defaults
-  # (leading ':' keeps the compiled-in scan dir). Created empty if unused.
+  # Load BHServe's per-version conf.d (ionCube etc.) BEFORE the brew defaults (trailing ':'
+  # substitutes the compiled-in scan dir AFTER ours). Order matters: ionCube MUST be the first
+  # zend_extension, and brew ships opcache as a zend_extension in its conf.d — if ours loaded
+  # last, ionCube would fatal with "The Loader must appear as the first entry". Created empty if unused.
   local cd_dir="$BH_HOME/php/conf.d/$label"; mkdir -p "$cd_dir"
-  PHP_INI_SCAN_DIR=":$cd_dir" "$binp" -y "$conf" -p "$BH_HOME" && ok "php-fpm $key started" || no "php-fpm $key failed to start"
+  PHP_INI_SCAN_DIR="$cd_dir:" "$binp" -y "$conf" -p "$BH_HOME" && ok "php-fpm $key started" || no "php-fpm $key failed to start"
 }
 fpm_stop(){
   local key="$1" label pid
@@ -1982,8 +1984,10 @@ node_use(){
 }
 
 # ── php (ionCube loader + per-version config) ────────────────────────────────
-IONCUBE_URL_ARM="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_dar_arm.zip"
-IONCUBE_URL_X64="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_dar_x86-64.zip"
+# Current macOS loader bundles. The old `_dar_` bundles only shipped 7.4 + 8.1; the `_mac_`
+# bundles add arm64 loaders for 8.2–8.5 (filenames are ioncube_loader_mac_<ver>.so).
+IONCUBE_URL_ARM="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_mac_arm64.zip"
+IONCUBE_URL_X64="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_mac_x86-64.zip"
 
 cmd_php(){
   need_init
@@ -2056,18 +2060,23 @@ php_ini(){
 php_mm(){
   local key="$1" b; b="$(php_fpm_bin "$key")"; b="${b%/sbin/php-fpm}/bin/php"
   [ -x "$b" ] || b="$BREW_PREFIX/bin/php"
-  "$b" -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true
+  # -d display_errors=0/error_reporting=0 so a version's startup deprecations (e.g. 8.5's
+  # session.sid_* printed to STDOUT) don't pollute the value; grep pins it to the X.Y number.
+  "$b" -d error_reporting=0 -d display_errors=0 -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || true
 }
 
 php_ioncube(){
   local target="${1:-all}"
   local dir="$BH_HOME/ioncube"
-  # download + extract the loader bundle once (arm64 first, x86-64 fallback)
-  if [ ! -d "$dir/ioncube" ]; then
-    mkdir -p "$dir"; hdr "Downloading ionCube loaders"
+  # Download + extract the loader bundle. The `.bundle-mac` marker forces a one-time
+  # re-download for installs that cached the OLD `_dar_` bundle (7.4/8.1 only) so they
+  # pick up the current `_mac_` bundle (adds arm64 8.2–8.5).
+  if [ ! -f "$dir/.bundle-mac" ] || [ ! -f "$dir/ioncube/ioncube_loader_mac_8.1.so" ]; then
+    rm -rf "$dir"; mkdir -p "$dir"; hdr "Downloading ionCube loaders"
     local url="$IONCUBE_URL_ARM"; [ "$(uname -m)" = x86_64 ] && url="$IONCUBE_URL_X64"
     curl -fsSL "$url" -o "$dir/loaders.zip" || die "download failed ($url)"
     ( cd "$dir" && unzip -oq loaders.zip ) || die "unzip failed"
+    : > "$dir/.bundle-mac"
     ok "loaders in $dir/ioncube"
   fi
   # configure each installed php (or one)
@@ -2077,11 +2086,16 @@ php_ioncube(){
     svc_installed "$key" || continue
     [ "$target" = all ] || [ "$target" = "$key" ] || [ "$target" = "$(php_label "$key")" ] || continue
     local mm so cd_dir; mm="$(php_mm "$key")"
-    so="$dir/ioncube/ioncube_loader_dar_$mm.so"
-    if [ ! -f "$so" ]; then warn "$key: ionCube has no macOS loader for PHP $mm yet (mac = 7.4 & 8.1 only; Linux-ARM loaders are ELF, won't load here). WHMCS/Blesta run on 8.1, which works."; continue; fi
-    cd_dir="$BH_HOME/php/conf.d/$(php_label "$key")"; mkdir -p "$cd_dir"
-    printf 'zend_extension=%s\n' "$so" > "$cd_dir/00-ioncube.ini"
-    ok "ionCube configured for $key (PHP $mm)"
+    so="$dir/ioncube/ioncube_loader_mac_$mm.so"
+    if [ ! -f "$so" ]; then warn "$key: ionCube hasn't released a macOS loader for PHP $mm yet (available: 7.4, 8.1–8.5). For ionCube-encoded apps (Blesta/WHMCS), set the site to PHP 8.5 or lower."; continue; fi
+    cd_dir="$BH_HOME/php/conf.d/$(php_label "$key")"; mkdir -p "$cd_dir" 2>/dev/null || true
+    # Non-fatal per version: a root-owned conf.d dir (from an earlier privileged run) must not
+    # abort the whole loop (set -e) and leave the other versions unconfigured.
+    if printf 'zend_extension=%s\n' "$so" > "$cd_dir/00-ioncube.ini" 2>/dev/null; then
+      ok "ionCube configured for $key (PHP $mm)"
+    else
+      warn "$key: can't write $cd_dir/00-ioncube.ini — a root-owned dir. Fix with: sudo chown -R \"\$(id -un)\" ~/.bhserve"
+    fi
   done < <(services)
   info "restart PHP-FPM to load it: bhserve restart all  (verify: bhserve php status)"
 }
@@ -2095,7 +2109,7 @@ php_status(){
     local b="${BREW_PREFIX}/${probe}" ic="no" cd_dir
     cd_dir="$BH_HOME/php/conf.d/$(php_label "$key")"
     [ -f "$cd_dir/00-ioncube.ini" ] && ic="yes"
-    if PHP_INI_SCAN_DIR=":$cd_dir" "$b" -v 2>/dev/null | grep -qi ioncube; then ic="loaded"; fi
+    if PHP_INI_SCAN_DIR="$cd_dir:" "$b" -v 2>/dev/null | grep -qi ioncube; then ic="loaded"; fi
     ok "$(printf '%-10s' "$key") PHP $(php_mm "$key")   ionCube: $ic"
   done < <(services)
 }
