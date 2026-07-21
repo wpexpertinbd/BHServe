@@ -113,7 +113,7 @@ public sealed partial class DashboardPage : Page
         if (!_pageSizeSet) { SiteList.SetDefaultPageSize(Config.Load().DashboardPageSize); _pageSizeSet = true; }
         SiteList.SetData(sites.Select(s => new SiteRow
         {
-            Name = s.Name, Domain = s.Domain, Php = s.Php, Root = s.Root,
+            Name = s.Name, Domain = s.Domain, Aliases = s.Aliases, Php = s.Php, Root = s.Root,
             Secure = s.Secure, Enabled = s.Enabled, Server = s.Server,
         }));
         WebHeader.Text = $"Websites ({sites.Count})";

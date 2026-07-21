@@ -551,13 +551,15 @@ public sealed class Engine
         if (!Regex.IsMatch(name, "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) throw new BhException($"invalid site name '{name}'");
         var cfg = Config.Load();
         var (root, db) = SiteTargets(name);   // resolve BEFORE we delete the vhost
+        var confBeforeRemove = SiteConfPath(name);
+        var rmDomains = confBeforeRemove is not null ? VhostDomains(confBeforeRemove).ToList() : new List<string> { $"{name}.{cfg.Tld}" };
 
         foreach (var f in new[] { $"{name}.conf", $"{name}.conf.disabled" })
             try { File.Delete(Path.Combine(Paths.NginxSites, f)); } catch { }
         Apache.RemoveVhost(name);
         Ok($"removed vhost for {name}");
-        var rmDomain = $"{name}.{cfg.Tld}";
-        if (!Hosts.Remove(rmDomain) && Hosts.Has(rmDomain)) Elevation.Run("hosts-remove", rmDomain);
+        foreach (var rmDomain in rmDomains)
+            if (!Hosts.Remove(rmDomain) && Hosts.Has(rmDomain)) Elevation.Run("hosts-remove", rmDomain);
         if (Nginx.Running()) Nginx.Reload(cfg);
         Apache.Reload();
 
@@ -588,7 +590,7 @@ public sealed class Engine
         if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
         var (domain, root, _) = ParseVhost(conf);
         var phpKey = Services.PhpKey(version, cfg);
-        RenderSite(name, domain, root, phpKey, VhostServer(conf), cfg);
+        RenderSite(name, domain, root, phpKey, VhostServer(conf), cfg, VhostAliases(conf, domain));
         if (Nginx.Running()) Nginx.Reload(cfg);
         Ok($"{name} now on {phpKey}");
     }
@@ -621,7 +623,7 @@ public sealed class Engine
         if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
         var (domain, _, phpKey) = ParseVhost(conf);
         Directory.CreateDirectory(newRoot);
-        RenderSite(name, domain, newRoot, phpKey, VhostServer(conf), cfg);
+        RenderSite(name, domain, newRoot, phpKey, VhostServer(conf), cfg, VhostAliases(conf, domain));
         if (Nginx.Running()) Nginx.Reload(cfg);
         Ok($"{name} root → {newRoot}");
     }
@@ -637,23 +639,78 @@ public sealed class Engine
         if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache");
         var (domain, root, phpKey) = ParseVhost(conf);
         if (server == "nginx") Apache.RemoveVhost(name);   // leaving apache → drop its vhost
-        RenderSite(name, domain, root, phpKey, server, cfg);
+        RenderSite(name, domain, root, phpKey, server, cfg, VhostAliases(conf, domain));
         if (Nginx.Running()) Nginx.Reload(cfg);
         Apache.Reload();
         Ok($"{name} now served by {server}");
     }
 
     /// <summary>Render a site's vhost(s) for the chosen backend + ensure its php-cgi is up.</summary>
-    private void RenderSite(string name, string domain, string root, string phpKey, string server, Config cfg)
+    private void RenderSite(string name, string domain, string root, string phpKey, string server, Config cfg, IEnumerable<string>? aliases = null)
     {
         PhpCgi.Start(Services.PhpVersion(phpKey, cfg));
         if (server == "apache")
         {
             Apache.RenderVhost(name, domain, root, phpKey, cfg);
             Apache.Start();
-            NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
+            NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg, aliases);
         }
-        else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg, aliases);
+    }
+
+    public IReadOnlyList<string> SiteSubdomains(string name)
+    {
+        NeedInit();
+        var conf = SiteConfPath(name) ?? throw new BhException($"no such site: {name}");
+        var domain = VhostDomains(conf).FirstOrDefault() ?? $"{name}.{Config.Load().Tld}";
+        return VhostAliases(conf, domain);
+    }
+
+    public void SiteSubdomainAdd(string name, string labelOrHost)
+    {
+        NeedInit();
+        var conf = SiteConfPath(name) ?? throw new BhException($"no such site: {name}");
+        var domain = VhostDomains(conf).FirstOrDefault() ?? $"{name}.{Config.Load().Tld}";
+        var host = NormalizeAlias(name, domain, labelOrHost);
+        var aliases = VhostAliases(conf, domain).ToList();
+        if (aliases.Contains(host, StringComparer.OrdinalIgnoreCase)) throw new BhException($"{host} already exists on {name}");
+        if (AllDomains().Any(x => !string.Equals(x.site, name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.domain, host, StringComparison.OrdinalIgnoreCase)))
+            throw new BhException($"{host} is already used by another site");
+        aliases.Add(host);
+        RewriteServerName(conf, domain, aliases);
+        EnsureHosts(host);
+        ReissueSiteCertificateIfSecure(conf, domain);
+        RestartOrReloadAfterAliasChange(conf);
+        Ok($"subdomain added: {host} → {domain}");
+    }
+
+    public void SiteSubdomainRemove(string name, string labelOrHost)
+    {
+        NeedInit();
+        var conf = SiteConfPath(name) ?? throw new BhException($"no such site: {name}");
+        var domain = VhostDomains(conf).FirstOrDefault() ?? $"{name}.{Config.Load().Tld}";
+        var host = NormalizeAlias(name, domain, labelOrHost);
+        var aliases = VhostAliases(conf, domain).ToList();
+        if (!aliases.RemoveAll(a => string.Equals(a, host, StringComparison.OrdinalIgnoreCase)).Equals(1))
+            throw new BhException($"{host} is not a subdomain of {name}");
+        RewriteServerName(conf, domain, aliases);
+        if (!Hosts.Remove(host) && Hosts.Has(host)) Elevation.Run("hosts-remove", host);
+        ReissueSiteCertificateIfSecure(conf, domain);
+        RestartOrReloadAfterAliasChange(conf);
+        Ok($"subdomain removed: {host}");
+    }
+
+    private static void RestartOrReloadAfterAliasChange(string conf)
+    {
+        if (!Nginx.Running()) return;
+        var cfg = Config.Load();
+        if (File.ReadAllText(conf).Contains("ssl_certificate "))
+        {
+            Nginx.Stop();
+            System.Threading.Thread.Sleep(300);
+            Nginx.Start(cfg);
+        }
+        else Nginx.Reload(cfg);
     }
 
     private static string VhostServer(string conf) =>
@@ -672,8 +729,9 @@ public sealed class Engine
 
         EnsureMkcertCa(mkc);
 
+        var certNames = new[] { domain }.Concat(SiteConfByDomain(domain) is { } cf ? VhostAliases(cf, domain) : Array.Empty<string>());
         var (_, outp) = RunCapture(mkc,
-            $"-cert-file \"{domain}.pem\" -key-file \"{domain}-key.pem\" {domain}", Paths.Certs);
+            $"-cert-file \"{domain}.pem\" -key-file \"{domain}-key.pem\" {string.Join(" ", certNames.Select(d => $"\"{d}\""))}", Paths.Certs);
         if (!File.Exists(Path.Combine(Paths.Certs, $"{domain}.pem")))
             throw new BhException("mkcert failed:\n" + outp);
         Ok($"cert: {Path.Combine(Paths.Certs, domain + ".pem")}");
@@ -727,19 +785,32 @@ public sealed class Engine
         var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
         if (!File.Exists(conf)) return;
         var cfg = Config.Load();
-        // A proxy vhost (Mailpit, or any ported service) has a proxy_pass and no PHP root —
-        // re-render it with the proxy renderer; RenderPhpVhost would produce a broken vhost.
-        var pm = Regex.Match(File.ReadAllText(conf), @"proxy_pass http://127\.0\.0\.1:(\d+)");
-        if (pm.Success)
+        if (NodeSite.Load(name) is { } nc)
         {
-            NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg);
-            Ok("re-rendered proxy vhost");
+            NodeSite.RenderVhost(nc, domain, cfg, VhostAliases(conf, domain));
+            Ok("re-rendered node vhost");
+        }
+        else if (PySite.Load(name) is { } pc)
+        {
+            PySite.RenderVhost(pc, domain, cfg, VhostAliases(conf, domain));
+            Ok("re-rendered python vhost");
         }
         else
         {
-            var (dom, root, phpKey) = ParseVhost(conf);
-            NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg);
-            Ok("re-rendered vhost");
+            // A proxy vhost (Mailpit, or any ported service) has a proxy_pass and no PHP root —
+            // re-render it with the proxy renderer; RenderPhpVhost would produce a broken vhost.
+            var pm = Regex.Match(File.ReadAllText(conf), @"proxy_pass http://127\.0\.0\.1:(\d+)");
+            if (pm.Success)
+            {
+                NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg, VhostAliases(conf, domain));
+                Ok("re-rendered proxy vhost");
+            }
+            else
+            {
+                var (dom, root, phpKey) = ParseVhost(conf);
+                NginxConfig.RenderPhpVhost(name, dom, root, phpKey, cfg, VhostAliases(conf, dom));
+                Ok("re-rendered vhost");
+            }
         }
         if (Nginx.Running()) { Nginx.Stop(); System.Threading.Thread.Sleep(300); Nginx.Start(cfg); }
     }
@@ -898,11 +969,84 @@ public sealed class Engine
     private static (string domain, string root, string phpKey) ParseVhost(string conf)
     {
         var text = File.ReadAllText(conf);
-        var domain = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
+        var domain = VhostDomainsFromText(text).FirstOrDefault() ?? "";
         var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
         var phpKey = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
         if (string.IsNullOrEmpty(phpKey)) phpKey = "php";
         return (domain, root, phpKey);
+    }
+
+    private static string? SiteConfPath(string name)
+    {
+        var on = Path.Combine(Paths.NginxSites, $"{name}.conf");
+        if (File.Exists(on)) return on;
+        var off = Path.Combine(Paths.NginxSites, $"{name}.conf.disabled");
+        return File.Exists(off) ? off : null;
+    }
+
+    private static IReadOnlyList<string> VhostDomains(string conf) => VhostDomainsFromText(File.ReadAllText(conf));
+
+    private static IReadOnlyList<string> VhostDomainsFromText(string text)
+    {
+        var raw = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
+        return raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                  .Where(d => d != "_")
+                  .ToList();
+    }
+
+    private static IReadOnlyList<string> VhostAliases(string conf, string domain) =>
+        VhostDomains(conf).Where(d => !string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private static string? SiteConfByDomain(string domain)
+    {
+        if (!Directory.Exists(Paths.NginxSites)) return null;
+        return Directory.EnumerateFiles(Paths.NginxSites, "*.conf*")
+            .FirstOrDefault(f => VhostDomains(f).Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static IEnumerable<(string site, string domain)> AllDomains()
+    {
+        if (!Directory.Exists(Paths.NginxSites)) yield break;
+        foreach (var f in Directory.EnumerateFiles(Paths.NginxSites, "*.conf*"))
+        {
+            var fname = Path.GetFileName(f);
+            if (!fname.EndsWith(".conf") && !fname.EndsWith(".conf.disabled")) continue;
+            var site = fname.EndsWith(".conf") ? fname[..^".conf".Length] : fname[..^".conf.disabled".Length];
+            foreach (var d in VhostDomains(f)) yield return (site, d);
+        }
+    }
+
+    private static string NormalizeAlias(string site, string domain, string raw)
+    {
+        var cfg = Config.Load();
+        raw = raw.Trim().ToLowerInvariant();
+        var host = raw.Contains('.') ? raw : $"{raw}.{domain}";
+        if (!host.EndsWith("." + cfg.Tld, StringComparison.OrdinalIgnoreCase))
+            throw new BhException($"subdomain must end in .{cfg.Tld}");
+        if (!Hosts.IsValidDomain(host)) throw new BhException($"invalid subdomain '{raw}'");
+        if (string.Equals(host, domain, StringComparison.OrdinalIgnoreCase))
+            throw new BhException("subdomain matches canonical domain");
+        return host;
+    }
+
+    private static void RewriteServerName(string conf, string domain, IEnumerable<string> aliases)
+    {
+        var names = string.Join(" ", new[] { domain }.Concat(aliases).Distinct(StringComparer.OrdinalIgnoreCase));
+        var text = File.ReadAllText(conf);
+        File.WriteAllText(conf, Regex.Replace(text, @"(?m)^\s*server_name\s+[^;]+;", $"    server_name {names};"));
+    }
+
+    private void ReissueSiteCertificateIfSecure(string conf, string domain)
+    {
+        if (!File.ReadAllText(conf).Contains("ssl_certificate ")) return;
+        var mkc = Tools.MkcertExe();
+        if (mkc is null) { Warn($"mkcert not installed — HTTPS aliases need: bhserve resecure {domain}"); return; }
+        Directory.CreateDirectory(Paths.Certs);
+        var names = VhostDomains(conf);
+        var (_, outp) = RunCapture(mkc,
+            $"-cert-file \"{domain}.pem\" -key-file \"{domain}-key.pem\" {string.Join(" ", names.Select(d => $"\"{d}\""))}", Paths.Certs);
+        if (File.Exists(Path.Combine(Paths.Certs, $"{domain}.pem"))) Ok($"certificate reissued for {string.Join(" ", names)}");
+        else Warn($"could not reissue HTTPS certificate: {outp}");
     }
 
     private static IReadOnlyList<Site> ListSites(Config cfg)
@@ -917,11 +1061,13 @@ public sealed class Engine
             var enabled = fname.EndsWith(".conf");
             var name = enabled ? fname[..^".conf".Length] : fname[..^".conf.disabled".Length];
             var text = File.ReadAllText(f);
-            var domain = Regex.Match(text, @"server_name\s+([^;]+);").Groups[1].Value.Trim();
+            var domains = VhostDomainsFromText(text);
+            var domain = domains.FirstOrDefault() ?? "";
+            var aliases = domains.Skip(1).ToList();
             var php    = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
             var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
             var secure = text.Contains("ssl_certificate ");
-            list.Add(new Site(name, domain, php, root, secure, enabled,
+            list.Add(new Site(name, domain, aliases, php, root, secure, enabled,
                               text.Contains("server=apache") ? "apache" : "nginx"));
         }
         return list;
@@ -1076,10 +1222,14 @@ public sealed class Engine
             var name = Path.GetFileNameWithoutExtension(f);
             var text = File.ReadAllText(f);
             var domain = $"{name}.{cfg.Tld}";
+            var oldDomain = VhostDomainsFromText(text).FirstOrDefault() ?? domain;
+            var aliases = VhostAliases(f, oldDomain);
             var pm = Regex.Match(text, @"proxy_pass http://127\.0\.0\.1:(\d+)");
-            if (pm.Success) { NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg); continue; }
+            if (NodeSite.Load(name) is { } nc) { NodeSite.RenderVhost(nc, domain, cfg, aliases); continue; }
+            if (PySite.Load(name) is { } pc) { PySite.RenderVhost(pc, domain, cfg, aliases); continue; }
+            if (pm.Success) { NginxConfig.RenderProxyVhost(name, domain, int.Parse(pm.Groups[1].Value), cfg, aliases); continue; }
             var (_, root, phpKey) = ParseVhost(f);
-            if (root.Length > 0) NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+            if (root.Length > 0) NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg, aliases);
         }
     }
     public void Db(string sub, params string[] args)
@@ -1286,7 +1436,7 @@ public sealed class Engine
         var api = Regex.Replace(apiPath ?? "", "[^a-zA-Z0-9/_-]", "").Trim('/');
         if (api.Length > 0 && !(apiPath!.Contains(':') || apiPath.Contains(' '))) nc.ApiPath = "/" + api;
         NodeSite.Save(nc);
-        NodeSite.RenderVhost(nc, domain, appCfg);
+        NodeSite.RenderVhost(nc, domain, appCfg, SiteConfPath(name) is { } cf ? VhostAliases(cf, domain) : null);
         if (Nginx.Running()) Nginx.Reload(appCfg);
         var (ok, msg) = NodeSite.Start(name); if (ok) Ok(msg); else Warn(msg);
         Ok($"node-app {name} updated");
@@ -1297,8 +1447,11 @@ public sealed class Engine
         NeedInit();
         NodeSite.Stop(name);
         NodeSite.Delete(name);
+        var domains = SiteConfPath(name) is { } cf ? VhostDomains(cf).ToList() : new List<string> { $"{name}.{Config.Load().Tld}" };
         try { File.Delete(Path.Combine(Paths.NginxSites, $"{name}.conf")); } catch { }
         var cfg = Config.Load();
+        foreach (var d in domains)
+            if (!Hosts.Remove(d) && Hosts.Has(d)) Elevation.Run("hosts-remove", d);
         if (Nginx.Running()) Nginx.Reload(cfg);
         Ok($"removed node-app {name}");
     }
@@ -1382,7 +1535,7 @@ public sealed class Engine
         if (port > 0) pc.Port = port;
         if (venv is bool v) pc.Venv = v;
         PySite.Save(pc);
-        PySite.RenderVhost(pc, domain, appCfg);
+        PySite.RenderVhost(pc, domain, appCfg, SiteConfPath(name) is { } cf ? VhostAliases(cf, domain) : null);
         if (Nginx.Running()) Nginx.Reload(appCfg);
         var (ok, msg) = PySite.Start(name); if (ok) Ok(msg); else Warn(msg);
         Ok($"python-app {name} updated");
@@ -1393,8 +1546,11 @@ public sealed class Engine
         NeedInit();
         PySite.Stop(name);
         PySite.Delete(name);
+        var domains = SiteConfPath(name) is { } cf ? VhostDomains(cf).ToList() : new List<string> { $"{name}.{Config.Load().Tld}" };
         try { File.Delete(Path.Combine(Paths.NginxSites, $"{name}.conf")); } catch { }
         var cfg = Config.Load();
+        foreach (var d in domains)
+            if (!Hosts.Remove(d) && Hosts.Has(d)) Elevation.Run("hosts-remove", d);
         if (Nginx.Running()) Nginx.Reload(cfg);
         Ok($"removed python-app {name}");
     }

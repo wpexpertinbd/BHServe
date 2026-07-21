@@ -145,6 +145,7 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
     else:
         item("Share publicly (Cloudflare)", "network-wireless-symbolic",
              lambda: win.site_share(name))
+    item("Manage subdomains…", "network-server-symbolic", lambda: site_subdomains(win, s))
     item("Open folder", "folder-symbolic", lambda: _open(s["root"]))
     item("Open in editor", "text-editor-symbolic", lambda: _open_editor(s["root"]))
     item("Open terminal", "utilities-terminal-symbolic", lambda: _open_terminal(s["root"]))
@@ -167,6 +168,9 @@ def build_site_row(win, s: dict) -> Adw.ActionRow:
         shared = pill("SHARED", "bh-pill-warn")
         shared.set_tooltip_text(f"Public: {s['tunnel']}")
         box.append(shared)
+    aliases = s.get("aliases") or []
+    if aliases:
+        box.append(pill(f"{len(aliases)} aliases", "bh-pill-warn"))
     openb = Gtk.Button(icon_name="web-browser-symbolic", tooltip_text="Open in browser")
     openb.connect("clicked", lambda *_: _open(f"{scheme}://{s['domain']}"))
     box.append(openb)
@@ -175,6 +179,48 @@ def build_site_row(win, s: dict) -> Adw.ActionRow:
     box.append(menu)
     row.add_suffix(box)
     return row
+
+
+def site_subdomains(win, s: dict) -> None:
+    dialog = Adw.Window(transient_for=win, modal=True, title=f"Subdomains for {s['domain']}")
+    dialog.set_default_size(440, 260)
+    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=16, margin_bottom=16,
+                   margin_start=16, margin_end=16)
+    entry = Gtk.Entry(placeholder_text=f"api or api.{s['domain']}")
+    add = Gtk.Button(label="Add", css_classes=["suggested-action"])
+    top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    top.append(entry); top.append(add)
+    body.append(top)
+    rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    body.append(rows)
+
+    def redraw():
+        while rows.get_first_child():
+            rows.remove(rows.get_first_child())
+        aliases = next((x.get("aliases", []) for x in win.last_data.get("sites", []) if x.get("name") == s["name"]), s.get("aliases", []))
+        if not aliases:
+            rows.append(Gtk.Label(label="No subdomains yet.", xalign=0, css_classes=["dim-label"]))
+            return
+        scheme = "https" if s.get("secure") else "http"
+        for alias in aliases:
+            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            openb = Gtk.Button(label=f"{scheme}://{alias}", hexpand=True, halign=Gtk.Align.FILL)
+            openb.connect("clicked", lambda *_args, a=alias: _open(f"{scheme}://{a}"))
+            rm = Gtk.Button(label="Remove", css_classes=["destructive-action"])
+            rm.connect("clicked", lambda *_args, a=alias: win.run_verb(["site", "subdomain", "rm", s["name"], a], f"Removing {a}…"))
+            line.append(openb); line.append(rm); rows.append(line)
+
+    def add_alias(*_):
+        val = entry.get_text().strip()
+        if val:
+            entry.set_text("")
+            win.run_verb(["site", "subdomain", "add", s["name"], val], "Adding subdomain…")
+
+    add.connect("clicked", add_alias)
+    entry.connect("activate", add_alias)
+    redraw()
+    dialog.set_content(body)
+    dialog.present()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

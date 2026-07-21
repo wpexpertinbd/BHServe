@@ -16,6 +16,7 @@ public record Service(
 public record Site(
     string Name,
     string Domain,        // name + "." + tld
+    IReadOnlyList<string> Aliases,
     string Php,           // "8.4"
     string Root,
     bool Secure,

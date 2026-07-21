@@ -162,7 +162,7 @@ public static class PySite
     }
 
     /// <summary>Render the nginx reverse-proxy vhost (labeled <c>server=python</c>) for a Python-app site.</summary>
-    public static void RenderVhost(PySiteConfig cfg, string domain, Config appCfg)
+    public static void RenderVhost(PySiteConfig cfg, string domain, Config appCfg, IEnumerable<string>? aliases = null)
     {
         var home = NginxConfig.Fwd(Paths.Home);
         var listen = $"    listen 127.0.0.1:{appCfg.HttpPort};";
@@ -175,7 +175,7 @@ public static class PySite
         # BHServe site: {{cfg.Name}}  ({{domain}})  php=- server=python
         server {
         {{listen}}
-            server_name {{domain}};
+            server_name {{string.Join(" ", new[] { domain }.Concat(aliases ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase))}};
             access_log {{home}}/logs/{{cfg.Name}}-access.log;
             error_log  {{home}}/logs/{{cfg.Name}}-error.log;
             location / {

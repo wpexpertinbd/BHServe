@@ -53,10 +53,14 @@
                                 <Ellipse Grid.Column="0" Width="9" Height="9" Fill="{x:Bind DotBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Text="{x:Bind Name}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                 <HyperlinkButton Grid.Column="2" Content="{x:Bind Url}" NavigateUri="{x:Bind Uri}" VerticalAlignment="Center"/>
-                                <Border Grid.Column="3" VerticalAlignment="Center" CornerRadius="4" Padding="7,2" Margin="0,0,6,0"
-                                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                                    <TextBlock Text="{x:Bind Badge}" FontSize="11" Opacity="0.8"/>
-                                </Border>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,6,0">
+                                    <Border CornerRadius="4" Padding="7,2" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                        <TextBlock Text="{x:Bind Badge}" FontSize="11" Opacity="0.8"/>
+                                    </Border>
+                                    <Border CornerRadius="4" Padding="7,2" Visibility="{x:Bind AliasVisibility}" Background="{ThemeResource SystemFillColorCautionBackgroundBrush}">
+                                        <TextBlock Text="{x:Bind AliasBadge}" FontSize="11" Opacity="0.85"/>
+                                    </Border>
+                                </StackPanel>
                                 <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="2">
                                     <Button Tag="{x:Bind Name}" Click="Open_Click"   ToolTipService.ToolTip="Open in browser"><FontIcon Glyph="&#xE774;" FontSize="14"/></Button>
                                     <Button Tag="{x:Bind Name}" Click="Folder_Click" ToolTipService.ToolTip="Open folder"><FontIcon Glyph="&#xE8B7;" FontSize="14"/></Button>
@@ -76,6 +80,8 @@
                                                 <MenuFlyoutItem Text="Install SSL (HTTPS)" Tag="{x:Bind Domain}" Click="Secure_Click" IsEnabled="{x:Bind NotSecure}"/>
                                                 <MenuFlyoutItem Text="Reinstall SSL (fresh certificate)" Tag="{x:Bind Domain}" Click="Resecure_Click" IsEnabled="{x:Bind Secure}"/>
                                                 <MenuFlyoutItem Text="Remove SSL" Tag="{x:Bind Domain}" Click="Unsecure_Click" IsEnabled="{x:Bind Secure}"/>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem Text="Manage subdomains…" Tag="{x:Bind Name}" Click="Subdomains_Click"/>
                                                 <MenuFlyoutSeparator/>
                                                 <MenuFlyoutItem Text="Open in code editor" Tag="{x:Bind Name}" Click="CodeEditor_Click"/>
                                                 <MenuFlyoutItem Text="Open terminal here" Tag="{x:Bind Name}" Click="Terminal_Click"/>

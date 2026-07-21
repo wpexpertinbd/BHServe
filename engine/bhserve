@@ -351,6 +351,15 @@ render_site_vhost() {
   fi
 }
 
+vhost_domains(){ awk '/server_name/{for(i=2;i<=NF;i++){gsub(/;/,"",$i); if($i!="_") print $i} exit}' "$1"; }
+vhost_aliases(){ local conf="$1" domain="$2"; vhost_domains "$conf" | awk -v d="$domain" '$0!=d'; }
+vhost_server_names(){
+  local name="$1" domain="$2" conf="$BH_HOME/nginx/sites/$1.conf" off="$BH_HOME/nginx/sites/$1.conf.disabled" aliases=""
+  [ -f "$conf" ] || conf="$off"
+  [ -f "$conf" ] && aliases="$(vhost_aliases "$conf" "$domain" | tr '\n' ' ')"
+  printf '%s%s%s' "$domain" "${aliases:+ }" "$aliases"
+}
+
 # common: emit the nginx listen/ssl lines for a domain
 nginx_listen_block() {
   local domain="$1" http https cert key
@@ -365,13 +374,14 @@ nginx_listen_block() {
 }
 
 render_nginx_php_vhost() {
-  local name="$1" domain="$2" root="$3" phpkey="$4" sock conf
+  local name="$1" domain="$2" root="$3" phpkey="$4" sock conf names
   sock="$(php_sock "$phpkey")"; conf="$BH_HOME/nginx/sites/$name.conf"
+  names="$(vhost_server_names "$name" "$domain")"
   cat > "$conf" <<NGINX
 # BHServe site: $name  ($domain)  php=$phpkey server=nginx
 server {
 $(nginx_listen_block "$domain")
-    server_name $domain;
+    server_name $names;
     root $root;
     index index.php index.html index.htm;
 
@@ -397,12 +407,13 @@ NGINX
 
 # nginx front that proxies the whole host to Apache (which serves + .htaccess)
 render_nginx_proxy_vhost() {
-  local name="$1" domain="$2" root="$3" phpkey="$4" conf="$BH_HOME/nginx/sites/$1.conf"
+  local name="$1" domain="$2" root="$3" phpkey="$4" conf="$BH_HOME/nginx/sites/$1.conf" names
+  names="$(vhost_server_names "$name" "$domain")"
   cat > "$conf" <<NGINX
 # BHServe site: $name  ($domain)  php=$phpkey server=apache
 server {
 $(nginx_listen_block "$domain")
-    server_name $domain;
+    server_name $names;
     root $root;   # served by Apache (:$APACHE_PORT); kept for tooling/metadata
 
     access_log $BH_HOME/logs/$name-access.log;
@@ -423,12 +434,13 @@ NGINX
 
 # Generic nginx vhost proxying a host to a local HTTP port (e.g. Mailpit :8025).
 render_nginx_proxy_site() {
-  local name="$1" domain="$2" port="$3" conf="$BH_HOME/nginx/sites/$1.conf"
+  local name="$1" domain="$2" port="$3" conf="$BH_HOME/nginx/sites/$1.conf" names
+  names="$(vhost_server_names "$name" "$domain")"
   cat > "$conf" <<NGINX
 # BHServe site: $name  ($domain)  php=- server=proxy
 server {
 $(nginx_listen_block "$domain")
-    server_name $domain;
+    server_name $names;
     location / {
         proxy_pass http://127.0.0.1:$port;
         proxy_set_header Host \$host;
@@ -480,8 +492,9 @@ node_stop_proc(){ # name part
 }
 
 render_nginx_node_vhost(){ # name domain feport beport apipaths [serverlabel=node]
-  local name="$1" domain="$2" feport="$3" beport="$4" apipaths="$5" srvlabel="${6:-node}" conf="$BH_HOME/nginx/sites/$name.conf"
+  local name="$1" domain="$2" feport="$3" beport="$4" apipaths="$5" srvlabel="${6:-node}" conf="$BH_HOME/nginx/sites/$name.conf" names
   local apiblock=""
+  names="$(vhost_server_names "$name" "$domain")"
   if [ -n "$beport" ]; then
     apiblock="$(cat <<NG
 
@@ -500,7 +513,7 @@ NG
 # BHServe site: $name  ($domain)  php=- server=$srvlabel
 server {
 $(nginx_listen_block "$domain")
-    server_name $domain;
+    server_name $names;
     access_log $BH_HOME/logs/$name-access.log;
     error_log  $BH_HOME/logs/$name-error.log;
     client_max_body_size 2048m;
@@ -1008,13 +1021,109 @@ cmd_site() {
   case "$sub" in
     add) site_add "$@" ;;
     rm|remove) site_rm "$@" ;;
+    subdomain) site_subdomain "$@" ;;
     list|ls) site_list ;;
     php) site_set_php "$@" ;;
     server) site_set_server "$@" ;;
     root) site_set_root "$@" ;;
     enable)  site_toggle "${1:-}" on ;;
     disable) site_toggle "${1:-}" off ;;
-    *) die "usage: bhserve site {add|rm|list|php|server|root|enable|disable}" ;;
+    *) die "usage: bhserve site {add|rm|subdomain|list|php|server|root|enable|disable}" ;;
+  esac
+}
+
+valid_host(){ printf '%s' "$1" | grep -Eq '^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)+[a-z0-9]([-a-z0-9]*[a-z0-9])?$'; }
+site_conf_path(){
+  local name="$1" conf="$BH_HOME/nginx/sites/$1.conf" off="$BH_HOME/nginx/sites/$1.conf.disabled"
+  [ -f "$conf" ] && { echo "$conf"; return 0; }
+  [ -f "$off" ] && { echo "$off"; return 0; }
+  return 1
+}
+site_canonical_domain(){ local conf="$1"; vhost_domains "$conf" | head -1; }
+site_alias_host(){
+  local site="$1" raw="$2" conf domain tld host
+  conf="$(site_conf_path "$site")" || die "no site '$site'"
+  domain="$(site_canonical_domain "$conf")"; tld="$(jget tld test)"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  case "$raw" in
+    *.*) host="$raw" ;;
+    *) host="$raw.$domain" ;;
+  esac
+  case "$host" in *."$tld") ;; *) die "subdomain must end in .$tld";; esac
+  valid_host "$host" || die "invalid subdomain '$raw'"
+  [ "$host" != "$domain" ] || die "subdomain matches canonical domain"
+  echo "$host"
+}
+site_subdomain_conflict(){
+  local site="$1" host="$2" f n d
+  shopt -s nullglob
+  for f in "$BH_HOME"/nginx/sites/*.conf "$BH_HOME"/nginx/sites/*.conf.disabled; do
+    n="$(basename "$f")"; n="${n%.disabled}"; n="${n%.conf}"
+    [ "$n" = "$site" ] && continue
+    vhost_domains "$f" | grep -Fxq "$host" && return 0
+  done
+  return 1
+}
+site_subdomain_apply_names(){
+  local conf="$1" domain="$2"; shift 2
+  local names="$domain"
+  [ $# -gt 0 ] && names="$names $*"
+  sedi "s/^[[:space:]]*server_name .*/    server_name $names;/" "$conf"
+}
+site_subdomain_reissue_if_secure(){
+  local conf="$1" domain="$2"
+  grep -q "ssl_certificate " "$conf" || return 0
+  if svc_installed mkcert; then
+    local mkc="$BREW_PREFIX/bin/mkcert"
+    mkdir -p "$BH_HOME/certs"
+    ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" $(vhost_domains "$conf") ) \
+      && ok "certificate reissued for $(vhost_domains "$conf" | tr '\n' ' ')" \
+      || warn "could not reissue HTTPS certificate (run: bhserve resecure $domain)"
+  else
+    warn "mkcert not installed — HTTPS aliases need: bhserve resecure $domain"
+  fi
+}
+site_subdomain_apply_reload(){
+  local conf="$1"
+  if grep -q "ssl_certificate " "$conf"; then
+    hosts_sync_all
+    nginx_restart >/dev/null 2>&1 || warn "restart nginx (bhserve restart nginx)"
+  else
+    maybe_reload_nginx
+  fi
+}
+site_subdomain(){
+  local action="${1:-list}" site="${2:-}" raw="${3:-}" conf domain host aliases
+  [ -n "$site" ] || die "usage: bhserve site subdomain {list|add|rm} <site> [label-or-host]"
+  conf="$(site_conf_path "$site")" || die "no site '$site'"
+  domain="$(site_canonical_domain "$conf")"
+  case "$action" in
+    list|"")
+      aliases="$(vhost_aliases "$conf" "$domain")"
+      [ -n "$aliases" ] && printf '%s\n' "$aliases" || info "no subdomains for $site"
+      ;;
+    add)
+      [ -n "$raw" ] || die "usage: bhserve site subdomain add <site> <label-or-host>"
+      host="$(site_alias_host "$site" "$raw")"
+      vhost_aliases "$conf" "$domain" | grep -Fxq "$host" && die "$host already exists on $site"
+      site_subdomain_conflict "$site" "$host" && die "$host is already used by another site"
+      aliases="$(printf '%s\n%s\n' "$(vhost_aliases "$conf" "$domain")" "$host" | awk 'NF' | sort -u)"
+      site_subdomain_apply_names "$conf" "$domain" $aliases
+      site_subdomain_reissue_if_secure "$conf" "$domain"
+      ok "subdomain added: $host → $domain"
+      site_subdomain_apply_reload "$conf"
+      ;;
+    rm|remove)
+      [ -n "$raw" ] || die "usage: bhserve site subdomain rm <site> <label-or-host>"
+      host="$(site_alias_host "$site" "$raw")"
+      vhost_aliases "$conf" "$domain" | grep -Fxq "$host" || die "$host is not a subdomain of $site"
+      aliases="$(vhost_aliases "$conf" "$domain" | grep -Fxv "$host" || true)"
+      site_subdomain_apply_names "$conf" "$domain" $aliases
+      site_subdomain_reissue_if_secure "$conf" "$domain"
+      ok "subdomain removed: $host"
+      site_subdomain_apply_reload "$conf"
+      ;;
+    *) die "usage: bhserve site subdomain {list|add|rm} <site> [label-or-host]" ;;
   esac
 }
 
@@ -1357,7 +1466,10 @@ cmd_secure() {
     warn "local CA not installed yet — running 'mkcert -install' (will prompt for sudo/keychain)"
     "$mkc" -install || die "mkcert -install failed"
   fi
-  ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) \
+  local names="$domain"
+  local conf="$BH_HOME/nginx/sites/${domain%.$(jget tld test)}.conf"
+  [ -f "$conf" ] && names="$(vhost_domains "$conf" | tr '\n' ' ')"
+  ( cd "$BH_HOME/certs" && "$mkc" -cert-file "$domain.pem" -key-file "$domain-key.pem" $names ) \
     && ok "cert: $BH_HOME/certs/$domain.pem" || die "mkcert failed"
   _rerender_site_vhost "$domain"
   ok "secured: https://$domain"
@@ -2437,8 +2549,13 @@ cmd_api() {
     # user websites — the GUI hides them from the Sites tab + dashboard list (managed from
     # Services / dashboard web-tools instead).
     local tool=false; case "$n" in phpmyadmin|adminer|mailpit) tool=true;; esac
-    local row; row="$(printf '{"name":"%s","domain":"%s","php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s","tool":%s%s}' \
-      "$n" "$dom" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$tool" "$nx")"
+    local aliases="" afirst=1 a
+    while read -r a; do
+      [ -n "$a" ] || continue
+      if [ "$afirst" = 1 ]; then aliases="\"$(json_esc "$a")\""; afirst=0; else aliases="$aliases,\"$(json_esc "$a")\""; fi
+    done < <(vhost_aliases "$f" "$dom")
+    local row; row="$(printf '{"name":"%s","domain":"%s","aliases":[%s],"php":"%s","root":"%s","secure":%s,"enabled":%s,"server":"%s","tunnel":"%s","tool":%s%s}' \
+      "$n" "$dom" "$aliases" "$php" "$(json_esc "$root")" "$sec" "$enabled" "$srv" "$(json_esc "$tun")" "$tool" "$nx")"
     if [ "$sfirst" = 1 ]; then sites="$row"; sfirst=0; else sites="$sites,$row"; fi
   done
 

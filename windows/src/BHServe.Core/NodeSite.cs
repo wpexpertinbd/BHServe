@@ -185,7 +185,7 @@ public static class NodeSite
     }
 
     /// <summary>Render the nginx reverse-proxy vhost for a Node-app site.</summary>
-    public static void RenderVhost(NodeSiteConfig cfg, string domain, Config appCfg)
+    public static void RenderVhost(NodeSiteConfig cfg, string domain, Config appCfg, IEnumerable<string>? aliases = null)
     {
         var home = NginxConfig.Fwd(Paths.Home);
         var apiBlock = "";
@@ -214,7 +214,7 @@ public static class NodeSite
         # BHServe site: {{cfg.Name}}  ({{domain}})  php=- server=node
         server {
         {{listen}}
-            server_name {{domain}};
+            server_name {{string.Join(" ", new[] { domain }.Concat(aliases ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase))}};
             access_log {{home}}/logs/{{cfg.Name}}-access.log;
             error_log  {{home}}/logs/{{cfg.Name}}-error.log;
         {{apiBlock}}
