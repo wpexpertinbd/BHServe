@@ -602,3 +602,16 @@ comment out `session.save_path` in the copied `.user.ini` (it overrides php.ini 
 BHServe-writable dir (brew PHP defaults may rely on /var/tmp — usually fine on mac, but pinning to
 ~/.bhserve/tmp is the same robustness win, and imported-site `.user.ini` Linux paths can bite there
 too, e.g. /tmp exists but per-site paths like /var/cpanel/... don't).
+
+## win-v1.0.61 — Apache-backed site add never reloaded Apache
+
+Adding a site with the Apache backend called `Apache.Start()`, which no-ops when httpd is already
+running — so the FIRST Apache site worked (it started Apache) but every LATER one was never loaded:
+its requests fell through to Apache's first loaded vhost (another site — e.g. a WHMCS that then
+redirected to its own domain). Site-delete and server-switch already reloaded; only add forgot.
+Fix: after rendering the vhost, `Apache.Running() ? Reload() : Start()`. Verified E2E: second
+Apache site (php 7.4) serves correct PHP immediately after add, existing sites untouched.
+
+**macOS action:** check the Mac engine's site-add path for the same pattern — if the Apache (or any
+secondary backend) start step is a no-op when already running, the new vhost needs an explicit
+reload in site-add, not just in delete/switch.

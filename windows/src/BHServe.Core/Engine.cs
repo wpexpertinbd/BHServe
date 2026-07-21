@@ -549,7 +549,11 @@ public sealed class Engine
         if (server == "apache")
         {
             Apache.RenderVhost(name, domain, root, phpKey, cfg);
-            var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg);
+            // Apache.Start() NO-OPS when httpd is already running — so the SECOND (and every later)
+            // Apache-backed site was never loaded into the running Apache: its requests fell through
+            // to the first loaded vhost (another site!) until a manual restart. Reload when running.
+            if (Apache.Running()) { Apache.Reload(); Ok("apache reloaded (new vhost)"); }
+            else { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
             NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
         }
         else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
