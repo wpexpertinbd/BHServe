@@ -1752,7 +1752,7 @@ PG_BIN(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/$1"; }
 
 db_valid_name(){ [[ "$1" =~ ^[A-Za-z0-9_]+$ ]] || die "invalid db name '$1' (use letters, digits, underscore)"; }
 # Site name = a DNS label — prevents path traversal + nginx-config injection.
-valid_site_name(){ [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid site name '$1' (use lowercase letters, digits, hyphens)"; }
+valid_site_name(){ [[ "$1" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || die "invalid site name '$1' (use lowercase letters, digits, hyphens, dots)"; }
 
 # Run the mysql client with auto-detected auth: OS user first (brew MariaDB's
 # unix_socket account), then passwordless -u root (Oracle MySQL / older setups).
