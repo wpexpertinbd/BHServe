@@ -182,33 +182,42 @@ def build_site_row(win, s: dict) -> Adw.ActionRow:
 
 
 def site_subdomains(win, s: dict) -> None:
-    dialog = Adw.Window(transient_for=win, modal=True, title=f"Subdomains for {s['domain']}")
-    dialog.set_default_size(440, 260)
-    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=16, margin_bottom=16,
-                   margin_start=16, margin_end=16)
-    entry = Gtk.Entry(placeholder_text=f"api or api.{s['domain']}")
-    add = Gtk.Button(label="Add", css_classes=["suggested-action"])
-    top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    top.append(entry); top.append(add)
-    body.append(top)
-    rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    body.append(rows)
+    dlg = Adw.MessageDialog(transient_for=win, heading=f"Subdomains for {s['domain']}",
+                            body="Add or remove subdomain aliases for this site.")
+    form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    entry = Gtk.Entry(placeholder_text=f"api or api.{s['domain']}", hexpand=True)
+    add = Gtk.Button(label="Add", icon_name="list-add-symbolic", css_classes=["suggested-action"], valign=Gtk.Align.CENTER)
+    row_input = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row_input.append(entry); row_input.append(add)
+    form.append(row_input)
+
+    list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0, css_classes=["card"])
+    form.append(list_box)
 
     def redraw():
-        while rows.get_first_child():
-            rows.remove(rows.get_first_child())
+        while list_box.get_first_child():
+            list_box.remove(list_box.get_first_child())
         aliases = next((x.get("aliases", []) for x in win.last_data.get("sites", []) if x.get("name") == s["name"]), s.get("aliases", []))
         if not aliases:
-            rows.append(Gtk.Label(label="No subdomains yet.", xalign=0, css_classes=["dim-label"]))
+            lbl = Gtk.Label(label="No subdomains yet.", xalign=0, css_classes=["dim-label"],
+                            margin_top=10, margin_bottom=10, margin_start=12)
+            list_box.append(lbl)
             return
         scheme = "https" if s.get("secure") else "http"
-        for alias in aliases:
-            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            openb = Gtk.Button(label=f"{scheme}://{alias}", hexpand=True, halign=Gtk.Align.FILL)
-            openb.connect("clicked", lambda *_args, a=alias: _open(f"{scheme}://{a}"))
-            rm = Gtk.Button(label="Remove", css_classes=["destructive-action"])
+        for i, alias in enumerate(aliases):
+            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8,
+                           margin_top=8, margin_bottom=8, margin_start=12, margin_end=8)
+            link = Gtk.Button(label=f"{scheme}://{alias}", css_classes=["flat"], hexpand=True, halign=Gtk.Align.START)
+            link.connect("clicked", lambda *_args, a=alias: _open(f"{scheme}://{a}"))
+            line.append(link)
+            rm = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove",
+                            css_classes=["flat", "destructive-action"])
             rm.connect("clicked", lambda *_args, a=alias: win.run_verb(["site", "subdomain", "rm", s["name"], a], f"Removing {a}…"))
-            line.append(openb); line.append(rm); rows.append(line)
+            line.append(rm)
+            list_box.append(line)
+            if i < len(aliases) - 1:
+                sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                list_box.append(sep)
 
     def add_alias(*_):
         val = entry.get_text().strip()
@@ -219,8 +228,9 @@ def site_subdomains(win, s: dict) -> None:
     add.connect("clicked", add_alias)
     entry.connect("activate", add_alias)
     redraw()
-    dialog.set_content(body)
-    dialog.present()
+    dlg.set_extra_child(form)
+    dlg.add_response("close", "Close")
+    dlg.present()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
