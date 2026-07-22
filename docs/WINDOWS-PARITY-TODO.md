@@ -133,3 +133,42 @@ apps** lists. macOS extracted a reusable `ManagedAppsSection` (header: title + c
 Search + Add button; paginated `WebsiteRow`s; prev/next + jump-to-page footer) used by both tabs, and
 added one shared **"Apps per page — Node & Python tabs"** setting (default 15). Mirror on Windows if
 those tabs can hold many apps.
+
+---
+
+## 5. Rich tray / menu-bar flyout (live metrics + sites + tools)  *(macOS: BHServeApp.swift MenuBarView)*  — **medium, polish**
+
+The Windows tray (`windows/src/BHServe.App/TrayIcon.cs`, `ShowMenu()`) is a plain Win32
+`Shell_NotifyIcon` context menu with only **Open BHServe / Start all / Stop all / Restart all / Quit**
+(wired in `MainWindow.xaml.cs`). The macOS menu-bar is a rich **flyout** (`macos/Sources/BHServe/BHServeApp.swift`
+`MenuBarView`, ~L79–168): live **CPU / RAM / Disk bars + a CPU sparkline**, a **running-services line with a
+status dot**, the **first-5 active sites as clickable open-links**, and **Tools** (phpMyAdmin / Adminer /
+Mailpit) quick-open. **`windows/src/BHServe.Core/SystemMetrics.cs` already computes the metrics** — they're
+just not surfaced in the tray. Port a small WinUI/Win32 popup window anchored to the tray icon with the same
+four sections. Not urgent (the dashboard already shows all of this) — pure convenience parity.
+
+## 6. PHP-site **Access**-log viewing in the GUI  *(macOS: WebsitesPanel.swift SiteLogsSheet)*  — **low**
+
+Windows' per-site log button (`SiteListControl.xaml.cs` `Logs_Click`) opens **only `{name}-error.log`**;
+there's no way to view the **access** log from the app. But `NginxConfig.cs` already writes
+`{name}-access.log` for every PHP site — the file exists, it's just unviewable. macOS `WebsitesPanel.swift`
+`SiteLogsSheet` has an **Error / Access segmented picker** reading `<name>-error.log` and `<name>-access.log`
+(reloadable). Add the same Access option to the Windows PHP-site log view. (The `LogTail which=fe/be` path is
+Node/Python process logs — separate.)
+
+## 7. Settings ▸ "List sizes" — add Databases + Node/Python boxes  *(macOS: SettingsView.swift)*  — **low, centralization-only (NOT a capability gap)**
+
+macOS Settings exposes **four** per-page defaults (Dashboard / Sites / Databases / Node&Python) via
+`appState.dbsPerPage` + `appsPerPage`. Windows `SettingsPage.xaml` shows only **Dashboard + Sites**
+NumberBoxes. **This is UI placement only, not a missing feature:** `Config.cs` already carries
+`DatabasesPageSize` + `AppsPageSize`, and users can already change AND persist both via the inline **"Show N"**
+dropdown on `DatabasesPage` / `NodePage` / `PythonPage`. So it's just centralizing those two into the Settings
+"List sizes" card for discoverability — do it only if convenient.
+
+---
+
+> **Also checked (no action — Windows already covered it):** the macOS v1.7.7/v1.7.8 **ionCube** work
+> (loader-ordering: ionCube before opcache; arch auto-detect arm64/x86-64; per-version resilience + dynamic
+> "available versions" message). Windows solved its *own*, different ionCube problems in **win-v1.0.58–61**
+> (the loader DLL missing from the real FS + a polluted-env root cause + JIT-crash fix + self-heal), so the
+> macOS engine-specific fixes don't port. Verified against `windows/` source — nothing to do here.
