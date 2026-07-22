@@ -42,9 +42,10 @@ struct ServiceRow: View {
     @State private var editingIni = false
 
     private var manageable: Bool {
-        // these the engine can start/stop today
+        // these the engine can start/stop today (incl. httpd — `start/stop httpd` = apache_start/stop;
+        // Apache is the .htaccess backend on :8080 behind nginx, but users can control it here too)
         ["php", "web", "db", "cache", "mail", "dns"].contains(service.role)
-            && service.installed && service.key != "httpd"
+            && service.installed
     }
 
     var body: some View {

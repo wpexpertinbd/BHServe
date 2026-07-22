@@ -250,3 +250,20 @@ So on Linux you only verify the **GUI + a functional pass**, then ship:
 (fixed in **v1.7.10**: added an ✕ in the header + Escape-to-close + renamed "Done"→"Close"). Make sure the
 Windows `ContentDialog` / Linux `Adw.MessageDialog` clearly let a user who's just looking dismiss without
 feeling they added something.
+
+---
+
+## 9. CHECK — does your version probe run `httpd.exe --version`? (macOS bug: it LAUNCHES Apache)  *(macOS fix: v1.7.13)*
+
+Nasty one found on macOS: **`--version` is not a flag Apache knows** — instead of erroring, `httpd`
+responds by **launching the server** with its default config (daemonizes, binds `*:8080`, prints the
+`AH00558` FQDN warning). BHServe's engine probed every service with `--version` first, so **every
+api/dashboard refresh spawned a rogue Apache** with the wrong config; the strays then held :8080 so
+BHServe's real Apache couldn't start, and the GUI showed the AH00558 text as the "version". Same Apache
+codebase on Windows → same risk. **Check `Engine`/version-probe code: if anything runs
+`httpd.exe --version`, switch it to `httpd.exe -v`** (prints the version, never parses config, never
+launches). macOS fix (shared engine, v1.7.13): probe special-cases httpd → `-v` only; `_ver_bad` also
+rejects `AH00558*`/`already running`/`Usage:*`; and `apache_start` clears stray `httpd --version`
+processes (exact-argv pkill — a legit httpd never runs with that argv) so old installs self-heal.
+Also: macOS `manageable` GUI gate excluded httpd from Start/Stop — removed; if the Windows Services
+page hides Apache's Start/Stop, consider exposing it the same way.

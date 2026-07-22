@@ -87,9 +87,14 @@ cmd_disable(){ need_init; [ $# -ge 1 ] || die "usage: bhserve disable <svc>"; di
 # and print to stderr, so fall back to -v; never propagate a non-zero exit.
 # A version line is "bad" if it's empty, an error, or a daemon log line (mailpit's `-v`
 # means *verbose* and prints `time=… level=…` — not a version).
-_ver_bad(){ case "$1" in ""|*invalid*|*unknown*|*"Error:"*|*"level="*|time=*) return 0;; *) return 1;; esac; }
+_ver_bad(){ case "$1" in ""|*invalid*|*unknown*|*"Error:"*|*"level="*|time=*|*AH00558*|*"already running"*|Usage:*) return 0;; *) return 1;; esac; }
 probe_version(){
   local bin="$1" out=""
+  # ⚠️ httpd: `--version` is NOT a flag Apache knows — it responds by LAUNCHING the server with
+  # the brew default config (daemonizes, binds *:8080, prints AH00558). Every api refresh was
+  # spawning rogue instances that then blocked BHServe's own Apache. `-v` is the safe flag
+  # (prints the version, never parses config) — use it exclusively for httpd.
+  case "$bin" in *httpd*) printf '%s' "$("$bin" -v 2>&1 | head -1)" | tr -d '\n' | cut -c1-46; return;; esac
   out="$("$bin" --version 2>&1 | head -1)" || true
   # try, in order: -v, a `version` subcommand (mailpit/fnm/cloudflared), then -version
   _ver_bad "$out" && { out="$("$bin" -v 2>&1 | head -1)" || true; }
@@ -908,6 +913,10 @@ have_apache_sites(){ grep -lq "server=apache" "$BH_HOME"/nginx/sites/*.conf 2>/d
 
 apache_start(){
   local bin; bin="$(APACHE_BIN)"; [ -x "$bin" ] || { warn "httpd not installed — bhserve install httpd"; return 1; }
+  # Clear rogue `httpd --version` daemons: pre-v1.7.13 version probes accidentally launched
+  # httpd with the brew default config (binds *:8080) and those strays block OUR bind. The
+  # match is exact — a legit httpd never runs with `--version` as its argv.
+  pkill -f 'httpd --version' 2>/dev/null || true
   render_apache_main
   if apache_running; then ok "apache already running (:$APACHE_PORT)"; return 0; fi
   "$bin" -f "$BH_HOME/apache/httpd.conf" -k start && ok "apache started (:$APACHE_PORT)" || no "apache failed to start"
