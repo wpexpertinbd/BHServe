@@ -296,8 +296,15 @@ cmd_install() {
         else
           # Version-aware guidance. static-php-cli only builds 8.0+, so anything < 8.0 (7.4, EOL) can
           # ONLY come from Ondřej/Sury on a release they've packaged — never from the static fallback.
+          # When the PPA is merely NOT-PUBLISHED-YET for this release (the .bhdisabled marker we set),
+          # say so: _php_repo_prepare re-probes it on EVERY install, so 7.4 starts working by itself
+          # the moment Ondřej ships packages for this release — no BHServe update needed.
           if [ "${v%%.*}" -lt 8 ]; then
-            no "PHP $v is end-of-life — it's only packaged on an LTS (Ubuntu 22.04/24.04 or Debian) via the Ondřej/Sury repo, and there's no static build for it. This release ($(_codename)) has no PHP $v. Use BHServe on an LTS for $v, or pick PHP 8.0+ here."
+            if ls /etc/apt/sources.list.d/*ondrej*php*.bhdisabled >/dev/null 2>&1; then
+              no "PHP $v needs the Ondřej PHP repo, which has no packages for Ubuntu '$(_codename)' yet. BHServe re-checks on every install, so this will start working as soon as they publish builds — until then PHP $v needs Ubuntu 24.04/22.04, or pick PHP 8.0+ here."
+            else
+              no "PHP $v is end-of-life and isn't packaged for this release — and no static build exists below 8.0. Use Ubuntu 24.04/22.04 for PHP $v, or pick PHP 8.0+ here."
+            fi
           else
             no "install $key failed — no distro package for $(_codename) and no portable build for PHP $v ($(_static_php_arch)). Static builds exist for 8.0–8.5; check the version."
           fi

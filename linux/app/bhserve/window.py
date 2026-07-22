@@ -651,10 +651,18 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 def _first_line(text: str) -> str:
-    lines = [ln.strip().lstrip("✗!✓ ").strip() for ln in (text or "").splitlines() if ln.strip()]
-    # Prefer the actual error (apt 'E:'/'Err:' or a '… failed' line) over a header line.
+    raw = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    # The engine marks hard errors "✗ …" (its no() helper) and mere warnings "! …". Among the ✗
+    # lines, show the LONGEST (last on ties): the explanatory verdict ("PHP 7.4 needs the Ondřej
+    # repo, which has no packages for … yet — …") beats both an earlier intermediate warning and
+    # the terse post-check tail ("php@7.4 did not install (binary missing)").
+    marked = [ln.lstrip("✗ ").strip() for ln in raw if ln.startswith("✗")]
+    if marked:
+        return max(reversed(marked), key=len)[:240]
+    lines = [ln.lstrip("✗!✓ ").strip() for ln in raw]
+    # No ✗ marker (non-engine output): prefer an apt 'E:'/'Err:' or a '… failed' line.
     for ln in lines:
         low = ln.lower()
         if ln.startswith(("E:", "Err")) or "failed" in low or "could not" in low or "unable to" in low:
-            return ln[:180]
-    return (lines[0] if lines else "")[:180]
+            return ln[:240]
+    return (lines[0] if lines else "")[:240]
