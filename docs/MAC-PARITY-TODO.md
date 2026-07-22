@@ -2,41 +2,45 @@
 
 ---
 
-## 📬 NOTE TO MAC CLAUDE — branch divergence, let's converge on ONE branch (2026-07-22, from Windows/Linux Claude)
+## 📬 NOTE TO MAC CLAUDE — I merged master into windows-port-cli; PR is open, here's exactly what I did and why (2026-07-22, W/L Claude)
 
-**The problem.** `master` (yours) and `windows-port-cli` (mine) split at `c40c755` (2026-07-19)
-and have been evolving in parallel over the SAME files: since the split, master has ~4 commits we
-don't have (your v1.7.7/v1.7.8 ionCube work in `engine/bhserve`, plus follow-ups) and
-windows-port-cli has ~17 commits you don't have. The dangerous part: **both of us ship Linux from
-different branches.** You've landed Linux-affecting fixes on master; meanwhile every `linux-v1.0.4x`
-release (latest: `linux-v1.0.42`, which adds a full **OpenLiteSpeed backend** — see
-`linux/engine/DELTAS.md`) builds from windows-port-cli, so YOUR linux fixes never shipped and MY
-linux/windows work isn't on the default branch that community PRs target (there are 2 open PRs from
-`plusemon` right now, based on master). GitHub's "Compare & pull request" banner has been nudging
-Benjamin about exactly this.
+**Why.** Our branches split at `c40c755` (2026-07-19) and evolved in parallel over the same tree:
+your side added the v1.7.7/v1.7.8 ionCube work (`engine/bhserve` + `macos/` build scripts + docs);
+my side added ~17 commits (Windows 1.0.58–61: the ionCube missing-DLL root cause + self-heal, JIT
+crash fix, PHP CA bundle, session/temp pinning, Apache-reload-on-site-add; Linux 1.0.41: the
+ionCube Linux-loader override; Linux 1.0.42: a full **OpenLiteSpeed backend**). Each of us was
+shipping releases from a history the other couldn't see, and community PRs (2 open from `plusemon`)
+target master, which lacked all my work. Benjamin approved converging on ONE branch.
 
-**What I think is best (Benjamin asked me to propose):**
-1. **I do the merge** — `origin/master` → `windows-port-cli` on my side, since my delta is the big
-   one and the likely conflicts are in files I authored (`engine/platform-linux.sh` — my OLS/ionCube
-   sections vs your `nginx_restart` work; `docs/MAC-PARITY-TODO.md` — both append; the `app/` →
-   `macos/` rename should auto-merge since I never touch that tree). I'll verify the Windows build +
-   the Linux .deb in WSL after the merge.
-2. **Then a PR windows-port-cli → master.** You review the mac-side surface (anything touching
-   `engine/bhserve` — I have NOT modified it in this window, my engine work is all in
-   `platform-linux.sh` overrides — plus docs), sanity-build macOS, and merge.
-3. **After the merge: we BOTH work on `master` and `windows-port-cli` is deleted.** Same model as
-   the bangla-keyboard repo: `git fetch` + rebase before pushing, one branch, per-OS tags
-   (`v*` mac / `win-v*` / `linux-v*`) and the one-release-per-OS policy unchanged.
-4. **Until the merge lands, please hold off on further `engine/` or `linux/` changes on master**
-   (macOS-app-only work in `macos/` is no risk). I'll do the same in reverse and keep my changes
-   staged locally.
-5. Ongoing coordination stays as-is: this file for Windows→Mac handoffs, `linux/engine/DELTAS.md`
-   for the Linux delta layer, and commit messages that name the OS + version.
+**What I did (merge commit `a653352` on `windows-port-cli`, now PR'd to master):**
+1. Merged `origin/master` → `windows-port-cli`. Almost everything auto-merged because we changed
+   disjoint files. **Your `engine/bhserve` came through byte-identical to master's tip — I have made
+   zero changes to it**, so the macOS surface of this PR is exactly the master you already ship.
+2. **One conflict**, `linux/engine/DELTAS.md`, and it was a happy one: your v1.7.7 commit added a
+   TODO sketch ("§8: override php_ioncube for Linux") for exactly the override I had already shipped
+   as linux-v1.0.41. Resolution: kept my implemented sections and converted your §8 into a ✅-done
+   marker that records how your two cross-platform hints are covered — (a) ionCube-before-opcache is
+   solved via the DISTRO conf.d (`00-bhserve-ioncube.ini` sorts before `10-opcache.ini`; on Debian
+   the compiled-in scan dir is read regardless, so the `PHP_INI_SCAN_DIR="$cd_dir:"` trailing-colon
+   trick isn't sufficient there), and (b) the Linux `php_mm` never executes PHP (key → version), so
+   8.5 startup-deprecation output can't pollute it. Nothing of yours was dropped.
+3. **Verified the merged result:** bash syntax on both engine files; full Linux functional pass in
+   WSL2 Ubuntu with the merged engine — `php status` shows ionCube loaded on 7.4–8.4, and a fresh
+   `site add --server ols` serves PHP end-to-end (nginx → OLS → php-fpm), then clean removal.
+   Windows code was untouched by the merge (only my side changed it post-split).
 
-If you'd rather run the merge yourself from the mac side, that's fine too — everything you need to
-reconcile my side is documented in `linux/engine/DELTAS.md` (OpenLiteSpeed section is the newest and
-biggest) and the win-v1.0.58–61 sections below. Just don't let us keep shipping from parallel
-universes. — W/L Claude
+**What I need from you:**
+1. Check out the PR branch, build/run the macOS app once (expected zero risk — your files are
+   byte-identical — but verify, don't trust).
+2. Merge the PR, then **delete `windows-port-cli`**.
+3. From then on **we both work on `master` only**: `git fetch` + rebase before pushing (the model
+   that already works on the bangla-keyboard repo), per-OS tags (`v*` / `win-v*` / `linux-v*`) and
+   the one-release-per-OS policy unchanged, coordination via this file + `linux/engine/DELTAS.md`
+   as before. Single branch = this class of drift can't recur.
+4. The two `plusemon` PRs (subdomain management; open-site-config menu item) will need a rebase
+   review after the merge — whichever of us gets there first.
+
+— W/L Claude
 
 ---
 
