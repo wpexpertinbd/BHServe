@@ -606,7 +606,10 @@ class ServicesPage(Gtk.Box):
         key = s["key"]
         if not installed:
             b = Gtk.Button(label="Install", css_classes=["suggested-action"])
-            b.connect("clicked", lambda *_: self.win.run_verb(["install", key], f"Installing {key}…"))
+            b.connect("clicked", lambda *_, k=key: self.win.run_progress(
+                ["install", k], f"Installing {k}",
+                f"Downloading and setting up {k}. Large packages (Apache, PHP, databases) can take a minute…",
+                f"{k} installed."))
             box.append(b)
         else:
             if s["role"] in ("php", "web", "db", "cache", "mail"):
@@ -761,7 +764,8 @@ class NodePage(_AppsPage):
         if installed:
             self._set_runtime_btn("Install Node version…", self._install_node)
         else:
-            self._set_runtime_btn("Install fnm", lambda: self.win.run_verb(["install", "fnm"], "Installing fnm…"))
+            self._set_runtime_btn("Install fnm", lambda: self.win.run_progress(
+                ["install", "fnm"], "Installing fnm", "Downloading the Node version manager…", "fnm installed."))
         super().refresh(data)
 
     def _install_node(self):
@@ -779,7 +783,9 @@ class PythonPage(_AppsPage):
         self.rt_row.set_title("Python" + (f" {clean_version(py.get('version',''))}" if inst else " — not installed"))
         self.rt_row.set_subtitle("Ready for venv-backed apps" if inst else "Install Python to run Python apps")
         self._set_runtime_btn(None if inst else "Install Python",
-                              lambda: self.win.run_verb(["install", "python"], "Installing Python…"))
+                              lambda: self.win.run_progress(
+                                  ["install", "python"], "Installing Python",
+                                  "Setting up Python with venv support…", "Python installed."))
         super().refresh(data)
 
 
@@ -832,7 +838,9 @@ class DatabasesPage(Gtk.Box):
             box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
             if not s["installed"]:
                 b = Gtk.Button(label="Install", css_classes=["suggested-action"])
-                b.connect("clicked", lambda _w, k=key: self.win.run_verb(["install", k], f"Installing {k}…"))
+                b.connect("clicked", lambda _w, k=key: self.win.run_progress(
+                    ["install", k], f"Installing {k}",
+                    f"Downloading and setting up {k}. This can take a minute…", f"{k} installed."))
                 box.append(b)
             else:
                 verb = "stop" if s.get("running") else "start"
@@ -929,6 +937,7 @@ class SettingsPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=16,
                          margin_top=18, margin_bottom=18, margin_start=18, margin_end=18)
         self.win = win
+        self._syncing = False   # True while refresh() sets switch states — see _toggle_autostart
         sc = Gtk.ScrolledWindow(vexpand=True)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         sc.set_child(body)
@@ -987,7 +996,13 @@ class SettingsPage(Gtk.Box):
         body.append(g4)
 
     def refresh(self, data: dict) -> None:
+        # ⚠️ Guard the programmatic set_active: the 4s api-refresh runs while a `loginitem enable`
+        # is still waiting at the polkit prompt, so `loginitem` is still false → this would flip the
+        # switch back OFF → re-fire notify::active → run `loginitem disable` = a SECOND password
+        # prompt for the opposite action. The flag makes _toggle_autostart ignore our own updates.
+        self._syncing = True
         self.autostart.set_active(bool(data.get("loginitem")))
+        self._syncing = False
         dphp = data.get("config", {}).get("default_php", "8.4")
         try:
             self.default_php.set_selected([k.replace("php@", "") for k in PHP_KEYS].index(dphp))
@@ -995,4 +1010,6 @@ class SettingsPage(Gtk.Box):
             pass
 
     def _toggle_autostart(self, row, _p):
+        if self._syncing:          # our own refresh() set the state — not a user click
+            return
         self.win.run_verb(["loginitem", "enable" if row.get_active() else "disable"], None, refresh=False)

@@ -193,6 +193,45 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.engine.run_async(list(args), done, env=env)
 
+    def run_progress(self, args, title, working, ok_msg, refresh=True) -> None:
+        """Long verb (install/update/uninstall) with a VISIBLE modal progress dialog: an animated
+        progress bar + status that stays up the whole time, then flips to '✓ done' / '✗ error' with a
+        Close button. Replaces the easy-to-miss 3s toast for slow actions like installing Apache."""
+        dlg = Adw.MessageDialog(transient_for=self, heading=title, body=working)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=8)
+        bar = Gtk.ProgressBar(show_text=False)
+        status = Gtk.Label(label="Working…", xalign=0, wrap=True, css_classes=["dim-label"])
+        box.append(bar)
+        box.append(status)
+        dlg.set_extra_child(box)
+        dlg.add_response("close", "Close")
+        dlg.set_response_enabled("close", False)      # can't dismiss until it finishes
+        dlg.set_close_response("close")
+        dlg.connect("response", lambda d, r: self.refresh() if refresh else None)
+
+        src = GLib.timeout_add(110, lambda: (bar.pulse() or True))   # animate while running
+        self.spinner.start()
+        self._applog(f"{title}…")
+        dlg.present()
+
+        def done(rc, out):
+            GLib.source_remove(src)
+            self.spinner.stop()
+            bar.set_fraction(1.0)
+            status.remove_css_class("dim-label")
+            if rc == 0:
+                status.set_label(f"✓ {ok_msg}")
+                status.add_css_class("success")
+                self._applog(f"✓ {ok_msg}")
+            else:
+                err = _first_line(out) or f"{' '.join(args)} failed"
+                status.set_label(f"✗ {err}")
+                status.add_css_class("error")
+                self._applog(f"✗ {err}")
+            dlg.set_response_enabled("close", True)
+
+        self.engine.run_async(list(args), done, env=None)
+
     def _applog(self, line: str) -> None:
         self.applog.append(line)
         del self.applog[:-200]
