@@ -1428,6 +1428,9 @@ _ols_apply(){
 # render_site_vhost: add the ols branch (nginx/apache branches identical to the shared engine).
 render_site_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" server="${5:-nginx}"
+  # same empty-root guard as the shared render_site_vhost (this override replaces it wholesale,
+  # so it must apply the guard itself — see vhost_root_check in the shared engine).
+  root="$(vhost_root_check "$name" "$root")" || return 1
   case "$server" in
     apache)
       render_apache_vhost "$name" "$domain" "$root" "$phpkey"

@@ -346,8 +346,25 @@ APACHE_PORT=8080
 # Render a site. server=nginx → nginx serves PHP directly (fast, no .htaccess).
 # server=apache → nginx fronts (TLS/80/443) and proxies the host to Apache on
 # :8080, which serves with AllowOverride All so .htaccess works natively.
+# NEVER render an empty root: `root ;` is a fatal nginx config error that takes down EVERY
+# site, and once written, later switches re-parse it as empty forever (this exact corruption
+# broke a Windows install). Self-heal to the conventional <sites_root>/<name> when that folder
+# exists; otherwise refuse with rc=1. Prints the resolved root on stdout (messages → stderr) so
+# callers can `root="$(vhost_root_check "$name" "$root")" || return 1`. Used by the shared
+# render_site_vhost AND platform overrides of it (Linux redefines it for the OLS backend).
+vhost_root_check(){
+  local name="$1" root="$2"
+  if [ -z "${root// /}" ]; then
+    local g; g="$(jget sites_root "$HOME/BHServe/www")/$name"
+    if [ -d "$g" ]; then warn "$name: document root was missing — restored to $g" >&2; printf '%s' "$g"; return 0
+    else no "site '$name' has no document root — fix it with: bhserve site root $name <folder>" >&2; return 1; fi
+  fi
+  printf '%s' "$root"
+}
+
 render_site_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" server="${5:-nginx}"
+  root="$(vhost_root_check "$name" "$root")" || return 1
   if [ "$server" = apache ]; then
     render_apache_vhost "$name" "$domain" "$root" "$phpkey"
     render_nginx_proxy_vhost "$name" "$domain" "$root" "$phpkey"

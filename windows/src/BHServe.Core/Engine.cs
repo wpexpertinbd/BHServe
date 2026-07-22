@@ -736,6 +736,17 @@ public sealed class Engine
     /// <summary>Render a site's vhost(s) for the chosen backend + ensure its php-cgi is up.</summary>
     private void RenderSite(string name, string domain, string root, string phpKey, string server, Config cfg, IEnumerable<string>? aliases = null)
     {
+        // NEVER render an empty root: nginx refuses the whole config over one bad vhost
+        // ("invalid number of arguments in \"root\" directive") — one broken site took nginx
+        // down for EVERY site. If root was lost (a past render wrote `root ;`, which ParseVhost
+        // then re-reads as empty forever), self-heal to the conventional <SitesRoot>\<name>
+        // when that folder exists; otherwise fail THIS action with a clear message.
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            var guess = Path.Combine(cfg.SitesRoot, name);
+            if (Directory.Exists(guess)) { root = guess; Warn($"{name}: document root was missing — restored to {guess}"); }
+            else throw new BhException($"site '{name}' has no document root — fix it with:  bhserve site root {name} <folder>");
+        }
         PhpCgi.Start(Services.PhpVersion(phpKey, cfg));
         if (server == "apache")
         {

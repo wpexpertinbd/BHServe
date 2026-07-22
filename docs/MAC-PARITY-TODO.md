@@ -811,3 +811,16 @@ and the toggle reflects state after enable.
 - **OLS listener map dropped subdomain aliases** (`awk print $2` took only the canonical server_name) →
   a subdomain's Host reached OLS unmapped → wrong site served. Now maps ALL server_name entries,
   comma-joined. Engine-shared risk if the Mac ever generates OLS maps from nginx vhosts the same way.
+
+## win-v1.0.68 + linux-v1.0.52 — empty document-root corruption (2026-07-23) — SHARED-ENGINE change, mac please verify
+Real Windows outage (elephanducky.test): a php/server switch flurry left `root ;` in the nginx vhost →
+**fatal nginx config error → nginx down for EVERY site** ("invalid number of arguments in \"root\"
+directive"). Worse, the corruption is self-perpetuating: every switch re-parses root from the conf,
+gets "", and re-renders `root ;` forever. Fix in BOTH engines: **never render an empty root** — self-heal
+to `<sites_root>/<name>` when that folder exists (warn), else refuse the action with a clear message.
+- Windows C#: guard in `Engine.RenderSite` (Engine.cs).
+- Shared bash: new `vhost_root_check()` helper + used by the shared `render_site_vhost` **AND the Linux
+  override of it** (⚠️ the first fix silently didn't run on Linux because platform-linux.sh REPLACES
+  render_site_vhost for the OLS backend — any platform that overrides render_site_vhost must call the
+  helper itself). **macOS uses the shared render_site_vhost → gets the guard automatically at its next
+  release; please sanity-check a php-switch + server-switch still renders correctly on the Mac.**
