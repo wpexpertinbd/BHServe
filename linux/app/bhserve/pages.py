@@ -105,9 +105,11 @@ def site_change_php(win, s: dict) -> None:
                lambda v: win.run_verb(["site", "php", s["name"], v], f"Switching {s['name']} → PHP {v}…"))
 
 
-def site_change_server(win, s: dict) -> None:
-    win.choose("Switch web server", f"Serve {s['name']} via:", ["nginx", "apache"],
-               lambda v: win.run_verb(["site", "server", s["name"], v], f"Switching {s['name']} → {v}…"))
+# Web servers a site can be switched to, in menu order. Only the ones the site is NOT
+# currently using are shown (see _site_menu) — you never see "Switch to X" for the X you're on.
+_WEB_SERVERS = [("nginx", "Switch to nginx"),
+                ("apache", "Switch to Apache"),
+                ("ols", "Switch to OpenLiteSpeed")]
 
 
 def _site_menu(win, s: dict) -> Gtk.Popover:
@@ -126,7 +128,14 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
 
     name = s["name"]
     item("Change PHP version…", "application-x-php-symbolic", lambda: site_change_php(win, s))
-    item("Switch web server…", "network-server-symbolic", lambda: site_change_server(win, s))
+    # Direct "Switch to <other server>" items — hide the one this site already runs.
+    _cur = s.get("server", "nginx")
+    _cur = "ols" if _cur in ("ols", "openlitespeed") else _cur
+    for _val, _label in _WEB_SERVERS:
+        if _val == _cur:
+            continue
+        item(_label, "network-server-symbolic",
+             lambda v=_val: win.run_verb(["site", "server", name, v], f"Switching {name} → {v}…"))
     dom = s["domain"]
     if not s.get("secure"):
         item("Install SSL (HTTPS)", "security-high-symbolic",

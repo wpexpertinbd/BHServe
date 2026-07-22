@@ -74,8 +74,8 @@
                                             <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                 <MenuFlyoutItem Text="Change PHP…" Tag="{x:Bind Name}" Click="ChangePhp_Click"/>
                                                 <MenuFlyoutItem Text="Change root folder…" Tag="{x:Bind Name}" Click="ChangeRoot_Click"/>
-                                                <MenuFlyoutItem Text="Switch to nginx" Tag="{x:Bind Name}" Click="Nginx_Click"/>
-                                                <MenuFlyoutItem Text="Switch to apache" Tag="{x:Bind Name}" Click="Apache_Click"/>
+                                                <MenuFlyoutItem Text="Switch to nginx" Tag="{x:Bind Name}" Click="Nginx_Click" Visibility="{x:Bind ShowSwitchNginx}"/>
+                                                <MenuFlyoutItem Text="Switch to apache" Tag="{x:Bind Name}" Click="Apache_Click" Visibility="{x:Bind ShowSwitchApache}"/>
                                                 <MenuFlyoutSeparator/>
                                                 <MenuFlyoutItem Text="Install SSL (HTTPS)" Tag="{x:Bind Domain}" Click="Secure_Click" IsEnabled="{x:Bind NotSecure}"/>
                                                 <MenuFlyoutItem Text="Reinstall SSL (fresh certificate)" Tag="{x:Bind Domain}" Click="Resecure_Click" IsEnabled="{x:Bind Secure}"/>

@@ -28,6 +28,9 @@ public sealed class SiteRow
     public string Url => (Secure ? "https://" : "http://") + Domain;
     public Uri Uri => new(Url);
     public string Badge => !string.IsNullOrEmpty(Php) && Php != "-" ? $"{Server} · php {Php}" : Server;
+    // Only offer switching to the OTHER web server — hide the one this site already uses.
+    public Visibility ShowSwitchNginx  => Server == "nginx"  ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ShowSwitchApache => Server == "apache" ? Visibility.Collapsed : Visibility.Visible;
     public string AliasBadge => Aliases.Count == 0 ? "" : $"{Aliases.Count} aliases";
     public Visibility AliasVisibility => Aliases.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     public Brush DotBrush => new SolidColorBrush(Enabled ? Colors.SeaGreen : Colors.Gray);
