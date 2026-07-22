@@ -267,3 +267,21 @@ rejects `AH00558*`/`already running`/`Usage:*`; and `apache_start` clears stray 
 processes (exact-argv pkill — a legit httpd never runs with that argv) so old installs self-heal.
 Also: macOS `manageable` GUI gate excluded httpd from Start/Stop — removed; if the Windows Services
 page hides Apache's Start/Stop, consider exposing it the same way.
+
+---
+
+## 10. CHECK — Apache/OLS-backed HTTPS sites: redirect loop unless the backend sees "HTTPS"  *(macOS fix: v1.7.15)*
+
+Real user hit on macOS: switching an **https-enforcing app** (FOSSBilling — same class as WHMCS/WordPress)
+from nginx to the **Apache backend** produced `ERR_TOO_MANY_REDIRECTS`. Architecture: nginx terminates TLS
+on :443 and proxies to Apache on :8080 over plain HTTP; nginx already sends `X-Forwarded-Proto: https`,
+but the Apache vhost did nothing with it → PHP saw `$_SERVER['HTTPS']` unset → app 302'd to https →
+arrived as plain HTTP again → loop. **Fix (shared engine `render_apache_vhost`):** add
+`SetEnvIf X-Forwarded-Proto "https" HTTPS=on` to every Apache vhost (mod_setenvif; passed to FPM via
+proxy_fcgi) + an `apache_heal_vhosts` in `apache_start` that re-renders older confs missing the marker.
+**Windows check:** your Apache vhost renderer — same architecture, so unless it already sets
+`SetEnvIf X-Forwarded-Proto "https" HTTPS=on`, an https-enforcing app on the Apache backend will loop
+identically ("Apache works" on plain sites won't catch it — test with WHMCS/FOSSBilling or any app that
+forces https). **Linux check:** both the apache2 backend AND the OLS backend (`--server ols`) — OLS
+behind nginx needs the equivalent (OLS honors X-Forwarded-Proto via its "Use Client IP in Header"/env
+settings, or set the env in the vhost) or the same loop occurs.

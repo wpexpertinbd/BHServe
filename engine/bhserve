@@ -852,6 +852,10 @@ render_apache_vhost() {
 # BHServe Apache backend: $name ($domain) php=$phpkey
 <VirtualHost 127.0.0.1:$APACHE_PORT>
     ServerName $domain
+    # TLS terminates at nginx; mark proxied-https requests so PHP sees \$_SERVER['HTTPS'].
+    # Without this, https-enforcing apps (FOSSBilling/WHMCS/WordPress) see plain HTTP and
+    # redirect to https forever (ERR_TOO_MANY_REDIRECTS).
+    SetEnvIf X-Forwarded-Proto "https" HTTPS=on
     DocumentRoot "$root"
     <Directory "$root">
         Options Indexes FollowSymLinks
@@ -911,12 +915,30 @@ APACHE_BIN(){ echo "$BREW_PREFIX/opt/httpd/bin/httpd"; }
 apache_running(){ local p="$BH_HOME/run/httpd.pid"; [ -f "$p" ] && pid_alive "$(cat "$p")"; }
 have_apache_sites(){ grep -lq "server=apache" "$BH_HOME"/nginx/sites/*.conf 2>/dev/null; }
 
+# Heal apache vhosts written before the HTTPS=on marker (v1.7.15): re-render any conf
+# missing it, reconstructing the args from the conf itself. Without the marker, https
+# apps behind the apache backend redirect-loop.
+apache_heal_vhosts(){
+  local f name domain root mm
+  for f in "$BH_HOME"/apache/sites/*.conf; do
+    [ -f "$f" ] || continue
+    grep -q 'X-Forwarded-Proto' "$f" && continue
+    name="$(basename "$f" .conf)"
+    domain="$(awk '/ServerName/{print $2; exit}' "$f")"
+    root="$(awk -F'"' '/DocumentRoot/{print $2; exit}' "$f")"
+    mm="$(sed -n 's#.*run/php-\([0-9.]*\)\.sock.*#\1#p' "$f" | head -1)"
+    [ -n "$name" ] && [ -n "$domain" ] && [ -n "$root" ] && [ -n "$mm" ] \
+      && render_apache_vhost "$name" "$domain" "$root" "php@$mm" >/dev/null 2>&1 || true
+  done
+}
+
 apache_start(){
   local bin; bin="$(APACHE_BIN)"; [ -x "$bin" ] || { warn "httpd not installed — bhserve install httpd"; return 1; }
   # Clear rogue `httpd --version` daemons: pre-v1.7.13 version probes accidentally launched
   # httpd with the brew default config (binds *:8080) and those strays block OUR bind. The
   # match is exact — a legit httpd never runs with `--version` as its argv.
   pkill -f 'httpd --version' 2>/dev/null || true
+  apache_heal_vhosts
   render_apache_main
   if apache_running; then ok "apache already running (:$APACHE_PORT)"; return 0; fi
   "$bin" -f "$BH_HOME/apache/httpd.conf" -k start && ok "apache started (:$APACHE_PORT)" || no "apache failed to start"
