@@ -24,8 +24,12 @@ from gi.repository import GLib
 # runs these via pkexec (a single polkit prompt); the engine then runs root-aware and chowns
 # anything it creates back to the user. Everything else (api/status/logs/config/db/php) runs
 # unprivileged as the user.
+# ⚠️ loginitem is NOT here on purpose: it's a `systemctl --user enable/disable` op that MUST run
+# as the desktop user, not root. Running it privileged (pkexec) both (a) prompts for a password
+# needlessly and (b) enables the unit for ROOT — so the api's `systemctl --user is-enabled` (run
+# as the user) still reports disabled and the toggle snaps back off.
 _PRIVILEGED = {"install", "update", "uninstall", "start", "stop", "restart",
-               "secure", "unsecure", "resecure", "dns", "helper", "loginitem",
+               "secure", "unsecure", "resecure", "dns", "helper",
                "pma", "adminer", "mailpit"}
 
 

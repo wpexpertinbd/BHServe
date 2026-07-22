@@ -87,7 +87,7 @@ cmd_disable(){ need_init; [ $# -ge 1 ] || die "usage: bhserve disable <svc>"; di
 # and print to stderr, so fall back to -v; never propagate a non-zero exit.
 # A version line is "bad" if it's empty, an error, or a daemon log line (mailpit's `-v`
 # means *verbose* and prints `time=… level=…` — not a version).
-_ver_bad(){ case "$1" in ""|*invalid*|*unknown*|*"Error:"*|*"level="*|time=*|*AH00558*|*"already running"*|Usage:*) return 0;; *) return 1;; esac; }
+_ver_bad(){ case "$1" in ""|*invalid*|*unknown*|*"Error:"*|*"level="*|time=*|*AH00558*|*AH00111*|*"[core:warn]"*|"["*|*"already running"*|*"cannot cre"*|Usage:*) return 0;; *) return 1;; esac; }
 probe_version(){
   local bin="$1" out=""
   # ⚠️ httpd: `--version` is NOT a flag Apache knows — it responds by LAUNCHING the server with
@@ -2563,7 +2563,7 @@ cmd_api() {
     case "$role" in
       # httpd was missing here — Apache always reported "stopped" even while serving,
       # so the GUI's Start click looked like a no-op (it had actually started fine).
-      web) case "$key" in nginx) nginx_running && running=true ;; httpd) apache_running && running=true ;; esac ;;
+      web) case "$key" in nginx) nginx_running && running=true ;; httpd) apache_running && running=true ;; openlitespeed) ols_running && running=true ;; esac ;;
       php) fpm_running "$key" && running=true ;;
       dns) dnsmasq_running && running=true ;;
       # mkcert (tls) + fnm (node) + python aren't daemons — once installed they're ready, so "active".
