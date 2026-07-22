@@ -2539,7 +2539,9 @@ cmd_api() {
     # told apart by package, not by the binary. On macOS svc_installed is exactly the -x check, unchanged.
     if svc_installed "$key"; then installed=true; version="$(probe_version "$BREW_PREFIX/$probe")"; fi
     case "$role" in
-      web) [ "$key" = nginx ] && nginx_running && running=true ;;
+      # httpd was missing here — Apache always reported "stopped" even while serving,
+      # so the GUI's Start click looked like a no-op (it had actually started fine).
+      web) case "$key" in nginx) nginx_running && running=true ;; httpd) apache_running && running=true ;; esac ;;
       php) fpm_running "$key" && running=true ;;
       dns) dnsmasq_running && running=true ;;
       # mkcert (tls) + fnm (node) + python aren't daemons — once installed they're ready, so "active".
