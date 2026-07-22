@@ -1,9 +1,14 @@
 # BHServe for Linux — Ubuntu / Debian
 
 A free local web server for Linux — the same app, features and sites as the macOS/Windows builds, as a
-**GTK4 / libadwaita** control panel + a `bhserve` CLI. Multiple PHP versions per site, nginx & Apache,
-MariaDB / MySQL / PostgreSQL, Redis & Memcached, Node & Python apps, trusted HTTPS + `*.test` domains,
-one-click WordPress — all installed **on demand**, so the download stays small.
+**GTK4 / libadwaita** control panel + a `bhserve` CLI. Multiple PHP versions per site, nginx, Apache **&
+OpenLiteSpeed**, MariaDB / MySQL / PostgreSQL, Redis & Memcached, Node & Python apps, trusted HTTPS +
+`*.test` domains, one-click WordPress — all installed **on demand**, so the download stays small.
+
+> 🐧 **Linux exclusive: OpenLiteSpeed backend.** Pick **OpenLiteSpeed** as a site's web server (add-site
+> dialog, or `bhserve site server <name> ols`) for native `.htaccess` support with the **LiteSpeed Cache**
+> plugin — and `.htaccess` changes apply **live (~2 s), no restarts**. nginx stays the front door;
+> OpenLiteSpeed installs automatically on first use. Great for OpenCart / WordPress.
 
 > ✅ **Stable.** Works end-to-end (verified on Ubuntu 24.04 and 26.04). Please report any issues.
 
@@ -73,7 +78,7 @@ rm -rf ~/.bhserve                # optional: also wipe BHServe's data (config, c
 
 | | |
 |---|---|
-| **Web** | nginx (serves PHP directly), Apache (optional `.htaccess` backend behind nginx) |
+| **Web** | nginx (serves PHP directly), Apache & **OpenLiteSpeed** (`.htaccess` backends behind nginx; OpenLiteSpeed auto-reloads on `.htaccess` change + supports LiteSpeed Cache) |
 | **PHP** | 7.4 → 8.5 per site — distro packages, the Ondřej PPA, or a portable static build where neither has it |
 | **Databases** | MariaDB, MySQL, PostgreSQL |
 | **Cache** | Redis, Memcached |

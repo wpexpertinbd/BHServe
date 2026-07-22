@@ -23,7 +23,8 @@ Cloudflare Tunnel. 100% open-source.
 - **Multiple PHP versions** — 7.4 and 8.1 → 8.6, **per site**, each with its own pool.
   ionCube + the common extensions for WordPress / OpenCart / WHMCS / Blesta are enabled.
 - **nginx _and_ Apache** — pick per site. Apache mode gives full **`.htaccess`** support
-  (nginx → Apache reverse proxy); nginx is the fast default.
+  (nginx → Apache reverse proxy); nginx is the fast default. *(Linux also offers an
+  **OpenLiteSpeed** backend — live `.htaccess` reload + LiteSpeed Cache.)*
 - **Databases** — MariaDB / MySQL + PostgreSQL. Create/drop databases, set passwords, all
   from the GUI. (Default login is **root with no password** — see below.)
 - **Caching** — Redis + Memcached.
@@ -205,7 +206,7 @@ the core set for you) and make sure each shows **running / active**, or just cli
    the config. Just finish the title + admin step in the browser.
 
 Each site row has quick actions: open in browser, open folder, view logs, start/stop, share
-publicly, a **"…"** menu (change PHP / root folder / switch nginx↔Apache / enable HTTPS / delete),
+publicly, a **"…"** menu (change PHP / root folder / switch web server / manage subdomains / enable HTTPS / delete),
 and — for Node apps — start/stop/restart, edit `.env`, and `npm install`.
 
 ---
