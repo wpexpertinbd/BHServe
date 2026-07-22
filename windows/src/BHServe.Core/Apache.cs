@@ -76,7 +76,7 @@ public static class Apache
             ServerName bhserve-default.invalid
             <Location "/">
                 Require all denied
-                ErrorDocument 403 "<!doctype html><title>BHServe</title><p style='font:15px sans-serif;margin:3em'>This site is switching web servers — refresh in a moment.</p>"
+                ErrorDocument 403 "<!doctype html><meta charset='utf-8'><title>BHServe</title><p style='font:15px sans-serif;margin:3em'>This site is switching web servers - refresh in a moment.</p>"
             </Location>
         </VirtualHost>
         IncludeOptional "{{home}}/apache/sites/*.conf"
