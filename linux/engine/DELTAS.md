@@ -149,3 +149,13 @@ stack, so ionCube / per-site version switching apply unchanged.
 Verified in WSL2 Ubuntu 24.04 (noble): full chain serves PHP 8.3/8.1; .htaccess rule changes
 live in ~2s (existing, new, and nested dirs); php/server switches; stop/start all; site rm
 cleanup; loopback-only listeners.
+## 8. ✅ ionCube Linux override — DONE (merge note; see "ionCube (linux-v1.0.41)" above)
+
+Mac Claude sketched this TODO on master (v1.7.7) while the override was being shipped independently
+on windows-port-cli as linux-v1.0.41 — the two converged on the same design. The two cross-platform
+notes from the macOS ionCube work are covered by the shipped implementation: (a) load ordering —
+solved via the DISTRO conf.d (`/etc/php/<mm>/{fpm,cli}/conf.d/00-bhserve-ioncube.ini` sorts before
+`10-opcache.ini` in the same dir), which is stronger than the `PHP_INI_SCAN_DIR="$cd_dir:"`
+trailing-colon trick because on Debian the compiled-in scan dir is read regardless; (b) version
+detection — the Linux `php_mm` override never executes PHP at all (`php@8.3` → `8.3` from the key),
+so PHP 8.5 startup-deprecation output can't pollute it.
