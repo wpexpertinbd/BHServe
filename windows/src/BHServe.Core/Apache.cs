@@ -67,6 +67,18 @@ public static class Apache
             AllowOverride none
             Require all denied
         </Directory>
+        # Catch-all default vhost — MUST be the FIRST vhost so Apache uses it for any Host that
+        # matches no real site. Apache's default for an unmatched Host is its first-listed vhost;
+        # without this, a site momentarily missing during a server switch (nginx↔apache) would leak
+        # the first real site's page (a user saw another shop's content for ~1s). Now that window
+        # returns a clean 404 instead. (Loaded before the site includes below.)
+        <VirtualHost 127.0.0.1:{{Port}}>
+            ServerName bhserve-default.invalid
+            <Location "/">
+                Require all denied
+                ErrorDocument 403 "<!doctype html><title>BHServe</title><p style='font:15px sans-serif;margin:3em'>This site is switching web servers — refresh in a moment.</p>"
+            </Location>
+        </VirtualHost>
         IncludeOptional "{{home}}/apache/sites/*.conf"
 
         """);
