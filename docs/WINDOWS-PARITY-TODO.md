@@ -175,7 +175,7 @@ dropdown on `DatabasesPage` / `NodePage` / `PythonPage`. So it's just centralizi
 
 ---
 
-## 8. Subdomain / alias management — Windows code is ALREADY on master (verify + ship)  *(macOS: v1.7.9; community PR #3 by @plusemon)*
+## 8. Subdomain / alias management — Windows **+ Linux** code is ALREADY on master (verify + ship both)  *(macOS: v1.7.9; community PR #3 by @plusemon)*
 
 **This one is different: you don't need to port anything — @plusemon's PR #3 (merged to master 2026-07-22)
 already includes a full Windows implementation.** Your job is to **build-verify + functionally test it on a
@@ -207,3 +207,23 @@ separate store) so they survive re-renders.
 
 Minor style note (not a bug): `SiteSubdomainRemove` uses `!aliases.RemoveAll(...).Equals(1)` to detect
 "exactly one removed" — works, but `!= 1` would read clearer.
+
+### 🐧 Linux — same PR, also on master (verify + ship in a `linux-v1.0.x`)
+
+The **same PR #3** added the Linux GTK side, and the shared `engine/bhserve` gives Linux the
+`bhserve site subdomain {list|add|rm}` CLI **for free** (already verified working on macOS — same engine).
+So on Linux you only verify the **GUI + a functional pass**, then ship:
+- `linux/app/bhserve/pages.py` — `site_subdomains(win, s)` (Adw.MessageDialog add/remove, ~L188), the
+  **"Manage subdomains…"** context-menu item (~L148), and the **aliases-count pill** on site rows (~L175).
+  It reads `s.get("aliases")` from the `api` snapshot — confirm the engine's api emits `aliases` per site
+  (it does on macOS; Linux uses the same engine).
+- **Also ship @plusemon's PR #2** (Linux-only, already merged): the **"Open nginx/Apache config"** context
+  item in `pages.py` (~L153) — `os` is imported, path is `~/.bhserve/{nginx|apache}/sites/<name>.conf`,
+  opens via the editor. Trivial; just include it in the same release.
+- **Functional pass (GTK, on a real Ubuntu box):** add `api` + `shop` → both resolve + the pill shows "2
+  aliases"; a second site claiming `api.<first>.test` is **rejected** (engine enforces this); `rm api`
+  leaves `shop`; HTTPS still valid (cert reissued with the aliases). Then cut `linux-v1.0.x`.
+
+> Cross-ref: this note lives in the Windows doc but the **same Claude owns `linux/`** — the Linux delta
+> layer + handoffs are in `linux/engine/DELTAS.md`. Subdomain needs **no** Linux engine override (shared
+> engine covers it); it's GUI-verify-and-ship only.

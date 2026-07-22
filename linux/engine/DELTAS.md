@@ -159,3 +159,12 @@ solved via the DISTRO conf.d (`/etc/php/<mm>/{fpm,cli}/conf.d/00-bhserve-ioncube
 trailing-colon trick because on Debian the compiled-in scan dir is read regardless; (b) version
 detection — the Linux `php_mm` override never executes PHP at all (`php@8.3` → `8.3` from the key),
 so PHP 8.5 startup-deprecation output can't pollute it.
+
+## 9. Subdomain / alias management (community PR #3) — GUI verify + ship only
+
+The shared `engine/bhserve` already has the full subdomain feature (`site_subdomain`, `vhost_aliases`,
+conflict detection, SSL reissue — verified on macOS v1.7.9), so **Linux needs NO engine override**. The
+Linux GTK GUI is also already on master (`linux/app/bhserve/pages.py`: `site_subdomains` dialog +
+"Manage subdomains…" item + aliases pill; plus PR #2's "Open nginx/Apache config" item). Just build/run
+the GTK app on Ubuntu, do a functional pass (add/list/rm/conflict + HTTPS), and ship `linux-v1.0.x`. Full
+checklist: `docs/WINDOWS-PARITY-TODO.md` §8 (Linux subsection).
