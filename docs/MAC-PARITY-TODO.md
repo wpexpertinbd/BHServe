@@ -770,3 +770,22 @@ Linux GUI installs now show a modal progress dialog (animated bar + "✓ install
 instead of a tiny spinner + 3s toast — matching the Windows install alert. If the macOS install feedback
 is also just a spinner/toast, consider the same dialog for parity (apt/brew installs are slow enough
 that users need a clear "working… / done / failed").
+
+## CHECK — "Start at login" toggle: is the privileged/user context right? (Linux bug fixed linux-v1.0.48)
+On Linux the login toggle ran `loginitem enable` PRIVILEGED (pkexec/root), but `systemctl --user
+enable` must run as the DESKTOP USER — as root it enabled the unit for root, so the api's
+`systemctl --user is-enabled` (as the user) still reported disabled → the toggle prompted for a password
+AND snapped back off. Fix = run loginitem UNPRIVILEGED (removed from the app's _PRIVILEGED set). **macOS
+check:** the Mac "Start at login" uses a LaunchAgent (`~/Library/LaunchAgents`) + `launchctl` — that's a
+per-user operation that should NOT need `osascript … administrator`. If the Mac runs loginitem
+privileged, it has the same class of bug (needless password + wrong context). Verify it runs as the user
+and the toggle reflects state after enable.
+
+## Also fixed on Linux (linux-v1.0.48), macOS likely unaffected but worth a glance
+- **Services page flashing + garbage web-server versions:** `probe_version` special-cased `*httpd*`→`-v`
+  but Debian's binary is `/usr/sbin/apache2` → fell to `apache2 --version` = a TIMESTAMPED `[core:warn]`
+  line that changed every refresh → the list rebuilt every 4s. macOS uses brew `httpd` (matches
+  `*httpd*`), so probably fine — but if the Mac Services list ever flickers, check that every service's
+  probed `version` is STABLE across refreshes (a value that changes each probe forces a full rebuild).
+- **Apache never started on Linux** (render_apache_main wrote brew `/opt/httpd` paths Debian rejects) —
+  Linux-specific; macOS uses the brew config as-is.
