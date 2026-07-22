@@ -89,6 +89,11 @@ public static class Apache
         <VirtualHost 127.0.0.1:{{Port}}>
             ServerName {{domain}}
             DocumentRoot "{{Fwd(root)}}"
+            # TLS terminates at nginx; nginx proxies to us over plain HTTP with X-Forwarded-Proto.
+            # Mark https-proxied requests so php-cgi sees $_SERVER['HTTPS']=on — without this,
+            # https-enforcing apps (WHMCS/Blesta/WordPress/FOSSBilling) never see https and 302
+            # to https forever → ERR_TOO_MANY_REDIRECTS (parity #10; macOS fix v1.7.15).
+            SetEnvIf X-Forwarded-Proto "https" HTTPS=on
             <Directory "{{Fwd(root)}}">
                 Options Indexes FollowSymLinks
                 AllowOverride All
@@ -130,11 +135,36 @@ public static class Apache
         return (outp.Contains("Syntax OK"), outp);
     }
 
+    /// <summary>Heal Apache vhosts written before the HTTPS=on marker (parity #10): re-render any
+    /// conf missing SetEnvIf X-Forwarded-Proto, reconstructing the args from the conf itself. Without
+    /// the marker, an https-enforcing app behind the Apache backend redirect-loops. Runs on Start so
+    /// existing installs self-heal on the next launch, no user action.</summary>
+    private static void HealVhosts()
+    {
+        try
+        {
+            if (!Directory.Exists(SitesDir)) return;
+            foreach (var f in Directory.EnumerateFiles(SitesDir, "*.conf"))
+            {
+                var text = File.ReadAllText(f);
+                if (text.Contains("X-Forwarded-Proto")) continue;
+                var name   = Path.GetFileNameWithoutExtension(f);
+                var domain = System.Text.RegularExpressions.Regex.Match(text, @"(?im)^\s*ServerName\s+(\S+)").Groups[1].Value;
+                var root   = System.Text.RegularExpressions.Regex.Match(text, @"(?im)^\s*DocumentRoot\s+""([^""]+)""").Groups[1].Value;
+                var php    = System.Text.RegularExpressions.Regex.Match(text, @"php=(\S+)").Groups[1].Value;
+                if (domain.Length > 0 && root.Length > 0 && php.Length > 0)
+                    try { RenderVhost(name, domain, root, php, Config.Load()); } catch { }
+            }
+        }
+        catch { }
+    }
+
     public static (bool ok, string msg) Start()
     {
         var exe = Tools.HttpdExe();
         if (exe is null) return (false, "Apache not installed (no httpd.exe)");
         RenderMain();
+        HealVhosts();   // add the HTTPS=on marker to any pre-#10 vhost (parity #10)
         if (Running()) return (true, "apache already running");
 
         var (tok, tmsg) = Test();

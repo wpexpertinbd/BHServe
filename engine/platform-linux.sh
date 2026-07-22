@@ -1251,9 +1251,35 @@ rewrite  {
   enable                  1
   autoLoadHtaccess        1
   logLevel                0
+  rules                   <<<END_rewrite
+RewriteCond %{HTTP:X-Forwarded-Proto} https
+RewriteRule .* - [E=HTTPS:on]
+END_rewrite
 }
 OLSVH
   ok "site vhost (OpenLiteSpeed): $d/vhconf.conf"
+}
+
+# Heal OLS vhosts written before the HTTPS-forwarding rule (parity #10): re-render any bhserve OLS
+# vhconf that lacks the X-Forwarded-Proto→HTTPS rewrite. TLS terminates at nginx and is proxied to
+# OLS over plain HTTP, so without this an https-enforcing app (WHMCS/Blesta/WordPress) behind the
+# OLS backend sees http → 302→https forever (ERR_TOO_MANY_REDIRECTS). Reconstructs args from the
+# nginx vhost, like apache_heal_vhosts. Called from _ols_apply so existing sites self-heal.
+_ols_heal_vhosts(){
+  ols_installed || return 0
+  local f name domain root phpkey vh
+  for f in "$BH_HOME"/nginx/sites/*.conf; do
+    [ -f "$f" ] || continue
+    [ "$(vhost_server "$f")" = ols ] || continue
+    name="$(basename "$f" .conf)"
+    vh="$LSWS_ROOT/conf/vhosts/bhserve-$name/vhconf.conf"
+    $SUDO grep -q 'X-Forwarded-Proto' "$vh" 2>/dev/null && continue
+    domain="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
+    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    phpkey="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
+    [ -n "$domain" ] && [ -n "$root" ] && [ -n "$phpkey" ] \
+      && render_ols_vhost "$name" "$domain" "$root" "$phpkey" >/dev/null 2>&1 || true
+  done
 }
 
 # nginx front that proxies the whole host to OLS — mirror of the apache front.
@@ -1323,6 +1349,7 @@ _ols_sync_config(){
 _ols_apply(){
   ols_installed || return 0
   _ols_watcher_install   # self-heals/updates the watcher (no-op when current + running)
+  _ols_heal_vhosts       # add the X-Forwarded-Proto→HTTPS rule to any pre-#10 vhost (parity #10)
   _ols_sync_config
   if ols_running; then ols_reload; else have_ols_sites && ols_start || true; fi
 }

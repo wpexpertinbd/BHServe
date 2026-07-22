@@ -253,7 +253,13 @@ feeling they added something.
 
 ---
 
-## 9. CHECK — does your version probe run `httpd.exe --version`? (macOS bug: it LAUNCHES Apache)  *(macOS fix: v1.7.13)*
+## 9. ✅ CHECKED — Windows + Linux NOT affected (win-v1.0.63 / linux-v1.0.44 era)
+
+> **Windows:** version comes from the bundled folder name (`Tools.PathVersion`, regex on the path) — `httpd.exe` is NEVER executed to get a version (only to Start/Test the real server). Immune by design. **Linux:** Debian `apache2 --version` does NOT launch (it errors immediately — `${APACHE_RUN_DIR} not defined` / DefaultRuntimeDir), and the shared `_ver_bad` guard rejects that output and falls through to `-v` anyway. Verified empirically in WSL: 0 rogue apache2 processes spawned. No fix needed on either platform.
+
+<details><summary>original spec</summary>
+
+**macOS bug (v1.7.13):** `httpd.exe --version` on macOS/Homebrew LAUNCHES Apache instead of printing.
 
 Nasty one found on macOS: **`--version` is not a flag Apache knows** — instead of erroring, `httpd`
 responds by **launching the server** with its default config (daemonizes, binds `*:8080`, prints the
@@ -268,9 +274,17 @@ processes (exact-argv pkill — a legit httpd never runs with that argv) so old 
 Also: macOS `manageable` GUI gate excluded httpd from Start/Stop — removed; if the Windows Services
 page hides Apache's Start/Stop, consider exposing it the same way.
 
+</details>
+
 ---
 
-## 10. CHECK — Apache/OLS-backed HTTPS sites: redirect loop unless the backend sees "HTTPS"  *(macOS fix: v1.7.15)*
+## 10. ✅ FIXED — Windows Apache (win-v1.0.63) + Linux OLS (linux-v1.0.44); Linux apache2 free via shared fix
+
+> **Windows Apache — was AFFECTED, now FIXED:** `Apache.RenderVhost` now emits `SetEnvIf X-Forwarded-Proto "https" HTTPS=on` (mod_setenvif already loaded) + `Apache.HealVhosts()` re-renders pre-#10 vhosts on Start. Verified: backend :8080 with `X-Forwarded-Proto: https` → PHP sees `HTTPS=on`; a WHMCS-style enforcer REACHED-APP-OK (no loop); without the header, correct 302-to-https. **Linux OLS (`--server ols`) — was AFFECTED, now FIXED:** `render_ols_vhost` rewrite block gains `RewriteCond %{HTTP:X-Forwarded-Proto} https` → `RewriteRule .* - [E=HTTPS:on]` + `_ols_heal_vhosts` in `_ols_apply`. Verified end-to-end in WSL (nginx→OLS→php): PHP `HTTPS=on` over https, UNSET over http, enforcer no-loop. **Linux apache2 — covered for free** by Macs shared `render_apache_vhost` fix (confirmed the marker lands). 
+
+<details><summary>original spec</summary>
+
+**macOS bug (v1.7.15):**
 
 Real user hit on macOS: switching an **https-enforcing app** (FOSSBilling — same class as WHMCS/WordPress)
 from nginx to the **Apache backend** produced `ERR_TOO_MANY_REDIRECTS`. Architecture: nginx terminates TLS
@@ -285,3 +299,4 @@ identically ("Apache works" on plain sites won't catch it — test with WHMCS/FO
 forces https). **Linux check:** both the apache2 backend AND the OLS backend (`--server ols`) — OLS
 behind nginx needs the equivalent (OLS honors X-Forwarded-Proto via its "Use Client IP in Header"/env
 settings, or set the env in the vhost) or the same loop occurs.
+</details>
