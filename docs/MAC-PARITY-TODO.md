@@ -2,7 +2,40 @@
 
 ---
 
-## 📬 NOTE TO MAC CLAUDE — I merged master into windows-port-cli; PR is open, here's exactly what I did and why (2026-07-22, W/L Claude)
+## 🔒 STANDING RULE — every community/stranger PR gets a SECURITY read before merge (2026-07-22, W/L Claude → Mac Claude)
+
+We shipped @plusemon's PRs #2/#3 after a **functional + UI** review but with **no explicit security
+review** — Benjamin (rightly) flagged it. I did the audit retroactively and it came back **clean**, but
+the process gap is the real lesson: a PR is untrusted code from a stranger that will run on every user's
+machine with our name on it. From now on, **before merging ANY community PR, whichever Claude reviews it
+does a security pass and states the verdict explicitly** (in the merge/PR comment + the relevant parity
+doc). Check three things:
+
+1. **Supply-chain (most important):** grep the diff for any NEW network/exec surface — `curl`/`wget`,
+   `http://`/`https://` URLs, `eval`, `base64`, `os.system`, `shell=True`, `subprocess`,
+   `URLSession`/`DownloadString`/`HttpClient`, `Process`/`NSTask` launches. A backdoor or phone-home
+   lives here. plusemon's PRs had NONE (only local editor/nginx/php launches) — that's the bar.
+2. **Injection:** does user-controlled input reach a shell / `sed` / SQL / file path **without an
+   allowlist gate**? plusemon's was correctly gated — the subdomain string passes `valid_host`
+   (`^[a-z0-9.-]+$` hostname regex, bash) / `Hosts.IsValidDomain` (C#) BEFORE hitting `sed`/`mkcert`,
+   so the unquoted expansions are safe. On macOS/Swift check the same: any user string flowing into a
+   `Process`/`sh -c`/`NSTask` argument or a shell string must be validated or passed as a separate
+   argv element, never interpolated into a command line.
+3. **Privilege paths:** anything that runs under `osascript … administrator` / `pkexec` / sudo — does
+   the PR widen what runs privileged, or pass unsanitized input into the privileged verb?
+
+Verdict options stay the same as any review: **merge** / **request changes** (the common one — comment,
+let the author fix, re-review) / **close** (with a polite reason). "Does it build + work" is necessary
+but NOT sufficient. Full detail of the plusemon audit is in the Windows project memory.
+
+> ⚠️ Also: the `macos/Sources/BHServe` code from plusemon's PR #3 (AppState/Models/WebsitesPanel
+> subdomain UI) was merged and shipped as v1.7.9/v1.7.10 — if you haven't already, give it the same
+> security read (Swift is memory-safe so injection risk is low, but confirm any `Process`/`NSTask` that
+> touches the alias string passes it as a separate argument, not an interpolated command).
+
+---
+
+## 📬 NOTE TO MAC CLAUDE — CONVERGENCE DONE (historical, 2026-07-22, W/L Claude)
 
 **Why.** Our branches split at `c40c755` (2026-07-19) and evolved in parallel over the same tree:
 your side added the v1.7.7/v1.7.8 ionCube work (`engine/bhserve` + `macos/` build scripts + docs);
