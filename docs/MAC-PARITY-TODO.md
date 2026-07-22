@@ -753,3 +753,20 @@ the same "first vhost = default" behavior — if it has no catch-all/default vho
 cross-site flash can happen on a server switch. Consider adding a default-deny vhost to the shared
 `render_apache_main`/config (nginx already has `default_server` on all platforms, so only Apache needs
 it). Low severity (≈1s transient on an admin action), but it's a real cross-site content flash.
+
+## CHECK — "Start at login" toggle may prompt for password TWICE (Linux fixed linux-v1.0.46)
+On Linux the autostart toggle prompted for the polkit password twice on a single ENABLE click: the
+periodic api-refresh calls `switch.set_active(loginitem_state)` while the `loginitem enable` is still
+waiting at the auth prompt (so the state is still false) → the switch flips back OFF → re-fires the
+change handler → runs the opposite `loginitem disable` = a 2nd prompt. Fix = a `_syncing` guard around
+the programmatic `set_active` so the handler ignores the app's own refresh updates (only real user
+clicks run the verb). **macOS check:** if the Mac "Start at login" toggle (SwiftUI) re-fires its action
+when the app's state-refresh writes the binding during a pending `osascript … administrator` prompt, it
+has the same double-prompt — guard the programmatic update the same way (or drive the verb from the
+user gesture only, not the bound state). Windows uses a checkbox that doesn't have this refresh race.
+
+## GUI parity note — install progress dialog (Linux linux-v1.0.46, Windows already has it)
+Linux GUI installs now show a modal progress dialog (animated bar + "✓ installed"/"✗ failed" + Close)
+instead of a tiny spinner + 3s toast — matching the Windows install alert. If the macOS install feedback
+is also just a spinner/toast, consider the same dialog for parity (apt/brew installs are slow enough
+that users need a clear "working… / done / failed").
