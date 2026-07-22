@@ -165,7 +165,15 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
     item("Delete site…", "user-trash-symbolic", lambda: win.confirm(
         f"Delete site “{name}”?", "Removes the vhost. Tick purge in the next step to also drop files + DB.",
         lambda: win.run_verb(["site", "rm", name], f"Removing {name}…")), destructive=True)
-    pop.set_child(v)
+    # Bound the popover height: this menu has ~11 items (~420px). On a short window, or for the
+    # bottom rows of the list, a popover that tall can't fit below the button AND can't flip above
+    # → GTK gives up and it never appears ("last 2 sites, 3-dot does nothing"). A max-height scroller
+    # keeps it placeable everywhere (GTK flips up/down freely) and it scrolls internally if too tall.
+    scroller = Gtk.ScrolledWindow(propagate_natural_height=True, propagate_natural_width=True)
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_max_content_height(360)
+    scroller.set_child(v)
+    pop.set_child(scroller)
     return pop
 
 

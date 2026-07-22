@@ -700,7 +700,17 @@ cmd_loginitem(){
   local engine="${_bh_engine_dir:-$(dirname "$(readlink -f "$0")")}/bhserve"
   case "$sub" in
     enable)
-      mkdir -p "$(dirname "$unit")"
+      local dir; dir="$(dirname "$unit")"
+      mkdir -p "$dir" 2>/dev/null || true
+      # BHServe ≤1.0.47 ran this verb PRIVILEGED (pkexec), which could leave root-owned
+      # artifacts here that the now-unprivileged verb can't overwrite → "Permission denied".
+      # Clear a stale unit first (works when the dir is user-owned — dir ownership governs
+      # unlink), then prove we can write. If the DIR itself is root-owned we can't fix it
+      # unprivileged, so tell the user exactly how (the .deb postinst also self-heals on upgrade).
+      [ -e "$unit" ] && [ ! -w "$unit" ] && rm -f "$unit" 2>/dev/null || true
+      if ! { : > "$unit"; } 2>/dev/null; then
+        die "start-at-login: can't write $unit — an older BHServe left root-owned files here. Fix once with:  sudo chown -R $USER_NAME:$USER_NAME \"$HOME/.config/systemd\"  — then toggle again."
+      fi
       cat > "$unit" <<UNIT
 [Unit]
 Description=BHServe — start local web services at login

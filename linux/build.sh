@@ -104,6 +104,17 @@ cat > "$PKG/DEBIAN/postinst" <<'POST'
 set -e
 update-desktop-database -q 2>/dev/null || true
 gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+# Self-heal: BHServe ≤1.0.47 ran the "Start at login" toggle with root privileges, which
+# could leave root-owned files under the user's ~/.config/systemd. The toggle now runs
+# unprivileged (systemctl --user must run as the desktop user) and can't overwrite them
+# → "Permission denied". Chown that tree back to the installing user — it is always meant
+# to be user-owned.
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != root ]; then
+  u_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  if [ -n "$u_home" ] && [ -d "$u_home/.config/systemd" ]; then
+    chown -R "$SUDO_USER":"$SUDO_USER" "$u_home/.config/systemd" 2>/dev/null || true
+  fi
+fi
 exit 0
 POST
 chmod 0755 "$PKG/DEBIAN/postinst"
