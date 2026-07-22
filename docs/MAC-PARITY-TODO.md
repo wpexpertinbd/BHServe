@@ -742,3 +742,14 @@ reload in site-add, not just in delete/switch.
 > `display_startup_errors=Off`, only enable opcache when the DLL exists, and apply every php.ini
 > directive to ALL occurrences (php.ini can define one twice; PHP honors the last). **No mac action** —
 > brew PHP always ships opcache and runs under FPM. (Linux likewise uses FPM + always-present opcache.)
+
+## CHECK — Apache backend needs a catch-all default vhost (Windows fixed in win-v1.0.65)
+On Windows, switching a site apache→nginx briefly flashed ANOTHER site's content: Apache serves its
+FIRST-listed vhost for an unmatched Host, and during the switch the site's vhost is momentarily gone
+while a lingering nginx worker still proxies to Apache. Windows fix: a catch-all default `<VirtualHost>`
+emitted FIRST in the Apache config → unmatched Host gets a clean "switching servers" 403, never another
+site. **Mac/Linux check:** the shared engine's Apache config (macOS Homebrew httpd + Linux apache2) has
+the same "first vhost = default" behavior — if it has no catch-all/default vhost, the same brief
+cross-site flash can happen on a server switch. Consider adding a default-deny vhost to the shared
+`render_apache_main`/config (nginx already has `default_server` on all platforms, so only Apache needs
+it). Low severity (≈1s transient on an admin action), but it's a real cross-site content flash.
