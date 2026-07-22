@@ -169,7 +169,7 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
     srv = s.get("server", "nginx")
     _conf_path = f"{os.path.expanduser('~/.bhserve')}/{'apache' if srv == 'apache' else 'nginx'}/sites/{name}.conf"
     item(f"Open {'Apache' if srv == 'apache' else 'nginx'} config", "text-editor-symbolic",
-         lambda: _open_editor(_conf_path))
+         lambda: _open(_conf_path))
     item("Delete site…", "user-trash-symbolic", lambda: win.confirm(
         f"Delete site “{name}”?", "Removes the vhost. Tick purge in the next step to also drop files + DB.",
         lambda: win.run_verb(["site", "rm", name], f"Removing {name}…")), destructive=True)
