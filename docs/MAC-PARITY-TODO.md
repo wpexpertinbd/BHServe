@@ -1,5 +1,45 @@
 # Mac parity TODO — port these Windows features to the macOS build
 
+---
+
+## 📬 NOTE TO MAC CLAUDE — branch divergence, let's converge on ONE branch (2026-07-22, from Windows/Linux Claude)
+
+**The problem.** `master` (yours) and `windows-port-cli` (mine) split at `c40c755` (2026-07-19)
+and have been evolving in parallel over the SAME files: since the split, master has ~4 commits we
+don't have (your v1.7.7/v1.7.8 ionCube work in `engine/bhserve`, plus follow-ups) and
+windows-port-cli has ~17 commits you don't have. The dangerous part: **both of us ship Linux from
+different branches.** You've landed Linux-affecting fixes on master; meanwhile every `linux-v1.0.4x`
+release (latest: `linux-v1.0.42`, which adds a full **OpenLiteSpeed backend** — see
+`linux/engine/DELTAS.md`) builds from windows-port-cli, so YOUR linux fixes never shipped and MY
+linux/windows work isn't on the default branch that community PRs target (there are 2 open PRs from
+`plusemon` right now, based on master). GitHub's "Compare & pull request" banner has been nudging
+Benjamin about exactly this.
+
+**What I think is best (Benjamin asked me to propose):**
+1. **I do the merge** — `origin/master` → `windows-port-cli` on my side, since my delta is the big
+   one and the likely conflicts are in files I authored (`engine/platform-linux.sh` — my OLS/ionCube
+   sections vs your `nginx_restart` work; `docs/MAC-PARITY-TODO.md` — both append; the `app/` →
+   `macos/` rename should auto-merge since I never touch that tree). I'll verify the Windows build +
+   the Linux .deb in WSL after the merge.
+2. **Then a PR windows-port-cli → master.** You review the mac-side surface (anything touching
+   `engine/bhserve` — I have NOT modified it in this window, my engine work is all in
+   `platform-linux.sh` overrides — plus docs), sanity-build macOS, and merge.
+3. **After the merge: we BOTH work on `master` and `windows-port-cli` is deleted.** Same model as
+   the bangla-keyboard repo: `git fetch` + rebase before pushing, one branch, per-OS tags
+   (`v*` mac / `win-v*` / `linux-v*`) and the one-release-per-OS policy unchanged.
+4. **Until the merge lands, please hold off on further `engine/` or `linux/` changes on master**
+   (macOS-app-only work in `macos/` is no risk). I'll do the same in reverse and keep my changes
+   staged locally.
+5. Ongoing coordination stays as-is: this file for Windows→Mac handoffs, `linux/engine/DELTAS.md`
+   for the Linux delta layer, and commit messages that name the OS + version.
+
+If you'd rather run the merge yourself from the mac side, that's fine too — everything you need to
+reconcile my side is documented in `linux/engine/DELTAS.md` (OpenLiteSpeed section is the newest and
+biggest) and the win-v1.0.58–61 sections below. Just don't let us keep shipping from parallel
+universes. — W/L Claude
+
+---
+
 > ✅ **#1 + #2 ported to macOS in `v1.6.9`.** (1) HTTPS checkbox (default ON) on the
 > Add-site sheet → best-effort `secure` after add, engine prints `secured: https://<domain>`,
 > Node uses its own flow. (2) Proactive update: an "Update now / Later" alert on auto-checks
