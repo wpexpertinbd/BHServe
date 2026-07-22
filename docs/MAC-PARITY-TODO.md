@@ -185,7 +185,7 @@ Mac app) should mirror. Keep the update channels separate: **macOS = `v1.6.x` ta
 
 ---
 
-## 3. NEW — make users install the core stack before/at site creation *(Windows: win-v1.0.14 Add-site guard, first-run setup)*
+## 3. ✅ DONE (macOS v1.6.11) — make users install the core stack before/at site creation *(Windows: win-v1.0.14 Add-site guard, first-run setup)*
 
 **Problem:** users skip the readme, install BHServe, and immediately add a site with **nothing
 installed** (no nginx/PHP/DB) → a dead site. Fix it in the app, two layers:
@@ -219,7 +219,7 @@ this never collides with the update prompt). If launched hidden (autostart), ski
 
 ---
 
-## 1. "HTTPS" checkbox on the Add-site form  *(Windows: win-v1.0.6, commit `4264530`)*
+## 1. ✅ DONE (macOS v1.6.9) — "HTTPS" checkbox on the Add-site form  *(Windows: win-v1.0.6, commit `4264530`)*
 
 **Behavior**
 - Add an **HTTPS** checkbox to the add-site bar, **default ON**.
@@ -246,7 +246,7 @@ this never collides with the update prompt). If launched hidden (autostart), ski
 
 ---
 
-## 2. Proactive "update available" notification  *(Windows: win-v1.0.7 launch prompt + tray balloon `222d3c3`, win-v1.0.8 24h re-check `8c7cfd6`)*
+## 2. ✅ DONE (macOS v1.6.9) — Proactive "update available" notification  *(Windows: win-v1.0.7 launch prompt + tray balloon `222d3c3`, win-v1.0.8 24h re-check `8c7cfd6`)*
 
 **Behavior**
 - Today the check is passive. Make it **proactive, gated by the existing "Automatically check for
@@ -280,7 +280,7 @@ the same "running app blocks the install" issue.
 
 ---
 
-## 4. CHECK — does MySQL install on macOS? (Windows hit a User-Agent 403)  *(Windows fix: win-v1.0.16)*
+## 4. ✅ CHECKED (macOS not affected) — does MySQL install on macOS? (Windows hit a User-Agent 403)  *(Windows fix: win-v1.0.16)*
 
 **The Windows bug:** installing **Oracle MySQL** (not MariaDB) silently failed — it looked like
 "Installing mysql done" but nothing landed. Root cause: **`dev.mysql.com`'s CDN returns `403
@@ -309,7 +309,7 @@ engine; check the Mac install verifies the right binary too.)
 
 ---
 
-## 5. CHECK — WordPress wp-config salt injection ($ / special chars)  *(Windows fix: win-v1.0.20)*
+## 5. ✅ FIXED (macOS v1.6.12) — WordPress wp-config salt injection ($ / special chars)  *(Windows fix: win-v1.0.20)*
 
 **Windows bug:** new WP sites sometimes got a broken `wp-config.php` ("Parse error: syntax error …")
 because the secret-key/salt block was used as the **replacement string of .NET `Regex.Replace`**, and
@@ -327,7 +327,7 @@ injected parts of the file. Fixed by a `MatchEvaluator` (literal replacement) in
 
 ---
 
-## 6. NEW — per-site "Open in code editor" + "Open terminal" + nicer default page  *(Windows: win-v1.0.21 editor/terminal, win-v1.0.22 default page)*
+## 6. ✅ DONE (macOS v1.6.13) — per-site "Open in code editor" + "Open terminal" + nicer default page  *(Windows: win-v1.0.21 editor/terminal, win-v1.0.22 default page)*
 
 Three small UX features from user feedback. Port to the macOS app.
 
@@ -416,7 +416,7 @@ Adminer) could take the same `--proto =https --proto-redir =https`; the Mac upda
 
 ---
 
-## 7. NEW — generic default page (no web-server name) + clearer server picker  *(Windows: win-v1.0.31)*
+## 7. ✅ DONE (macOS v1.7.5) — generic default page (no web-server name) + clearer server picker  *(Windows: win-v1.0.31)*
 
 Two related fixes after a user who chose Apache saw the default page report **nginx** and thought nginx
 wasn't installed (it was — an Apache site is fronted by nginx, so `SERVER_SOFTWARE` reads nginx).
@@ -547,7 +547,7 @@ Was missing entirely on Linux; now at parity with Windows/macOS.
 
 ---
 
-## 8. Windows win-v1.0.32 — mailpit env/pipes, machine-store CA trust, cert-change nginx restart
+## 8. ✅ CHECKED (macOS v1.7.6 — unaffected/already covered) — win-v1.0.32 mailpit env/pipes, machine-store CA trust, cert-change nginx restart
 
 Windows fixes; check the Mac/Linux equivalents:
 - **Mailpit died/blocked when launched from the GUI (Windows).** Two causes: (a) stdout/stderr were
@@ -571,7 +571,7 @@ Windows fixes; check the Mac/Linux equivalents:
 
 ---
 
-## 9. Per-site SSL Install / Reinstall / Remove (win-v1.0.34) — port to macOS + Linux
+## 9. ✅ DONE (macOS v1.7.6) — Per-site SSL Install / Reinstall / Remove (win-v1.0.34)
 
 Every site row (Dashboard site list + Sites tab — shared `SiteListControl`) now has, in its "..." menu:
 - **Install SSL (HTTPS)** — enabled when the site is http-only (existing `secure`).
@@ -598,7 +598,7 @@ time, seconds apart) is never rolled back. The GUI Reinstall-SSL is inherently p
 
 ---
 
-## 9b. Per-site SSL Install/Reinstall/Remove — Linux GUI done (linux-v1.0.35+); macOS still needs the GUI
+## 9b. ✅ DONE (macOS v1.7.6) — Per-site SSL Install/Reinstall/Remove — Linux GUI done (linux-v1.0.35+); macOS GUI shipped
 > Today's other Linux-only work needs NO Mac parity: the responsive-dashboard 4→2→1 card reflow was a
 > GTK measure/allocate fix (WinUI star-columns + SwiftUI stacks reflow natively), and the `.deb`
 > install-command fix (`dpkg -i` vs `apt install ./file.deb`) is Debian-packaging-specific.
@@ -639,7 +639,7 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## ionCube on Windows — FINAL (win-v1.0.58). ⚠️ Earlier 1.0.44–1.0.57 entries were WRONG and are removed
+## ionCube on Windows — FINAL (win-v1.0.58). ✅ macOS checked-unaffected (own fixes were v1.7.7/v1.7.8). ⚠️ Earlier 1.0.44–1.0.57 entries were WRONG and are removed
 
 **Correction:** this file previously carried entries (win-v1.0.47/48/49/50) claiming the after-reboot
 ionCube failure was *temporal* — "cold php-cgi can't resolve the loader's VC-runtime dependency (err
@@ -678,7 +678,7 @@ bound those reads the same way.
 2. Nothing else — the temporal/cold-boot theory is retracted, so there is no "warm-up retry" behavior
    to port.
 
-## win-v1.0.59 — OPcache JIT disabled (php-cgi workers crashed under real apps)
+## win-v1.0.59 — ✅ macOS NOT affected (checked v1.7.11) — OPcache JIT disabled (php-cgi workers crashed under real apps)
 
 `opcache.jit = tracing` (BHServe's own php.ini tuning) crashed PHP 8.4 php-cgi workers with
 `0xc0000005` mid-request under a Filament/Livewire admin panel → intermittent 502s on that site only.
@@ -691,7 +691,7 @@ ionCube-configured versions never crashed. Verified: JIT off → 0 crashes under
 disable it the same way (keep OPcache). JIT's web-app gain is minor and worker crashes surface as
 random 502s that look like an app bug.
 
-## win-v1.0.60 — PHP CA bundle (curl error 60 on all PHP HTTPS calls)
+## win-v1.0.60 — ✅ macOS NOT affected (checked v1.7.11) — PHP CA bundle (curl error 60 on all PHP HTTPS calls)
 
 Windows PHP ships with NO CA bundle, so every PHP curl/openssl HTTPS call that verifies certificates
 failed with "unable to get local issuer certificate" (curl error 60) — surfaced as the WHMCS
@@ -707,7 +707,7 @@ never points ini at a missing file).
 ca-certificates store natively — fine; but the static-php fallback builds may lack a default CA path —
 worth the same live-probe check there (would need the same ini wiring to /etc/ssl/certs/ca-certificates.crt).
 
-## win-v1.0.60 (part 2) — pin PHP sessions/uploads/temp to a writable BHServe dir
+## win-v1.0.60 (part 2) — ✅ DONE on macOS (v1.7.11) — pin PHP sessions/uploads/temp to a writable BHServe dir
 
 A WHMCS copied from a cPanel server showed "PHP session storage is not writeable": the site's
 `.user.ini` carried `session.save_path=/tmp` (Linux path), and worse, with save_path unset PHP falls
@@ -721,7 +721,7 @@ BHServe-writable dir (brew PHP defaults may rely on /var/tmp — usually fine on
 ~/.bhserve/tmp is the same robustness win, and imported-site `.user.ini` Linux paths can bite there
 too, e.g. /tmp exists but per-site paths like /var/cpanel/... don't).
 
-## win-v1.0.61 — Apache-backed site add never reloaded Apache
+## win-v1.0.61 — ✅ FIXED on macOS too (v1.7.11) — Apache-backed site add never reloaded Apache
 
 Adding a site with the Apache backend called `Apache.Start()`, which no-ops when httpd is already
 running — so the FIRST Apache site worked (it started Apache) but every LATER one was never loaded:
