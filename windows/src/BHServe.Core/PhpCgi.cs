@@ -491,6 +491,12 @@ public static class PhpCgi
         ("max_execution_time",  "600"),
         ("max_input_time",      "600"),
         ("max_file_uploads",    "50"),
+        // ⚠️ display_startup_errors MUST be Off. The Apache backend runs php-cgi in CGI mode
+        // (mod_actions), where a PHP startup warning (e.g. a missing/failed zend_extension) is
+        // printed to stdout BEFORE the HTTP headers → Apache "malformed header: <br />" → 500 on
+        // EVERY request. FastCGI (nginx) tolerates it (worker-startup noise), so the site "works on
+        // nginx, 500s on Apache". Off = startup issues go to the error log, never into the response.
+        ("display_startup_errors", "Off"),
         // realpath cache — WordPress includes hundreds of files; Windows file stat is slow
         ("realpath_cache_size", "4096k"),
         ("realpath_cache_ttl",  "600"),
@@ -548,16 +554,36 @@ public static class PhpCgi
             var text = File.ReadAllText(ini);
             var orig = text;
 
-            // OPcache is a Zend extension — php.ini-development ships it commented. Turn it on.
-            if (Regex.IsMatch(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
-                text = Regex.Replace(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache.*$", "zend_extension=opcache", RegexOptions.None);
-            else if (!Regex.IsMatch(text, @"(?m)^[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
-                text = text.TrimEnd() + "\nzend_extension=opcache\n";
+            // OPcache is a Zend extension — php.ini-development ships it commented. Turn it on ONLY
+            // when the build actually ships the DLL: some PHP builds (seen on 8.5) have no
+            // ext\php_opcache.dll, and blindly enabling zend_extension=opcache then prints
+            // "Failed loading Zend extension 'opcache'" at startup — which 500s the Apache backend
+            // (see display_startup_errors note). If the DLL is missing, comment out any active
+            // opcache line instead so the warning never fires.
+            var opcacheDll = File.Exists(Path.Combine(phpDir, "ext", "php_opcache.dll"))
+                          || File.Exists(Path.Combine(phpDir, "ext", "opcache.dll"));
+            if (opcacheDll)
+            {
+                if (Regex.IsMatch(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
+                    text = Regex.Replace(text, @"(?m)^[ \t]*;[ \t]*zend_extension[ \t]*=[ \t]*opcache.*$", "zend_extension=opcache", RegexOptions.None);
+                else if (!Regex.IsMatch(text, @"(?m)^[ \t]*zend_extension[ \t]*=[ \t]*opcache"))
+                    text = text.TrimEnd() + "\nzend_extension=opcache\n";
+            }
+            else
+            {
+                // No opcache DLL → make sure no ACTIVE opcache zend_extension line remains.
+                text = Regex.Replace(text, @"(?m)^([ \t]*)(zend_extension[ \t]*=[ \t]*opcache.*)$", "$1;$2");
+            }
 
             foreach (var (key, val) in Limits)
             {
+                // Replace ALL occurrences (commented or active), not just the first: php.ini often
+                // defines a directive twice (our value + the stock body's), and PHP honors the LAST
+                // one — so a first-only replace can be silently overridden (e.g. our
+                // display_startup_errors=Off beaten by a later stock =On). Setting every occurrence to
+                // our value makes the effective value ours regardless of order.
                 var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
-                text = rx.IsMatch(text) ? rx.Replace(text, $"{key} = {val}", 1) : text.TrimEnd() + $"\n{key} = {val}\n";
+                text = rx.IsMatch(text) ? rx.Replace(text, $"{key} = {val}") : text.TrimEnd() + $"\n{key} = {val}\n";
             }
             // Point curl + openssl at the shared CA bundle (see EnsureCaBundle) so PHP HTTPS calls
             // verify certificates. Only when the bundle actually exists — never point at a void.
@@ -568,7 +594,7 @@ public static class PhpCgi
                 {
                     var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
                     var line = $"{key} = \"{ca}\"";
-                    text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
+                    text = rx.IsMatch(text) ? rx.Replace(text, line) : text.TrimEnd() + $"\n{line}\n";
                 }
             }
             // Pin sessions/uploads/temp to a guaranteed-writable BHServe dir. Unset, PHP falls back
@@ -587,7 +613,7 @@ public static class PhpCgi
             {
                 var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
                 var line = $"{key} = \"{val.Replace('\\', '/')}\"";
-                text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
+                text = rx.IsMatch(text) ? rx.Replace(text, line) : text.TrimEnd() + $"\n{line}\n";
             }
             if (text != orig) File.WriteAllText(ini, text);
         }
