@@ -227,3 +227,9 @@ So on Linux you only verify the **GUI + a functional pass**, then ship:
 > Cross-ref: this note lives in the Windows doc but the **same Claude owns `linux/`** — the Linux delta
 > layer + handoffs are in `linux/engine/DELTAS.md`. Subdomain needs **no** Linux engine override (shared
 > engine covers it); it's GUI-verify-and-ship only.
+
+**UX (both platforms):** the Subdomains dialog applies each Add immediately, so give it an obvious
+**Close/Cancel** affordance — the macOS sheet initially only had a "Done" button which read like a commit
+(fixed in **v1.7.10**: added an ✕ in the header + Escape-to-close + renamed "Done"→"Close"). Make sure the
+Windows `ContentDialog` / Linux `Adw.MessageDialog` clearly let a user who's just looking dismiss without
+feeling they added something.
