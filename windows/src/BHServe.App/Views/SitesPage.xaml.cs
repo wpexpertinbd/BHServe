@@ -47,7 +47,7 @@ public sealed partial class SitesPage : Page
     }
 
     private static SiteRow ToRow(Site s) => new()
-    { Name = s.Name, Domain = s.Domain, Php = s.Php, Root = s.Root, Secure = s.Secure, Enabled = s.Enabled, Server = s.Server };
+    { Name = s.Name, Domain = s.Domain, Aliases = s.Aliases, Php = s.Php, Root = s.Root, Secure = s.Secure, Enabled = s.Enabled, Server = s.Server };
 
     // ── add row ──────────────────────────────────────────────────────────────────
     private string SelectedPhp => (PhpBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";

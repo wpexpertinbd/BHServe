@@ -690,6 +690,18 @@ final class AppState {
         await control("restart", "nginx")
     }
 
+    func addSubdomain(site name: String, value: String) async {
+        let v = value.trimmingCharacters(in: .whitespaces)
+        guard !v.isEmpty else { return }
+        await runUser(["site", "subdomain", "add", name, v], note: "adding subdomain…")
+        await control("restart", "nginx")
+    }
+
+    func removeSubdomain(site name: String, value: String) async {
+        await runUser(["site", "subdomain", "rm", name, value], note: "removing subdomain…")
+        await control("restart", "nginx")
+    }
+
     func restartAll() async { await control("restart", "all") }
 
     func removeSite(_ name: String, purge: Bool = false) async {

@@ -20,6 +20,8 @@ public static class NginxConfig
     private static string StableConfDir => Path.Combine(Paths.Home, "nginx", "conf");
     private static string MimeTypes     => Fwd(Path.Combine(StableConfDir, "mime.types"));
     private static string FastcgiParams => Fwd(Path.Combine(StableConfDir, "fastcgi_params"));
+    private static string ServerNames(string domain, IEnumerable<string>? aliases = null) =>
+        string.Join(" ", new[] { domain }.Concat(aliases ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>Copy a conf file from the (versioned) nginx build to the stable dir, and make sure the
     /// runtime dirs nginx needs exist (it opens its prefix-relative logs\error.log before the config).</summary>
@@ -139,7 +141,7 @@ public static class NginxConfig
     }
 
     /// <summary>nginx serves PHP directly via php-cgi over TCP (render_nginx_php_vhost analog).</summary>
-    public static void RenderPhpVhost(string name, string domain, string root, string phpKey, Config cfg)
+    public static void RenderPhpVhost(string name, string domain, string root, string phpKey, Config cfg, IEnumerable<string>? aliases = null)
     {
         var version = Services.PhpVersion(phpKey, cfg);
         var port = PhpCgi.PortFor(version);
@@ -149,7 +151,7 @@ public static class NginxConfig
         # BHServe site: {{name}}  ({{domain}})  php={{phpKey}} server=nginx
         server {
         {{ListenBlock(domain, cfg)}}
-            server_name {{domain}};
+            server_name {{ServerNames(domain, aliases)}};
             root {{Fwd(root)}};
             index index.php index.html index.htm;
 
@@ -176,7 +178,7 @@ public static class NginxConfig
     }
 
     /// <summary>nginx fronts (TLS/80/443) and proxies the whole host to the Apache backend.</summary>
-    public static void RenderApacheFront(string name, string domain, string root, string phpKey, int apachePort, Config cfg)
+    public static void RenderApacheFront(string name, string domain, string root, string phpKey, int apachePort, Config cfg, IEnumerable<string>? aliases = null)
     {
         var home = Fwd(Paths.Home);
         var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
@@ -184,7 +186,7 @@ public static class NginxConfig
         # BHServe site: {{name}}  ({{domain}})  php={{phpKey}} server=apache
         server {
         {{ListenBlock(domain, cfg)}}
-            server_name {{domain}};
+            server_name {{ServerNames(domain, aliases)}};
             root {{Fwd(root)}};   # served by Apache (:{{apachePort}}); kept for tooling
 
             access_log {{home}}/logs/{{name}}-access.log;
@@ -206,14 +208,14 @@ public static class NginxConfig
     }
 
     /// <summary>Front a local HTTP service (e.g. Mailpit :8025) at a *.tld host (render_nginx_proxy_site analog).</summary>
-    public static void RenderProxyVhost(string name, string domain, int port, Config cfg)
+    public static void RenderProxyVhost(string name, string domain, int port, Config cfg, IEnumerable<string>? aliases = null)
     {
         var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
         var body = $$"""
         # BHServe site: {{name}}  ({{domain}})  php=- server=proxy -> 127.0.0.1:{{port}}
         server {
         {{ListenBlock(domain, cfg)}}
-            server_name {{domain}};
+            server_name {{ServerNames(domain, aliases)}};
             location / {
                 proxy_pass http://127.0.0.1:{{port}};
                 proxy_set_header Host $host;

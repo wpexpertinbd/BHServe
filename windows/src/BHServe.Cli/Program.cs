@@ -93,6 +93,17 @@ try
                 }
                 case "php":                engine.SitePhp(Arg(rest, 1), Arg(rest, 2)); break;
                 case "server":             engine.SiteServer(Arg(rest, 1), Arg(rest, 2)); break;
+                case "subdomain":
+                    switch (Arg(rest, 1))
+                    {
+                        case "list" or "ls" or "":
+                            foreach (var a in engine.SiteSubdomains(Arg(rest, 2))) Console.WriteLine(a);
+                            break;
+                        case "add": engine.SiteSubdomainAdd(Arg(rest, 2), Arg(rest, 3)); break;
+                        case "rm" or "remove": engine.SiteSubdomainRemove(Arg(rest, 2), Arg(rest, 3)); break;
+                        default: Usage(); return 1;
+                    }
+                    break;
                 case "enable":             engine.SiteEnable(Arg(rest, 1), true); break;
                 case "disable":            engine.SiteEnable(Arg(rest, 1), false); break;
                 case "root":               engine.SiteRoot(Arg(rest, 1), Arg(rest, 2)); break;
@@ -229,6 +240,7 @@ static void Usage() => Console.WriteLine("""
       bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]
       bhserve site rm|list <name>
       bhserve site php <name> <ver> | site server <name> <nginx|apache>
+      bhserve site subdomain {list|add|rm} <site> [label-or-host]
       bhserve secure <domain>
       bhserve db {list|create|drop} [name]
       bhserve node {list|install|use|uninstall} [version]

@@ -52,6 +52,7 @@ struct Service: Codable, Sendable, Identifiable, Equatable {
 struct Site: Codable, Sendable, Identifiable, Equatable {
     let name: String
     let domain: String
+    var aliases: [String] = []
     let php: String
     let root: String
     let secure: Bool
@@ -86,7 +87,7 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
     var url: URL? { URL(string: (secure ? "https://" : "http://") + domain) }
 
     enum CodingKeys: String, CodingKey {
-        case name, domain, php, root, secure, enabled, server, tunnel
+        case name, domain, aliases, php, root, secure, enabled, server, tunnel
         case node, feRunning, beRunning, fePort, bePort, feDir, beDir, feCmd, beCmd, apiPaths
         case python, pyRunning, pyPort, pyDir, pyCmd, pyVenv, pyVer
     }
@@ -96,6 +97,7 @@ struct Site: Codable, Sendable, Identifiable, Equatable {
         let c = try d.container(keyedBy: CodingKeys.self)
         name      = try c.decode(String.self, forKey: .name)
         domain    = try c.decode(String.self, forKey: .domain)
+        aliases   = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
         php       = try c.decodeIfPresent(String.self, forKey: .php) ?? ""
         root      = try c.decodeIfPresent(String.self, forKey: .root) ?? ""
         secure    = try c.decodeIfPresent(Bool.self, forKey: .secure) ?? false

@@ -18,6 +18,7 @@ public sealed class SiteRow
 {
     public required string Name { get; init; }
     public required string Domain { get; init; }
+    public IReadOnlyList<string> Aliases { get; init; } = Array.Empty<string>();
     public required string Php { get; init; }
     public required string Root { get; init; }
     public required bool Secure { get; init; }
@@ -27,6 +28,8 @@ public sealed class SiteRow
     public string Url => (Secure ? "https://" : "http://") + Domain;
     public Uri Uri => new(Url);
     public string Badge => !string.IsNullOrEmpty(Php) && Php != "-" ? $"{Server} · php {Php}" : Server;
+    public string AliasBadge => Aliases.Count == 0 ? "" : $"{Aliases.Count} aliases";
+    public Visibility AliasVisibility => Aliases.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     public Brush DotBrush => new SolidColorBrush(Enabled ? Colors.SeaGreen : Colors.Gray);
 }
 
@@ -92,7 +95,7 @@ public sealed partial class SiteListControl : UserControl
 
         var slice = size == int.MaxValue ? filtered : filtered.Skip((_page - 1) * size).Take(size).ToList();
         // only reassign when changed (avoid the 2s-tick flicker on the dashboard)
-        var sig = string.Join(";", slice.Select(r => $"{r.Name}|{r.Domain}|{r.Enabled}|{r.Secure}|{r.Php}|{r.Server}")) + $"#{_page}/{pages}";
+        var sig = string.Join(";", slice.Select(r => $"{r.Name}|{r.Domain}|{string.Join(",", r.Aliases)}|{r.Enabled}|{r.Secure}|{r.Php}|{r.Server}")) + $"#{_page}/{pages}";
         if (sig != _lastSig) { List.ItemsSource = slice; _lastSig = sig; }
 
         Empty.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -223,6 +226,68 @@ public sealed partial class SiteListControl : UserControl
         };
         if (await dlg.ShowAsync() == ContentDialogResult.Primary)
             await Op(() => EngineHost.Instance.Engine.Unsecure(domain));
+    }
+
+    private async void Subdomains_Click(object s, RoutedEventArgs e)
+    {
+        var name = Tag(s);
+        var row = Row(name);
+        if (row is null) return;
+
+        var box = new StackPanel { Spacing = 10 };
+        var input = new TextBox { Header = "Subdomain", PlaceholderText = $"api or api.{row.Domain}" };
+        box.Children.Add(input);
+
+        var list = new StackPanel { Spacing = 6 };
+        void Fill()
+        {
+            list.Children.Clear();
+            var aliases = EngineHost.Instance.Engine.SiteSubdomains(name);
+            if (aliases.Count == 0)
+            {
+                list.Children.Add(new TextBlock { Text = "No subdomains yet.", Opacity = 0.65 });
+                return;
+            }
+            foreach (var alias in aliases)
+            {
+                var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                line.Children.Add(new HyperlinkButton { Content = (row.Secure ? "https://" : "http://") + alias, NavigateUri = new Uri((row.Secure ? "https://" : "http://") + alias) });
+                var rm = new Button { Content = "Remove", Tag = alias };
+                rm.Click += async (_, _) =>
+                {
+                    if (rm.Tag is string a)
+                    {
+                        await Op(() => EngineHost.Instance.Engine.SiteSubdomainRemove(name, a));
+                        Fill();
+                    }
+                };
+                line.Children.Add(rm);
+                list.Children.Add(line);
+            }
+        }
+        Fill();
+        box.Children.Add(list);
+
+        var dlg = new ContentDialog
+        {
+            Title = $"Subdomains for {row.Domain}",
+            Content = box,
+            PrimaryButtonText = "Add",
+            SecondaryButtonText = "Close",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot,
+        };
+        dlg.PrimaryButtonClick += async (_, e) =>
+        {
+            e.Cancel = true;
+            var value = input.Text.Trim();
+            if (value.Length == 0) return;
+            await Op(() => EngineHost.Instance.Engine.SiteSubdomainAdd(name, value));
+            input.Text = "";
+            Fill();
+        };
+        await dlg.ShowAsync();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     private async void Share_Click(object s, RoutedEventArgs e)

@@ -188,6 +188,7 @@ struct WebsiteRow: View {
     @State private var showingPyLogs = false
     @State private var removing = false        // php-site Remove sheet (with purge option)
     @State private var confirmUnsecure = false // Remove-SSL confirm
+    @State private var showingSubdomains = false
 
     private var runDot: Bool { site.node ? site.nodeRunning : (site.python ? site.pyRunning : site.enabled) }
 
@@ -199,6 +200,12 @@ struct WebsiteRow: View {
                 Text(site.domain).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            if !site.aliases.isEmpty {
+                Text("\(site.aliases.count) aliases").font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.yellow.opacity(0.2), in: Capsule())
+                    .foregroundStyle(.orange)
+            }
             // server badge
             Text(site.serverKind).font(.caption2.weight(.medium))
                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -230,6 +237,7 @@ struct WebsiteRow: View {
         .sheet(isPresented: $showingPyLogs) { PyLogsSheet(site: site) }
         .sheet(isPresented: $sharing) { ShareSheet(site: site) }
         .sheet(isPresented: $removing) { RemoveSiteSheet(site: site) }
+        .sheet(isPresented: $showingSubdomains) { SubdomainsSheet(site: site) }
         .sheet(item: Binding(get: { envPart.map { EnvTarget(part: $0) } },
                              set: { envPart = $0?.part })) { t in
             EnvEditorSheet(site: site, part: t.part)
@@ -302,6 +310,8 @@ struct WebsiteRow: View {
                 Button { confirmUnsecure = true } label: { Label("Remove SSL", systemImage: "lock.slash") }
             }
             Divider()
+            Button { showingSubdomains = true } label: { Label("Manage subdomains…", systemImage: "globe") }
+            Divider()
             Button(role: .destructive) { removing = true } label: { Label("Delete", systemImage: "trash") }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
@@ -325,6 +335,8 @@ struct WebsiteRow: View {
             Button { state.openTerminal(site.feDir ?? "") } label: { Label("Open terminal here", systemImage: "terminal") }
             Divider()
             Button { editingNode = true } label: { Label("Edit config (ports/commands)", systemImage: "slider.horizontal.3") }
+            Divider()
+            Button { showingSubdomains = true } label: { Label("Manage subdomains…", systemImage: "globe") }
             Divider()
             Button { envPart = "fe" } label: { Label("Edit frontend .env", systemImage: "doc.text") }
             Button { Task { await state.nodeNpmInstall(site.name, "fe") } } label: { Label("npm install (frontend)", systemImage: "shippingbox") }
@@ -359,6 +371,8 @@ struct WebsiteRow: View {
                 Button { Task { await state.pyPip(site.name) } } label: { Label("pip install (requirements.txt)", systemImage: "shippingbox") }
                 Divider()
             }
+            Button { showingSubdomains = true } label: { Label("Manage subdomains…", systemImage: "globe") }
+            Divider()
             Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold))
@@ -383,6 +397,57 @@ struct CircleAction: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+}
+
+struct SubdomainsSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    let site: Site
+    @State private var value = ""
+
+    private var scheme: String { site.secure ? "https" : "http" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Subdomains").font(.title2.bold())
+            Text(site.domain).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("api or api.\(site.domain)", text: $value)
+                    .textFieldStyle(.roundedBorder)
+                Button("Add") {
+                    let v = value
+                    value = ""
+                    Task { await state.addSubdomain(site: site.name, value: v) }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            if site.aliases.isEmpty {
+                Text("No subdomains yet.").foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(site.aliases, id: \.self) { alias in
+                        HStack {
+                            Button("\(scheme)://\(alias)") {
+                                if let u = URL(string: "\(scheme)://\(alias)") { NSWorkspace.shared.open(u) }
+                            }
+                            .buttonStyle(.link)
+                            Spacer()
+                            Button(role: .destructive) {
+                                Task { await state.removeSubdomain(site: site.name, value: alias) }
+                            } label: {
+                                Label("Remove", systemImage: "minus.circle")
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        Divider()
+                    }
+                }
+            }
+            HStack { Spacer(); Button("Done") { dismiss() } }
+        }
+        .padding(20)
+        .frame(width: 430)
     }
 }
 
