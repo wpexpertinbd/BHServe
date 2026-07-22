@@ -175,7 +175,24 @@ dropdown on `DatabasesPage` / `NodePage` / `PythonPage`. So it's just centralizi
 
 ---
 
-## 8. Subdomain / alias management — Windows **+ Linux** code is ALREADY on master (verify + ship both)  *(macOS: v1.7.9; community PR #3 by @plusemon)*
+## 8. ✅ DONE — Windows shipped `win-v1.0.62`, Linux shipped `linux-v1.0.43` (2026-07-22)
+
+> **Windows verify (real box):** builds clean; `hosts-remove` verb confirmed present in
+> `bhserve-elevate`; functional pass — add `api`+`shop` (hosts entries elevated OK), `list`, cross-site
+> claim of `api.<first>.test` REJECTED, `rm api` leaves `shop` + removes the hosts line; cert reissue
+> verified live: SAN = canonical+both aliases, `Invoke-WebRequest` (Windows trust store) → HTTP 200
+> TRUSTED on all three hosts. ⚠️ One testing gotcha for future notes: `bhserve secure <name>` (bare
+> site name) mints a junk cert for the literal name and the alias-reissue then correctly no-ops —
+> `secure` takes the DOMAIN (`<name>.test`). Consider a future guard that resolves a bare site name.
+> **Linux verify (WSL2 Ubuntu):** same engine flow all-pass (add/list/rm, conflict rejection,
+> multi-SAN reissue, HTTPS 200 on aliases via curl --resolve, api snapshot emits `aliases`);
+> `pages.py` syntax-clean, subdomain dialog + aliases pill + PR #2 "Open nginx/Apache config" item all
+> present. Note: the PR #2 opener labels OLS-backed sites as "nginx config" (it opens the nginx front
+> proxy conf — technically correct; a future nicety could open the OLS vhconf too).
+
+*(original spec kept below for reference)*
+
+## 8-spec. Subdomain / alias management — Windows **+ Linux** code is ALREADY on master (verify + ship both)  *(macOS: v1.7.9; community PR #3 by @plusemon)*
 
 **This one is different: you don't need to port anything — @plusemon's PR #3 (merged to master 2026-07-22)
 already includes a full Windows implementation.** Your job is to **build-verify + functionally test it on a
