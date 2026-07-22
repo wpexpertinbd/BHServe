@@ -114,6 +114,15 @@ if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != root ]; then
   if [ -n "$u_home" ] && [ -d "$u_home/.config/systemd" ]; then
     chown -R "$SUDO_USER":"$SUDO_USER" "$u_home/.config/systemd" 2>/dev/null || true
   fi
+  # Retire the ≤1.0.49 per-user start-at-login unit — replaced in 1.0.50 by a SYSTEM unit
+  # (the user unit could never start the services: they need root, so it just prompted at
+  # login and did nothing). Bus-free removal always works; user-bus disable is best-effort.
+  if [ -n "$u_home" ] && [ -f "$u_home/.config/systemd/user/bhserve.service" ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u "$SUDO_USER")" runuser -u "$SUDO_USER" -- \
+      systemctl --user disable bhserve.service 2>/dev/null || true
+    rm -f "$u_home/.config/systemd/user/bhserve.service" \
+          "$u_home/.config/systemd/user/default.target.wants/bhserve.service" 2>/dev/null || true
+  fi
 fi
 exit 0
 POST

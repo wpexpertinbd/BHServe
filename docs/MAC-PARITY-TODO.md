@@ -789,3 +789,25 @@ and the toggle reflects state after enable.
   probed `version` is STABLE across refreshes (a value that changes each probe forces a full rebuild).
 - **Apache never started on Linux** (render_apache_main wrote brew `/opt/httpd` paths Debian rejects) —
   Linux-specific; macOS uses the brew config as-is.
+
+## linux-v1.0.50 — check the Mac for BOTH bugs (2026-07-23)
+- **⚠️ SUPERSEDES the 1.0.48 loginitem note above.** Unprivileged `systemctl --user` start-at-login was
+  a dead end: the services themselves need root (:80/:443, systemctl), so the user unit just hit an
+  invisible password prompt at login and started NOTHING. Linux now uses the launchd-daemon model macOS
+  presumably already has: a SYSTEM unit (`/etc/systemd/system/bhserve.service`, WantedBy=multi-user)
+  runs `start all` as root at boot with `Environment=BHSERVE_OWNER_UID=<uid>` (the engine's elevation
+  block falls back to it when PKEXEC_UID/SUDO_UID are absent, so workers/sockets still drop to the
+  desktop user — NOT root), plus a per-user autostart .desktop launching `bhserve-gui --background`
+  (start-hidden-to-tray; the app holds itself alive while no window is visible). **Mac check:** does the
+  macOS login item actually START the services at login without a prompt (daemon does root work), and
+  does the menu-bar icon appear at login without opening the main window?
+- **Existing-site switch to OLS hung the GUI + never applied** (new OLS sites worked): `site server` ran
+  UNPRIVILEGED, but `_ols_apply` needs root (`$SUDO cp` into lsws conf + `systemctl restart lsws`, no
+  NOPASSWD rule) → blocked on an invisible prompt. Fixes: `site server` is now a privileged GUI verb
+  (like site add/rm); GUI-context `$SUDO` is `sudo -n` (fail-fast, can never hang the app); `site php` /
+  `site subdomain` on an OLS-backed site run privileged too (their OLS resync also needs root).
+  **Mac check:** if/when macOS gets the OLS backend, every verb that reaches the OLS config/reload must
+  run through the privileged path — grep for `_ols_apply` callers and check each caller's elevation.
+- **OLS listener map dropped subdomain aliases** (`awk print $2` took only the canonical server_name) →
+  a subdomain's Host reached OLS unmapped → wrong site served. Now maps ALL server_name entries,
+  comma-joined. Engine-shared risk if the Mac ever generates OLS maps from nginx vhosts the same way.

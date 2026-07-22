@@ -98,11 +98,19 @@ def site_match(s: dict, q: str) -> bool:
     return q in s["name"].lower() or q in s.get("php", "").lower()
 
 
+def _is_ols(s: dict) -> bool:
+    """OLS-backed sites need root for their config resync + reload ($SUDO cp into
+    /usr/local/lsws/conf + systemctl) — normally-unprivileged site verbs (php/subdomain)
+    must run privileged for them, or the change silently never reaches OLS."""
+    return s.get("server") in ("ols", "openlitespeed")
+
+
 def site_change_php(win, s: dict) -> None:
     installed = [x["key"].replace("php@", "") for x in win.last_data.get("services", [])
                  if x["role"] == "php" and x["installed"]]
     win.choose("Change PHP version", f"Pick a PHP version for {s['name']}", installed,
-               lambda v: win.run_verb(["site", "php", s["name"], v], f"Switching {s['name']} → PHP {v}…"))
+               lambda v: win.run_verb(["site", "php", s["name"], v], f"Switching {s['name']} → PHP {v}…",
+                                      force_root=_is_ols(s)))
 
 
 # Web servers a site can be switched to, in menu order. Only the ones the site is NOT
@@ -233,7 +241,8 @@ def site_subdomains(win, s: dict) -> None:
             line.append(link)
             rm = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove",
                             css_classes=["flat", "destructive-action"])
-            rm.connect("clicked", lambda *_args, a=alias: win.run_verb(["site", "subdomain", "rm", s["name"], a], f"Removing {a}…"))
+            rm.connect("clicked", lambda *_args, a=alias: win.run_verb(["site", "subdomain", "rm", s["name"], a], f"Removing {a}…",
+                                                                       force_root=_is_ols(s)))
             line.append(rm)
             list_box.append(line)
             if i < len(aliases) - 1:
@@ -244,7 +253,8 @@ def site_subdomains(win, s: dict) -> None:
         val = entry.get_text().strip()
         if val:
             entry.set_text("")
-            win.run_verb(["site", "subdomain", "add", s["name"], val], "Adding subdomain…")
+            win.run_verb(["site", "subdomain", "add", s["name"], val], "Adding subdomain…",
+                         force_root=_is_ols(s))
 
     add.connect("clicked", add_alias)
     entry.connect("activate", add_alias)
@@ -952,7 +962,8 @@ class SettingsPage(Gtk.Box):
         self.append(sc)
 
         g1 = Adw.PreferencesGroup(title="Startup and updates")
-        self.autostart = Adw.SwitchRow(title="Start BHServe at login", subtitle="systemd user service")
+        self.autostart = Adw.SwitchRow(title="Start BHServe at login",
+                                       subtitle="Starts the services at boot + shows the tray at login")
         self.autostart.connect("notify::active", self._toggle_autostart)
         g1.add(self.autostart)
         self.autoupdate = Adw.SwitchRow(title="Check for updates automatically",

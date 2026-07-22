@@ -171,7 +171,7 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     # ── verb runner ──
-    def run_verb(self, args, msg, refresh=True, then=None, env=None) -> None:
+    def run_verb(self, args, msg, refresh=True, then=None, env=None, force_root=False) -> None:
         if msg:
             self.toast(msg)
             self._applog(msg)
@@ -191,7 +191,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif refresh:
                 self.refresh()
 
-        self.engine.run_async(list(args), done, env=env)
+        self.engine.run_async(list(args), done, env=env, force_root=force_root)
 
     def run_progress(self, args, title, working, ok_msg, refresh=True) -> None:
         """Long verb (install/update/uninstall) with a VISIBLE modal progress dialog: an animated

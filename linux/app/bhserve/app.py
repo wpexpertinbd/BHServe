@@ -21,6 +21,13 @@ class BHServeApp(Adw.Application):
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.engine = EngineClient()
         self._tray_proc = None
+        # --background (login autostart): first activation keeps the window hidden so only
+        # the tray icon appears. Cleared after the first activate, so a later tray "Open" /
+        # second launch presents the window normally.
+        self._bg_start = False
+        # A hidden (never-presented or closed-to-tray) window does NOT keep the GLib main
+        # loop alive — without an explicit hold the app exits as soon as activate returns.
+        self._held = False
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -39,15 +46,44 @@ class BHServeApp(Adw.Application):
         else:
             win = MainWindow(self)
             win.connect("close-request", self._on_close)
+        if self._bg_start and not wins:
+            # Login autostart: stay hidden — the tray icon is the only UI. If the tray can't
+            # appear (no AppIndicator extension), show the window instead of an invisible app.
+            self._bg_start = False
+            win.set_visible(False)
+            self._hold()
+            GLib.timeout_add_seconds(6, self._bg_fallback, win)
+            return
         win.set_visible(True)
         win.present()
+        self._unhold()
+
+    def _bg_fallback(self, win) -> bool:
+        if not self._tray_running() and not win.get_visible():
+            win.set_visible(True)
+            win.present()
+            self._unhold()
+        return False
+
+    # ── keep-alive while no window is visible (background start / closed-to-tray) ──
+    def _hold(self) -> None:
+        if not self._held:
+            self._held = True
+            self.hold()
+
+    def _unhold(self) -> None:
+        if self._held:
+            self._held = False
+            self.release()
 
     # ── close-to-tray ──
     def _on_close(self, win) -> bool:
         # With a live tray icon, closing the window just hides it (BHServe stays reachable);
-        # otherwise fall through to the default (destroy → quit).
+        # otherwise fall through to the default (destroy → quit). Hold the app while hidden
+        # so the main loop can't decide it has nothing left to do.
         if self._tray_running():
             win.set_visible(False)
+            self._hold()
             return True
         return False
 
@@ -91,11 +127,14 @@ class BHServeApp(Adw.Application):
 
 
 def main() -> int:
+    import sys
     app = BHServeApp()
+    # --background/--tray: launched by the login autostart entry — start hidden-to-tray.
+    app._bg_start = ("--background" in sys.argv) or ("--tray" in sys.argv)
     # Ensure the data dir exists BEFORE any GTK/window/api machinery — a fresh install is otherwise
     # "not initialized" (blank Services, nothing installable). Plain Python, idempotent, no root.
     try:
         app.engine.run("init", timeout=20)
     except Exception:  # noqa: BLE001
         pass
-    return app.run(None)
+    return app.run([sys.argv[0]])   # strip our flags — GTK would reject unknown options

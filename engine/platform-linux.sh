@@ -33,7 +33,10 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH
 # the user can still edit their own site files). No standing passwordless sudoers is created.
 _BH_VERB="${1:-}"; _BH_SUB="${2:-}"
 if [ "$(id -u)" = 0 ]; then
-  _ru="${PKEXEC_UID:-${SUDO_UID:-}}"
+  # BHSERVE_OWNER_UID: set by the boot-time system unit (loginitem), where there is no
+  # PKEXEC_UID/SUDO_UID — without it a boot `start all` would resolve USER_NAME=root and
+  # render nginx/php-fpm workers as ROOT. Interactive pkexec/sudo still win the fallback chain.
+  _ru="${PKEXEC_UID:-${SUDO_UID:-${BHSERVE_OWNER_UID:-}}}"
   if [ -n "${_ru:-}" ] && [ "$_ru" != 0 ]; then
     USER_NAME="$(getent passwd "$_ru" | cut -d: -f1)"
     GROUP_NAME="$(id -gn "$USER_NAME" 2>/dev/null || echo "$USER_NAME")"
@@ -43,6 +46,15 @@ if [ "$(id -u)" = 0 ]; then
   SUDO=""   # already root — no nested elevation
 else
   SUDO="${BHSERVE_SUDO:-sudo}"
+  # From the GUI there is NO controlling terminal, so a privileged op that needs a password
+  # would BLOCK on an invisible sudo/polkit prompt → the app hangs ("BHServe Is Not
+  # Responding"). This is exactly what an unprivileged OLS reload (`sudo systemctl restart
+  # lsws`, no NOPASSWD rule) did. Use NON-INTERACTIVE sudo in GUI context only: NOPASSWD-
+  # allowed ops still run; everything else fails fast (such calls are best-effort `|| true`),
+  # so nothing can hang. Privileged verbs run via pkexec as root (SUDO="" above) and are
+  # unaffected. Deliberately NOT gated on `! -t 1`: sudo prompts on /dev/tty (not stdout), so
+  # a terminal user piping output (`bhserve install X | tee log`) must keep the normal prompt.
+  if [ "${BHSERVE_GUI:-}" = 1 ]; then SUDO="$SUDO -n"; fi
 fi
 # Hand ownership of anything we created as root back to the invoking user.
 _bh_fix_ownership(){
@@ -690,48 +702,86 @@ cmd_dns() {
   esac
 }
 
-# ── Start-at-login = a systemd --user service (the LaunchAgent analog) ────────
-# Runs `bhserve start all` at login so sites are up before/at session start. The api's
-# loginitem flag maps to `systemctl --user is-enabled`.
-_loginitem_unit(){ echo "$HOME/.config/systemd/user/bhserve.service"; }
-loginitem_enabled(){ systemctl --user is-enabled bhserve.service >/dev/null 2>&1; }
+# ── Start-at-login = a SYSTEM systemd unit + a per-user tray autostart ────────
+# The services need ROOT to start (nginx/apache on :80/:443, systemctl for the DBs), so a
+# `systemctl --user` unit (≤1.0.49) could never actually start them at login — it just hit an
+# invisible password prompt and did nothing. The working design (parity with the macOS launch
+# daemon / Windows service): a SYSTEM unit runs `start all` as root at BOOT (workers still drop
+# to the desktop user via BHSERVE_OWNER_UID), and a user autostart .desktop shows the tray at
+# login. This verb runs PRIVILEGED (pkexec) — and there's no enable/is-enabled mismatch: enable
+# (root) and the api's unprivileged `systemctl is-enabled` both read the same SYSTEM state.
+_loginitem_unit(){ echo /etc/systemd/system/bhserve.service; }
+_loginitem_autostart(){ echo "$HOME/.config/autostart/com.biswashost.bhserve-tray.desktop"; }
+loginitem_enabled(){ systemctl is-enabled bhserve.service >/dev/null 2>&1; }
+# Retire the ≤1.0.49 per-user unit so it can't double-run `start all`. Bus-free removal (unit
+# file + WantedBy symlink) always works; the user-bus disable is best-effort on top.
+_loginitem_retire_user_unit(){
+  if [ "$(id -u)" = 0 ] && [ -n "${USER_NAME:-}" ] && [ "$USER_NAME" != root ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u "$USER_NAME")" runuser -u "$USER_NAME" -- \
+      systemctl --user disable bhserve.service >/dev/null 2>&1 || true
+  else
+    systemctl --user disable bhserve.service >/dev/null 2>&1 || true
+  fi
+  rm -f "$HOME/.config/systemd/user/bhserve.service" \
+        "$HOME/.config/systemd/user/default.target.wants/bhserve.service" 2>/dev/null || true
+  loginctl disable-linger "${USER_NAME:-$(id -un)}" >/dev/null 2>&1 || true
+}
 cmd_loginitem(){
-  local sub="${1:-status}" unit; unit="$(_loginitem_unit)"
+  local sub="${1:-status}" unit auto; unit="$(_loginitem_unit)"; auto="$(_loginitem_autostart)"
   local engine="${_bh_engine_dir:-$(dirname "$(readlink -f "$0")")}/bhserve"
   case "$sub" in
     enable)
-      local dir; dir="$(dirname "$unit")"
-      mkdir -p "$dir" 2>/dev/null || true
-      # BHServe ≤1.0.47 ran this verb PRIVILEGED (pkexec), which could leave root-owned
-      # artifacts here that the now-unprivileged verb can't overwrite → "Permission denied".
-      # Clear a stale unit first (works when the dir is user-owned — dir ownership governs
-      # unlink), then prove we can write. If the DIR itself is root-owned we can't fix it
-      # unprivileged, so tell the user exactly how (the .deb postinst also self-heals on upgrade).
-      [ -e "$unit" ] && [ ! -w "$unit" ] && rm -f "$unit" 2>/dev/null || true
-      if ! { : > "$unit"; } 2>/dev/null; then
-        die "start-at-login: can't write $unit — an older BHServe left root-owned files here. Fix once with:  sudo chown -R $USER_NAME:$USER_NAME \"$HOME/.config/systemd\"  — then toggle again."
-      fi
+      [ "$(id -u)" = 0 ] || die "start-at-login needs admin — run: sudo bhserve loginitem enable"
+      _loginitem_retire_user_unit
+      # bake the desktop user's uid into the unit: at boot there is no PKEXEC_UID/SUDO_UID,
+      # so the engine reads BHSERVE_OWNER_UID to run workers/sockets as the user (not root).
+      local owner_uid; owner_uid="${_ru:-$(id -u "${USER_NAME:-$(id -un)}")}"
       cat > "$unit" <<UNIT
 [Unit]
-Description=BHServe — start local web services at login
+Description=BHServe — start local web services at boot
 After=network.target
+Wants=network.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+Environment=BHSERVE_OWNER_UID=$owner_uid
+Environment=BHSERVE_HOME=$BH_HOME
 ExecStart=/bin/bash $engine start all
 ExecStop=/bin/bash $engine stop all
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 UNIT
-      systemctl --user daemon-reload >/dev/null 2>&1 || true
-      systemctl --user enable bhserve.service >/dev/null 2>&1 && ok "start-at-login enabled (systemd --user)" || warn "couldn't enable the user service"
-      loginctl enable-linger "$USER_NAME" >/dev/null 2>&1 || true   # allow pre-login start
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl enable bhserve.service >/dev/null 2>&1 && ok "start-at-boot enabled (system service)" || warn "couldn't enable the system service"
+      # tray at login: per-user autostart entry launching the GUI hidden-to-tray.
+      mkdir -p "$(dirname "$auto")"
+      cat > "$auto" <<DESK
+[Desktop Entry]
+Type=Application
+Name=BHServe (tray)
+Comment=Show the BHServe tray icon at login
+Exec=bhserve-gui --background
+Icon=com.biswashost.bhserve
+Terminal=false
+X-GNOME-Autostart-enabled=true
+Categories=Development;
+DESK
+      # written by root (pkexec) into the USER's config — hand it back to them.
+      if [ -n "${USER_NAME:-}" ] && [ "$USER_NAME" != root ]; then
+        chown "$USER_NAME":"$GROUP_NAME" "$auto" "$(dirname "$auto")" 2>/dev/null || true
+      fi
+      ok "tray will appear at login"
       ;;
     disable)
-      systemctl --user disable bhserve.service >/dev/null 2>&1 || true
-      rm -f "$unit"; systemctl --user daemon-reload >/dev/null 2>&1 || true
+      [ "$(id -u)" = 0 ] || die "start-at-login needs admin — run: sudo bhserve loginitem disable"
+      # NOT `disable --now`: --now would run ExecStop (`stop all`) and kill the user's
+      # RUNNING services just for turning the login toggle off.
+      systemctl disable bhserve.service >/dev/null 2>&1 || true
+      rm -f "$unit"; systemctl daemon-reload >/dev/null 2>&1 || true
+      rm -f "$auto" 2>/dev/null || true
+      _loginitem_retire_user_unit
       ok "start-at-login disabled" ;;
     status) loginitem_enabled && echo enabled || echo disabled ;;
     *) die "usage: bhserve loginitem {enable|disable|status}" ;;
@@ -1332,7 +1382,10 @@ _ols_sync_config(){
       [ -f "$f" ] || continue
       [ "$(vhost_server "$f")" = ols ] || continue
       name="$(basename "$f" .conf)"
-      domain="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
+      # ALL server_name entries (canonical + subdomain aliases), comma-joined for the OLS
+      # listener map — mapping only $2 (the canonical) left aliases unrouted: OLS got the
+      # subdomain's Host, matched nothing, and served the wrong site.
+      domain="$(awk '/server_name/{for(i=2;i<=NF;i++){gsub(/;/,"",$i); printf "%s%s",(i>2?", ":""),$i}; exit}' "$f")"
       root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
       printf 'virtualhost bhserve-%s {\n  vhRoot                  %s\n  configFile              conf/vhosts/bhserve-%s/vhconf.conf\n  allowSymbolLink         1\n  enableScript            1\n  restrained              0\n}\n' "$name" "$root" "$name"
       maps="$maps  map                     bhserve-$name $domain
@@ -1437,6 +1490,19 @@ site_set_root(){
   _bh_shared_site_set_root "$@"; local rc=$?
   local conf="$BH_HOME/nginx/sites/$1.conf"
   if [ -f "$conf" ] && [ "$(vhost_server "$conf")" = ols ]; then _ols_apply; fi
+  return $rc
+}
+
+# site subdomain add/rm: OLS's listener/vhost domain map is generated FROM the nginx vhosts
+# (_ols_sync_config), so an OLS-backed site's alias change must resync + reload OLS too — else
+# the new subdomain reaches nginx but OLS has no mapping for its Host and serves the wrong page.
+eval "$(declare -f site_subdomain | sed '1s/^site_subdomain/_bh_shared_site_subdomain/')"
+site_subdomain(){
+  _bh_shared_site_subdomain "$@"; local rc=$?
+  case "${1:-}" in add|rm|remove)
+    local conf="$BH_HOME/nginx/sites/${2:-}.conf"
+    if [ -f "$conf" ] && [ "$(vhost_server "$conf")" = ols ]; then _ols_apply; fi ;;
+  esac
   return $rc
 }
 
