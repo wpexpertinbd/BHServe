@@ -287,11 +287,15 @@ class MainWindow(Adw.ApplicationWindow):
                          if s["role"] == "php" and s["installed"]]
         php_choices = installed_php or [k.replace("php@", "") for k in P.PHP_KEYS]
         php = Gtk.DropDown.new_from_strings(php_choices)
-        # Labels are descriptive; the actual --server value is mapped by index below (nginx / apache).
-        srv = Gtk.DropDown.new_from_strings(["nginx — serves PHP", "Apache — + nginx, for .htaccess"])
+        # Labels are descriptive; the actual --server value is mapped by index below (nginx / apache / ols).
+        srv = Gtk.DropDown.new_from_strings(["nginx — serves PHP",
+                                             "Apache — + nginx, for .htaccess",
+                                             "OpenLiteSpeed — + nginx, .htaccess + LSCache"])
         srv.set_tooltip_text("nginx serves PHP on its own — all you need for PHP/WordPress. "
-                             "Apache is only for sites needing native .htaccess; it runs behind nginx, "
-                             "so choosing it uses nginx too.")
+                             "Apache and OpenLiteSpeed are for sites needing native .htaccess; both run "
+                             "behind nginx, so choosing them uses nginx too. OpenLiteSpeed auto-reloads "
+                             "on .htaccess changes and supports the LiteSpeed Cache plugin "
+                             "(installed automatically on first use).")
         ssl = Gtk.CheckButton(label="Enable trusted HTTPS (mkcert)", active=True)
         for w, lab in ((name, "Name"), (typ, "Type"), (php, "PHP"), (srv, "Web server")):
             row = Gtk.Box(spacing=10)
@@ -315,7 +319,7 @@ class MainWindow(Adw.ApplicationWindow):
             args = ["site", "add", nm,
                     "--type", ["wordpress", "php", "others"][typ.get_selected()],
                     "--php", php_choices[php.get_selected()],
-                    "--server", ["nginx", "apache"][srv.get_selected()]]
+                    "--server", ["nginx", "apache", "ols"][srv.get_selected()]]
             tld = self.last_data.get("config", {}).get("tld", "test")
             self._run_add_site(nm, args, ssl.get_active(), tld)
 
