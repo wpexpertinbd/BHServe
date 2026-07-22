@@ -85,6 +85,27 @@ master stay fine for both of us.
 
 ---
 
+> ✅ **win-v1.0.59/60/61 checked for macOS in `v1.7.11` — two fixed, two not-affected.**
+> **(59) OPcache JIT — NOT affected:** the Mac FPM tuning never sets `opcache.jit*`; runtime shows
+> `jit=tracing` but **`jit_buffer_size=0`** (PHP default) → JIT never activates, so the crash config
+> doesn't exist here. **(60 CA bundle) — NOT affected:** brew PHP wires `openssl.cafile` to
+> `$BREW_PREFIX/etc/openssl@3/cert.pem`; live probe: HTTPS `curl_exec` with verification ON succeeds.
+> **(60 pt2 sessions) — DONE:** FPM pools now pin `session.save_path=$BH_HOME/tmp/php-sessions-<label>`
+> + `upload_tmp_dir`/`sys_temp_dir=$BH_HOME/tmp` via `php_admin_value` (also **beats an imported site's
+> `.user.ini`** carrying server paths like `/var/cpanel/...`); `fpm_start`'s heal re-renders old pool
+> confs lacking the pin (same pattern as the DB-socket heal). Verified live: session file lands in the
+> pinned dir. **(61 Apache reload on site add) — CONFIRMED + FIXED:** the Mac had the *identical* bug
+> (`site_add` called `apache_start`, which no-ops when httpd is already up → the 2nd+ Apache site's
+> vhost never loaded). Now `site_add` does `apache_running → apache_reload : apache_start`.
+>
+> ✅ **🔒 Security read of the macOS subdomain code (plusemon PR #3) — CLEAN (per the standing rule).**
+> The alias string flows `SubdomainsSheet → AppState.addSubdomain/removeSubdomain →
+> runUser(["site","subdomain","add",name,v])` → `Engine.run` sets `Process.arguments = [enginePath]+args`
+> — **separate argv elements, zero shell interpolation** (no `sh -c`, no string-built command). In the
+> engine the value then passes the `valid_host` regex gate before any `sed`/`mkcert` use, and `name`
+> comes from the api snapshot (already `valid_site_name`-gated at creation). No new network/exec surface
+> in the Swift diff. Verdict: **merge-clean**, matching the W/L retroactive audit.
+>
 > ✅ **#1 + #2 ported to macOS in `v1.6.9`.** (1) HTTPS checkbox (default ON) on the
 > Add-site sheet → best-effort `secure` after add, engine prints `secured: https://<domain>`,
 > Node uses its own flow. (2) Proactive update: an "Update now / Later" alert on auto-checks

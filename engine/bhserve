@@ -928,6 +928,7 @@ render_fpm_pool() {
   binp="$(php_fpm_bin "$key")"
   dbsock="$(db_socket)"   # pin so DB_HOST=localhost works on any PHP build (see db_socket)
   [ -x "$binp" ] || { warn "$key not installed; skipping pool (brew install $(svc_formula "$key"))"; return 1; }
+  mkdir -p "$BH_HOME/tmp/php-sessions-$label"   # pinned session.save_path/upload_tmp_dir/sys_temp_dir
   cat > "$conf" <<FPM
 ; BHServe PHP-FPM pool — $key
 [global]
@@ -965,6 +966,12 @@ php_admin_value[opcache.enable] = 1
 php_admin_value[opcache.memory_consumption] = 192
 php_admin_value[opcache.max_accelerated_files] = 20000
 php_admin_value[realpath_cache_size] = 4096k
+; ── pin sessions/uploads/temp to a BHServe-writable dir. php_admin_value also beats a
+;    site's .user.ini, so an imported site carrying a server path (session.save_path=
+;    /var/cpanel/php_sessions etc.) can't break sessions here. ──
+php_admin_value[session.save_path] = $BH_HOME/tmp/php-sessions-$label
+php_admin_value[upload_tmp_dir] = $BH_HOME/tmp
+php_admin_value[sys_temp_dir] = $BH_HOME/tmp
 ; ── pin the DB socket so DB_HOST=localhost reaches MariaDB on ANY PHP build ──
 ; (portable static PHP defaults to /tmp/mysql.sock or empty, which misses a distro
 ;  MariaDB on /run/mysqld/mysqld.sock → WordPress "Error establishing a DB connection")
@@ -989,9 +996,10 @@ FPM
 fpm_start(){
   local key="$1" label conf binp pid
   label="$(php_label "$key")"; conf="$BH_HOME/php/php-$label.conf"; binp="$(php_fpm_bin "$key")"
-  # Heal a pool conf written before the DB-socket pin (mysqli.default_socket) — re-render it once
-  # so old sites gain the fix on next start/restart without a manual PHP-version switch.
-  if [ -f "$conf" ] && ! grep -q 'mysqli.default_socket' "$conf"; then
+  # Heal a pool conf written before the DB-socket pin (mysqli.default_socket) or the
+  # session/tmp pin (session.save_path) — re-render it once so old pools gain the fixes
+  # on next start/restart without a manual PHP-version switch.
+  if [ -f "$conf" ] && { ! grep -q 'mysqli.default_socket' "$conf" || ! grep -q 'session.save_path' "$conf"; }; then
     render_fpm_pool "$key" >/dev/null 2>&1 || true
   fi
   [ -f "$conf" ] || render_fpm_pool "$key" || return 1
@@ -1262,7 +1270,11 @@ PHP
   render_fpm_pool "$phpkey" || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the site's PHP pool is up (no 502)
   render_site_vhost "$name" "$domain" "$root" "$phpkey" "$server"
-  [ "$server" = apache ] && apache_start >/dev/null 2>&1 || true
+  # apache_start no-ops when httpd is already up, so the FIRST apache site worked but every
+  # LATER one was never loaded (requests fell through to the first vhost). Reload when running.
+  if [ "$server" = apache ]; then
+    if apache_running; then apache_reload >/dev/null 2>&1 || true; else apache_start >/dev/null 2>&1 || true; fi
+  fi
   hdr "Site '$name' added"
   info "domain : http://$domain"
   info "root   : $root"
