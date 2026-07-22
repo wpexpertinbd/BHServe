@@ -33,8 +33,33 @@ public sealed partial class DashboardPage : Page
         SiteList.Changed += (_, _) => Refresh();   // re-pull after a per-site action
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); }
+    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); AutoEnableIonCube(); }
     protected override void OnNavigatedFrom(NavigationEventArgs e) => _timer.Stop();
+
+    // ── ionCube ──────────────────────────────────────────────────────────────────────────────
+    // Fully automatic — no button. Engine.EnableIonCube re-installs the loader DLL when the FILE is
+    // missing (the actual 2026-07 root cause — respawning could never fix that), then verifies the
+    // running workers and respawns any that didn't load it. Runs at app launch (App.xaml.cs) and
+    // whenever the window is opened (below).
+    private DateTime _lastIonCubeAuto = DateTime.MinValue;
+
+    /// <summary>When the user OPENS the window, heal ionCube if broken. Read-only health check first —
+    /// a no-op when already healthy, so it's never disruptive. Debounced. Callable from MainWindow when
+    /// the window is shown from the tray.</summary>
+    public void AutoEnableIonCube()
+    {
+        if ((DateTime.UtcNow - _lastIonCubeAuto).TotalSeconds < 30) return;
+        _lastIonCubeAuto = DateTime.UtcNow;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var eng = EngineHost.Instance.Engine;
+                if (!eng.IonCubeAllHealthy()) eng.EnableIonCube(quiet: true);
+            }
+            catch { }
+        });
+    }
 
     private void OnLog(string line) =>
         DispatcherQueue.TryEnqueue(() =>

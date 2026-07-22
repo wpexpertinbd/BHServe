@@ -75,6 +75,7 @@ php@8.0|php8.0-fpm|usr/sbin/php-fpm8.0|php
 php@7.4|php7.4-fpm|usr/sbin/php-fpm7.4|php
 nginx|nginx|usr/sbin/nginx|web
 httpd|apache2|usr/sbin/apache2|web
+openlitespeed|openlitespeed|usr/local/lsws/bin/lswsctrl|web
 mariadb|mariadb-server|usr/sbin/mariadbd|db
 mysql|mysql-server|usr/sbin/mysqld|db
 postgresql@16|postgresql-16|usr/lib/postgresql/16/bin/postgres|db
@@ -304,6 +305,8 @@ cmd_install() {
       httpd)
         hdr "Installing apache2  (apt)"
         if _apt install -y apache2 libapache2-mod-fcgid; then _disable_system_unit apache2; ok "apache2 installed"; else no "install apache2 failed"; failed=1; fi ;;
+      openlitespeed)
+        if ols_install; then ok "openlitespeed installed"; else no "install openlitespeed failed"; failed=1; fi ;;
       mariadb|mysql)
         # mysql-server and mariadb-server conflict on Debian/Ubuntu — installing one makes apt REMOVE
         # the other. Warn so the swap (and any data migration in /var/lib/mysql) isn't a surprise.
@@ -842,6 +845,598 @@ cmd_self_update(){
     ok "updated ${cur:-?} → $latest — restart the BHServe app if it's open"; return 0
   fi
   no "self-update failed (dpkg/apt error) — grab the .deb from the releases page and run: sudo dpkg -i bhserve_${latest}_all.deb && sudo apt-get -f install -y"; return 1
+}
+
+# ── ionCube loaders (Linux override) ─────────────────────────────────────────
+# The shared engine's php_ioncube is macOS-only: it downloads the Darwin ("dar") loader bundle and
+# writes zend_extension=…ioncube_loader_dar_<mm>.so — Mach-O binaries Linux PHP can NEVER load. On
+# Linux we need (a) the "lin" bundle, and (b) the ini placed in the DISTRO's own conf.d with a 00-
+# prefix: ionCube must be the FIRST zend_extension or it aborts ("must appear as the first entry"),
+# and Debian/Ondřej enables opcache via /etc/php/<mm>/*/conf.d/10-opcache.ini in the COMPILED-IN scan
+# dir, which PHP reads BEFORE our PHP_INI_SCAN_DIR extra dir — so an entry in BHServe's conf.d would
+# always load second and abort. 00-bhserve-ioncube.ini in the same distro dir sorts before 10-opcache.
+IONCUBE_URL_ARM="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_aarch64.zip"
+IONCUBE_URL_X64="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.zip"
+
+# On Debian the php key IS the minor version (php@8.1 → 8.1) — no brew binary probe needed
+# (the shared php_mm falls back to $BREW_PREFIX/bin/php = the DEFAULT php, i.e. the wrong mm
+# for every non-default version).
+php_mm(){ php_label "$1"; }
+
+php_ioncube(){
+  local target="${1:-all}"
+  local dir="$BH_HOME/ioncube"
+  # Purge a stale/wrong-platform cache (e.g. macOS "dar" loaders downloaded by the pre-fix code) —
+  # a cache dir that exists but has no Linux loader can never work and must not be trusted.
+  if [ -d "$dir/ioncube" ] && ! ls "$dir/ioncube"/ioncube_loader_lin_*.so >/dev/null 2>&1; then
+    warn "ionCube cache has no Linux loaders (stale or wrong platform) — re-downloading"
+    rm -rf "$dir"
+  fi
+  if [ ! -d "$dir/ioncube" ]; then
+    mkdir -p "$dir"; hdr "Downloading ionCube loaders (Linux)"
+    local url
+    case "$(uname -m)" in aarch64|arm64) url="$IONCUBE_URL_ARM" ;; *) url="$IONCUBE_URL_X64" ;; esac
+    curl -fsSL "$url" -o "$dir/loaders.zip" || die "download failed ($url)"
+    ( cd "$dir" && unzip -oq loaders.zip ) || die "unzip failed"
+    ok "loaders in $dir/ioncube"
+  fi
+  local IFS='|' key formula probe role
+  while read -r key formula probe role; do
+    [ "$role" = php ] || continue
+    svc_installed "$key" || continue
+    [ "$target" = all ] || [ "$target" = "$key" ] || [ "$target" = "$(php_label "$key")" ] || continue
+    local mm so; mm="$(php_mm "$key")"
+    # The static-php fallback builds are FULLY static — they cannot dlopen shared zend extensions.
+    if _is_static_php "$mm"; then
+      warn "$key: this PHP is the static fallback build, which can't load shared extensions like ionCube — use a distro/Ondřej PHP for ionCube sites"
+      continue
+    fi
+    so="$dir/ioncube/ioncube_loader_lin_$mm.so"
+    if [ ! -f "$so" ]; then
+      warn "$key: ionCube ships no Linux loader for PHP $mm yet (bundle covers 7.4 & 8.1–8.5; no 8.0/8.6). WHMCS/Blesta run fine on 8.1–8.3."
+      continue
+    fi
+    local wrote=0 sapi
+    for sapi in fpm cli; do
+      [ -d "/etc/php/$mm/$sapi/conf.d" ] || continue
+      printf 'zend_extension=%s\n' "$so" | $SUDO tee "/etc/php/$mm/$sapi/conf.d/00-bhserve-ioncube.ini" >/dev/null && wrote=1
+    done
+    # Retire any broken entry the pre-fix code wrote into BHServe's own conf.d (a dar .so there
+    # would print "Failed loading" on every fpm start even after this fix).
+    rm -f "$BH_HOME/php/conf.d/$mm/00-ioncube.ini" 2>/dev/null || true
+    if [ "$wrote" = 1 ]; then ok "ionCube configured for $key (PHP $mm)"
+    else warn "$key: no /etc/php/$mm/{fpm,cli}/conf.d found — not an apt-installed PHP?"; fi
+  done < <(services)
+  info "restart PHP-FPM to load it: bhserve restart all  (verify: bhserve php status)"
+}
+
+php_status(){
+  # Same as the shared version, but "configured" is detected at the DISTRO conf.d path this
+  # platform writes to (the shared version only looks in BHServe's own conf.d).
+  local IFS='|' key formula probe role
+  hdr "PHP versions"
+  while read -r key formula probe role; do
+    [ "$role" = php ] || continue
+    svc_installed "$key" || continue
+    local b="${BREW_PREFIX}/${probe}" ic="no" mm; mm="$(php_mm "$key")"
+    [ -f "/etc/php/$mm/fpm/conf.d/00-bhserve-ioncube.ini" ] && ic="yes"
+    if "$b" -v 2>/dev/null | grep -qi ioncube; then ic="loaded"; fi
+    ok "$(printf '%-10s' "$key") PHP $mm   ionCube: $ic"
+  done < <(services)
+}
+
+# ── OpenLiteSpeed backend (Linux-only third site server: server=ols) ──────────────────────────────
+# nginx stays the front door (:80/:443, TLS, *.test) and proxies OLS-backed sites to OLS on
+# 127.0.0.1:8088 — the exact pattern the apache backend uses (:8080). OLS serves the files with
+# native .htaccess support and forwards PHP to BHServe's EXISTING php-fpm pools over their unix
+# sockets (external FastCGI) — one PHP stack, so ionCube / CA bundle / per-site version switching
+# all apply unchanged. .htaccess freshness is two-layer: per-vhost `autoLoadHtaccess 1` (native,
+# OLS 1.7+) + an inotify watcher that graceful-restarts OLS on any .htaccess change (covers server
+# -level rewrite edge cases). OLS runs via its packaged systemd unit; workers run as the site user
+# so they can reach the fpm sockets (0660, user-owned) and site files.
+LSWS_ROOT="/usr/local/lsws"
+OLS_PORT=8088
+
+ols_installed(){ [ -x "$LSWS_ROOT/bin/lswsctrl" ]; }
+have_ols_sites(){ grep -lq "server=ols" "$BH_HOME"/nginx/sites/*.conf 2>/dev/null; }
+_bh_site_user(){ echo "${USER_NAME:-$(id -un)}"; }
+_bh_site_group(){ echo "${GROUP_NAME:-$(id -gn)}"; }
+
+# The packaged unit name varies (lshttpd on current debs, lsws/openlitespeed as aliases).
+_ols_unit(){
+  local u
+  for u in lshttpd lsws openlitespeed; do
+    systemctl cat "$u" >/dev/null 2>&1 && { echo "$u"; return 0; }
+  done
+  echo ""
+}
+
+# Is OLS actually SERVING? The definitive signal is the listener answering on :8088 — pidfiles
+# can be stale and the packaged unit flaps (Type=forking + KillMode=none leave pid/unit state
+# unreliable), which once produced a false "failed to start" while the server served fine.
+ols_running(){
+  (exec 3<>"/dev/tcp/127.0.0.1/$OLS_PORT") 2>/dev/null && { exec 3>&- 3<&-; return 0; }
+  local p
+  for p in /var/run/openlitespeed.pid /tmp/lshttpd/lshttpd.pid; do
+    [ -f "$p" ] && pid_alive "$(cat "$p" 2>/dev/null)" && return 0
+  done
+  pgrep -x litespeed >/dev/null 2>&1
+}
+
+# ⚠️ HARD stop of EVERY OLS instance. Needed because (a) the package postinst starts OLS
+# OUTSIDE systemd, so `systemctl stop` alone is a no-op on a fresh install, and (b) the unit
+# ships KillMode=none, so even a unit stop can leave workers alive. A surviving stock instance
+# is fatal to us: it holds *:7080/*:8088 sockets that make the first BHServe-config (re)start
+# die with "address already in use" (seen live in the WSL bring-up).
+_ols_kill(){
+  local u i
+  u="$(_ols_unit)"; [ -n "$u" ] && $SUDO systemctl stop "$u" >/dev/null 2>&1 || true
+  $SUDO "$LSWS_ROOT/bin/lswsctrl" stop >/dev/null 2>&1 || true
+  for i in 1 2 3 4 5 6; do ols_running || break; sleep 1; done
+  if ols_running; then
+    $SUDO pkill -x litespeed >/dev/null 2>&1 || true
+    sleep 1
+    ols_running && $SUDO pkill -9 -x litespeed >/dev/null 2>&1 || true
+  fi
+  $SUDO rm -f /var/run/openlitespeed.pid /tmp/lshttpd/lshttpd.pid 2>/dev/null || true
+}
+
+# Always start THROUGH systemd (so the unit tracks the process and boot autostart works);
+# fall back to lswsctrl only when no unit exists.
+ols_start(){
+  ols_installed || { no "OpenLiteSpeed not installed — bhserve install openlitespeed"; return 1; }
+  if ols_running; then ok "OpenLiteSpeed already running (:$OLS_PORT)"; return 0; fi
+  local u i; u="$(_ols_unit)"
+  if [ -n "$u" ]; then $SUDO systemctl start "$u" >/dev/null 2>&1 || true
+  else $SUDO "$LSWS_ROOT/bin/lswsctrl" start >/dev/null 2>&1 || true; fi
+  for i in 1 2 3 4 5 6 7 8; do ols_running && break; sleep 1; done
+  ols_running && ok "OpenLiteSpeed started (:$OLS_PORT)" || { no "OpenLiteSpeed failed to start"; return 1; }
+}
+
+ols_stop(){
+  ols_installed || return 0
+  _ols_kill
+  ok "OpenLiteSpeed stopped"
+}
+
+# Graceful restart — zero dropped connections; this is the "soft reload" that picks up
+# config/vhost/.htaccess changes. Via systemd's ExecReload (lswsctrl restart) so the unit
+# keeps tracking the re-exec'd process; direct lswsctrl only without a unit.
+ols_reload(){
+  ols_installed || return 0
+  ols_running || return 0
+  local u; u="$(_ols_unit)"
+  if [ -n "$u" ] && systemctl is-active --quiet "$u" 2>/dev/null; then
+    $SUDO systemctl reload "$u" >/dev/null 2>&1 || true
+  else
+    $SUDO "$LSWS_ROOT/bin/lswsctrl" restart >/dev/null 2>&1 || true
+  fi
+}
+
+# Install from LiteSpeed's official Debian/Ubuntu repo (their documented repo.litespeed.sh
+# bootstrapper, downloaded then executed — not piped). Also installs inotify-tools for the
+# .htaccess watcher, rewrites the server config as a BHServe-managed file, and installs the
+# watcher unit. Idempotent.
+ols_install(){
+  if ols_installed; then _ols_configure; return 0; fi
+  hdr "Installing OpenLiteSpeed  (LiteSpeed apt repo)"
+  _apt_update_once
+  if [ ! -f /etc/apt/sources.list.d/lst_debian_repo.list ] && ! ols_installed; then
+    local _rt; _rt="$(mktemp)"
+    if curl $_CURL_HTTPS -fsSL https://repo.litespeed.sh -o "$_rt"; then
+      $SUDO bash "$_rt" >/dev/null 2>&1 || $SUDO bash "$_rt" || { rm -f "$_rt"; no "could not add the LiteSpeed repo"; return 1; }
+      rm -f "$_rt"
+    else rm -f "$_rt"; no "could not download the LiteSpeed repo setup"; return 1; fi
+    _APT_UPDATED=false; _apt_update_once
+  fi
+  # lsphp83 explicitly: OLS's admin console runs on it (admin_php is a symlink into
+  # /usr/local/lsws/lsphp83) and the server FATALLY exits at startup when it's missing —
+  # don't rely on the repo bootstrapper having pulled it. (Sites still use BHServe's php-fpm.)
+  _apt install -y openlitespeed lsphp83 inotify-tools || { no "apt install openlitespeed failed"; return 1; }
+  ols_installed || { no "openlitespeed installed but $LSWS_ROOT/bin/lswsctrl is missing"; return 1; }
+  _ols_configure
+}
+
+# One-time (idempotent) BHServe configuration of a fresh OLS install:
+#  • stop the package's auto-started server (it ships an Example vhost on *:8088)
+#  • take ownership of httpd_config.conf (original backed up) — loopback listener, site user,
+#    BHSERVE-SITES marker block that _ols_sync_config regenerates
+#  • bind the admin console to 127.0.0.1:7080 (never LAN-exposed)
+#  • install + enable the .htaccess watcher unit
+_ols_configure(){
+  local conf="$LSWS_ROOT/conf/httpd_config.conf"
+  if ! $SUDO grep -q "BHSERVE-SITES-BEGIN" "$conf" 2>/dev/null; then
+    # Take over from the package's stock instance: HARD kill (it runs outside systemd — see
+    # _ols_kill), then a later COLD start with our config. Never a graceful restart across the
+    # config change — the listener-address change (loopback rebind) makes graceful die fatally.
+    _ols_kill
+    local u; u="$(_ols_unit)"
+    [ -n "$u" ] && $SUDO systemctl enable "$u" >/dev/null 2>&1 || true
+    $SUDO cp "$conf" "$conf.bhserve-orig" 2>/dev/null || true
+    local tmp; tmp="$(mktemp)"
+    cat > "$tmp" <<OLSCONF
+# BHServe-managed OpenLiteSpeed config (package original: httpd_config.conf.bhserve-orig).
+# Site vhosts + the loopback listener live between the BHSERVE-SITES markers below and are
+# REGENERATED by BHServe on every site change — edit anything else freely.
+serverName                bhserve
+user                      $(_bh_site_user)
+group                     $(_bh_site_group)
+priority                  0
+inMemBufSize              60M
+swappingDir               /tmp/lshttpd/swap
+autoFix503                1
+gracefulRestartTimeout    15
+mime                      conf/mime.properties
+showVersionNumber         0
+adminEmails
+
+errorlog logs/error.log {
+  logLevel                WARN
+  debugLevel              0
+  rollingSize             10M
+  enableStderrLog         1
+}
+accesslog logs/access.log {
+  rollingSize             10M
+  keepDays                7
+  compressArchive         0
+}
+indexFiles                index.php, index.html
+
+expires  {
+  enableExpires           1
+}
+tuning  {
+  maxConnections          2000
+  maxSSLConnections       200
+  connTimeout             300
+  maxKeepAliveReq         1000
+  keepAliveTimeout        5
+  maxReqURLLen            32768
+  maxReqHeaderSize        65536
+  maxReqBodySize          2047M
+  maxDynRespHeaderSize    32768
+  maxDynRespSize          2047M
+  maxCachedFileSize       4096
+  totalInMemCacheSize     20M
+  maxMMapFileSize         256K
+  totalMMapCacheSize      40M
+  useSendfile             1
+  fileETag                28
+  enableGzipCompress      1
+  compressibleTypes       default
+  enableDynGzipCompress   1
+  gzipCompressLevel       6
+}
+fileAccessControl  {
+  followSymbolLink        1
+  checkSymbolLink         0
+  requiredPermissionMask  000
+  restrictedPermissionMask 000
+}
+perClientConnLimit  {
+  staticReqPerSec         0
+  dynReqPerSec            0
+  outBandwidth            0
+  inBandwidth             0
+}
+accessDenyDir  {
+  dir                     /etc/*
+  dir                     /dev/*
+  dir                     conf/*
+  dir                     admin/conf/*
+}
+accessControl  {
+  allow                   ALL
+}
+# BHSERVE-SITES-BEGIN
+# BHSERVE-SITES-END
+OLSCONF
+    $SUDO cp "$tmp" "$conf"; rm -f "$tmp"
+    ok "OpenLiteSpeed config now BHServe-managed (loopback :$OLS_PORT, workers run as $(_bh_site_user))"
+  fi
+  # Admin console: loopback only. (Password stays whatever the package generated — see
+  # $LSWS_ROOT/adminpasswd if it wrote one; the console is optional for BHServe.)
+  local aconf="$LSWS_ROOT/admin/conf/admin_config.conf"
+  if $SUDO grep -qE '^\s*address\s+\*:7080' "$aconf" 2>/dev/null; then
+    $SUDO sed -i 's/^\(\s*address\s\+\)\*:7080/\1127.0.0.1:7080/' "$aconf" || true
+    ok "OLS admin console bound to 127.0.0.1:7080"
+  fi
+  _ols_watcher_install
+}
+
+# The .htaccess watcher: inotify on the sites root; any .htaccess change → graceful OLS restart.
+# Belt-and-suspenders on top of per-vhost autoLoadHtaccess. Root unit (lswsctrl needs root);
+# debounced; exits cleanly when inotify-tools is missing.
+_ols_watcher_install(){
+  local script=/usr/local/lib/bhserve/ols-htaccess-watch.sh
+  local unit=/etc/systemd/system/bhserve-ols-watch.service
+  local sroot; sroot="$(jget sites_root "$HOME/BHServe/www")"
+  # Idempotent + self-updating: skip only when the CURRENT script version is installed AND the
+  # watcher is alive; otherwise (first install, script upgrade, dead unit) (re)deploy + restart.
+  # Called from _ols_apply too, so every site change heals the watcher — bump the V-tag on edits.
+  if [ -f "$script" ] && grep -q "BHSERVE-OLSWATCH-V3" "$script" 2>/dev/null \
+     && systemctl is-active --quiet bhserve-ols-watch 2>/dev/null; then return 0; fi
+  $SUDO mkdir -p /usr/local/lib/bhserve
+  $SUDO tee "$script" >/dev/null <<'WATCH'
+#!/bin/bash
+# BHSERVE-OLSWATCH-V3
+# BHServe: graceful-restart OpenLiteSpeed when any site's .htaccess changes.
+# ⚠️ MUST be monitor mode (-m): single-shot `inotifywait -r` only watches directories that
+# existed when it started — a site created LATER was invisible to it (found the hard way).
+# ⚠️ MUST NOT use --include: with it, events in directories created AFTER start never surface
+# (verified live) — so we take ALL events and filter for .htaccess in the loop instead.
+# If inotifywait ever dies, the pipe ends, we exit, and systemd (Restart=always) relaunches us.
+ROOT="${1:?usage: ols-htaccess-watch.sh <sites-root>}"
+command -v inotifywait >/dev/null 2>&1 || exit 0
+[ -d "$ROOT" ] || exit 0
+inotifywait -m -q -r -e close_write -e create -e delete -e moved_to \
+  --format '%w%f' "$ROOT" 2>/dev/null | while read -r _f; do
+  case "$_f" in */.htaccess) ;; *) continue ;; esac
+  sleep 2                                   # debounce editor save bursts...
+  while read -r -t 0.3 _f; do :; done       # ...and drain whatever queued meanwhile
+  # graceful reload via systemd (keeps the unit tracking the re-exec'd server); direct fallback
+  systemctl reload lshttpd >/dev/null 2>&1 || /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1 || true
+done
+exit 0
+WATCH
+  $SUDO chmod 0755 "$script"
+  $SUDO tee "$unit" >/dev/null <<UNIT
+[Unit]
+Description=BHServe OpenLiteSpeed .htaccess watcher
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$script $sroot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  $SUDO systemctl daemon-reload >/dev/null 2>&1 || true
+  $SUDO systemctl enable bhserve-ols-watch >/dev/null 2>&1 || true
+  # restart (not just enable --now): a running OLD copy of the script must be replaced
+  $SUDO systemctl restart bhserve-ols-watch >/dev/null 2>&1 || true
+  ok ".htaccess watcher installed (graceful OLS reload on change)"
+}
+
+# Per-site OLS vhost config. PHP goes to the site's EXISTING php-fpm pool over its unix
+# socket (UDS) — the same pool nginx-backed sites use. autoLoadHtaccess picks up .htaccess
+# edits without restarts (the watcher covers the rest).
+render_ols_vhost(){
+  local name="$1" domain="$2" root="$3" phpkey="$4"
+  local label sock d="$LSWS_ROOT/conf/vhosts/bhserve-$1"
+  label="$(php_label "$phpkey")"; sock="$(php_sock "$phpkey")"
+  $SUDO mkdir -p "$d"
+  $SUDO tee "$d/vhconf.conf" >/dev/null <<OLSVH
+# BHServe OLS vhost: $name ($domain) php=$phpkey — regenerated on site changes
+docRoot                   $root
+vhDomain                  $domain
+enableGzip                1
+
+errorlog $BH_HOME/logs/$name-ols-error.log {
+  useServer               0
+  logLevel                WARN
+  rollingSize             10M
+}
+accesslog $BH_HOME/logs/$name-ols-access.log {
+  useServer               0
+  rollingSize             10M
+  keepDays                7
+}
+
+index  {
+  useServer               0
+  indexFiles              index.php, index.html, index.htm
+}
+
+scripthandler  {
+  add                     fcgi:bhphp$label php
+}
+
+extprocessor bhphp$label {
+  type                    fcgi
+  address                 UDS:/$sock
+  maxConns                20
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  respBuffer              0
+  autoStart               0
+}
+
+rewrite  {
+  enable                  1
+  autoLoadHtaccess        1
+  logLevel                0
+}
+OLSVH
+  ok "site vhost (OpenLiteSpeed): $d/vhconf.conf"
+}
+
+# nginx front that proxies the whole host to OLS — mirror of the apache front.
+render_nginx_ols_proxy_vhost(){
+  local name="$1" domain="$2" root="$3" phpkey="$4" conf="$BH_HOME/nginx/sites/$1.conf"
+  cat > "$conf" <<NGINX
+# BHServe site: $name  ($domain)  php=$phpkey server=ols
+server {
+$(nginx_listen_block "$domain")
+    server_name $domain;
+    root $root;   # served by OpenLiteSpeed (:$OLS_PORT); kept for tooling/metadata
+
+    access_log $BH_HOME/logs/$name-access.log;
+    error_log  $BH_HOME/logs/$name-error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:$OLS_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 600;
+    }
+}
+NGINX
+  ok "site vhost (nginx→OpenLiteSpeed): $conf"
+}
+
+# Regenerate the BHSERVE-SITES block in httpd_config.conf from the site list (every vhost with
+# server=ols gets a virtualhost def + a listener map). Deterministic — full block rewrite.
+_ols_sync_config(){
+  ols_installed || return 0
+  local conf="$LSWS_ROOT/conf/httpd_config.conf"
+  $SUDO test -f "$conf" || return 0
+  local block maps="" f name domain root
+  block="$(mktemp)"
+  {
+    echo "# BHSERVE-SITES-BEGIN"
+    for f in "$BH_HOME"/nginx/sites/*.conf; do
+      [ -f "$f" ] || continue
+      [ "$(vhost_server "$f")" = ols ] || continue
+      name="$(basename "$f" .conf)"
+      domain="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
+      root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+      printf 'virtualhost bhserve-%s {\n  vhRoot                  %s\n  configFile              conf/vhosts/bhserve-%s/vhconf.conf\n  allowSymbolLink         1\n  enableScript            1\n  restrained              0\n}\n' "$name" "$root" "$name"
+      maps="$maps  map                     bhserve-$name $domain
+"
+    done
+    if [ -n "$maps" ]; then
+      printf 'listener BHServe {\n  address                 127.0.0.1:%s\n  secure                  0\n%s}\n' "$OLS_PORT" "$maps"
+    fi
+    echo "# BHSERVE-SITES-END"
+  } > "$block"
+  local cur new; cur="$(mktemp)"; new="$(mktemp)"
+  $SUDO cat "$conf" > "$cur"
+  awk -v bf="$block" '
+    /# BHSERVE-SITES-BEGIN/ { skip=1; while ((getline line < bf) > 0) print line; next }
+    /# BHSERVE-SITES-END/   { skip=0; next }
+    !skip { print }
+  ' "$cur" > "$new"
+  grep -q "BHSERVE-SITES-BEGIN" "$new" || cat "$block" >> "$new"
+  $SUDO cp "$new" "$conf"
+  rm -f "$block" "$cur" "$new"
+}
+
+# Sync the OLS server config to the current site list and apply it (graceful, or first start).
+_ols_apply(){
+  ols_installed || return 0
+  _ols_watcher_install   # self-heals/updates the watcher (no-op when current + running)
+  _ols_sync_config
+  if ols_running; then ols_reload; else have_ols_sites && ols_start || true; fi
+}
+
+# ── Overrides: teach the shared site verbs the third backend ─────────────────────────────────────
+# render_site_vhost: add the ols branch (nginx/apache branches identical to the shared engine).
+render_site_vhost() {
+  local name="$1" domain="$2" root="$3" phpkey="$4" server="${5:-nginx}"
+  case "$server" in
+    apache)
+      render_apache_vhost "$name" "$domain" "$root" "$phpkey"
+      render_nginx_proxy_vhost "$name" "$domain" "$root" "$phpkey" ;;
+    ols|openlitespeed)
+      render_ols_vhost "$name" "$domain" "$root" "$phpkey"
+      render_nginx_ols_proxy_vhost "$name" "$domain" "$root" "$phpkey" ;;
+    *)
+      render_nginx_php_vhost "$name" "$domain" "$root" "$phpkey" ;;
+  esac
+}
+
+# site add: accept --server ols by creating via the shared path (as nginx — full reuse of
+# provisioning/auto-secure/landing page) then switching the fresh site to OLS.
+eval "$(declare -f site_add | sed '1s/^site_add/_bh_shared_site_add/')"
+site_add(){
+  local want_ols=0 prev="" a; local -a out=()
+  for a in "$@"; do
+    if [ "$prev" = "--server" ] && { [ "$a" = ols ] || [ "$a" = openlitespeed ]; }; then
+      want_ols=1; a=nginx
+    fi
+    out+=("$a"); prev="$a"
+  done
+  if [ "$want_ols" = 1 ]; then ols_install || die "OpenLiteSpeed install failed"; fi
+  _bh_shared_site_add "${out[@]}"
+  if [ "$want_ols" = 1 ]; then site_set_server "$1" ols; fi
+}
+
+# site server: nginx|apache|ols (full replacement — the shared one only knows nginx|apache).
+site_set_server() {
+  [ $# -ge 2 ] || die "usage: bhserve site server <name> <nginx|apache|ols>"
+  local name="$1" newsrv="$2"; valid_site_name "$name"
+  local conf="$BH_HOME/nginx/sites/$1.conf"
+  [ -f "$conf" ] || die "no site '$name'"
+  case "$newsrv" in openlitespeed) newsrv=ols ;; esac
+  case "$newsrv" in nginx|apache|ols) ;; *) die "server must be nginx, apache or ols" ;; esac
+  [ "$newsrv" != apache ] || svc_installed httpd || die "apache needs httpd — bhserve install httpd"
+  if [ "$newsrv" = ols ]; then ols_install || die "OpenLiteSpeed install failed"; fi
+  local domain root php oldsrv
+  oldsrv="$(vhost_server "$conf")"
+  domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
+  [ "$newsrv" = nginx ] && rm -f "$BH_HOME/apache/sites/$name.conf"
+  if [ "$oldsrv" = ols ] && [ "$newsrv" != ols ]; then
+    $SUDO rm -rf "$LSWS_ROOT/conf/vhosts/bhserve-$name" 2>/dev/null || true
+  fi
+  render_site_vhost "$name" "$domain" "$root" "$php" "$newsrv"
+  [ "$newsrv" = apache ] && apache_start >/dev/null 2>&1 || true
+  ok "$name now served by $newsrv"
+  apache_reload
+  if [ "$newsrv" = ols ] || [ "$oldsrv" = ols ]; then _ols_apply; fi
+  maybe_reload_nginx
+}
+
+# site php / site root: after the shared logic re-renders, sync + graceful-reload OLS when the
+# site is OLS-backed (its extprocessor socket / docRoot changed).
+eval "$(declare -f site_set_php | sed '1s/^site_set_php/_bh_shared_site_set_php/')"
+site_set_php(){
+  _bh_shared_site_set_php "$@"; local rc=$?
+  local conf="$BH_HOME/nginx/sites/$1.conf"
+  if [ -f "$conf" ] && [ "$(vhost_server "$conf")" = ols ]; then _ols_apply; fi
+  return $rc
+}
+eval "$(declare -f site_set_root | sed '1s/^site_set_root/_bh_shared_site_set_root/')"
+site_set_root(){
+  _bh_shared_site_set_root "$@"; local rc=$?
+  local conf="$BH_HOME/nginx/sites/$1.conf"
+  if [ -f "$conf" ] && [ "$(vhost_server "$conf")" = ols ]; then _ols_apply; fi
+  return $rc
+}
+
+# site rm: also drop the OLS vhost + resync when the removed site was OLS-backed.
+eval "$(declare -f site_rm | sed '1s/^site_rm/_bh_shared_site_rm/')"
+site_rm(){
+  local _name="" _a _was_ols=0
+  for _a in "$@"; do case "$_a" in --*) ;; *) _name="$_a" ;; esac; done
+  if [ -n "$_name" ] && [ -f "$BH_HOME/nginx/sites/$_name.conf" ] \
+     && [ "$(vhost_server "$BH_HOME/nginx/sites/$_name.conf")" = ols ]; then _was_ols=1; fi
+  _bh_shared_site_rm "$@"; local rc=$?
+  if [ "$_was_ols" = 1 ]; then
+    $SUDO rm -rf "$LSWS_ROOT/conf/vhosts/bhserve-$_name" 2>/dev/null || true
+    _ols_apply
+  fi
+  return $rc
+}
+
+# start/stop: `bhserve start|stop ols`, OLS joins `start all` (when it has sites) + `stop all`.
+eval "$(declare -f start_all | sed '1s/^start_all/_bh_shared_start_all/')"
+start_all(){
+  _bh_shared_start_all "$@"; local rc=$?
+  have_ols_sites && ols_start >/dev/null 2>&1 || true
+  return $rc
+}
+eval "$(declare -f cmd_start | sed '1s/^cmd_start/_bh_shared_cmd_start/')"
+cmd_start(){
+  case "${1:-}" in ols|openlitespeed) ols_start; return $? ;; esac
+  _bh_shared_cmd_start "$@"
+}
+eval "$(declare -f cmd_stop | sed '1s/^cmd_stop/_bh_shared_cmd_stop/')"
+cmd_stop(){
+  case "${1:-}" in
+    ols|openlitespeed) ols_stop; return $? ;;
+    all) _bh_shared_cmd_stop "$@"; local rc=$?; ols_running && ols_stop >/dev/null 2>&1 || true; return $rc ;;
+  esac
+  _bh_shared_cmd_stop "$@"
 }
 
 # Linux-only verb, not in the shared dispatch: intercept it here (platform-linux.sh is sourced just

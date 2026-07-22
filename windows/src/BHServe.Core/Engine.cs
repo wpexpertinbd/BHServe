@@ -255,10 +255,26 @@ public sealed class Engine
         var cfg = Config.Load();
         if (svc is "all" or "")
         {
+            // ⚠️ Start the WEB SERVERS FIRST, before php. nginx/apache don't need php up to start (they
+            // just 502 until a php port answers), and starting them first means NO php problem can ever
+            // leave every site down. php then comes up (and the heal loop warms ionCube) behind them.
+            if (Services.Enabled("apache", cfg) && Tools.HttpdExe() is not null)
+            { try { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); } catch (Exception e) { Warn($"apache: {e.Message}"); } }
+            if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null)
+            { try { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); } catch (Exception e) { Warn($"nginx: {e.Message}"); } }
+
             // Start every ACTIVE php version: the ones sites use + the ones the user starred (★).
+            // ⚠️ Each start is isolated in try/catch: a single php version that fails to spawn must
+            // NEVER abort this loop. (PhpCgi.Start spawns directly now and can throw.)
             foreach (var v in ActivePhpVersions(cfg))
-                if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
-                else Warn($"php {v} not installed — bhserve install php@{v}");
+            {
+                try
+                {
+                    if (PhpCgi.Start(v)) Ok($"php-cgi {v} on :{PhpCgi.PortFor(v)}");
+                    else Warn($"php {v} not installed — bhserve install php@{v}");
+                }
+                catch (Exception e) { Warn($"php {v} failed to start: {e.Message}"); }
+            }
 
             if ((Services.Enabled("mariadb", cfg) || Services.Enabled("mysql", cfg)) && Tools.MysqldExe() is not null && !DbServer.Running())
             {
@@ -270,8 +286,7 @@ public sealed class Engine
             if (Services.Enabled("redis", cfg) && Tools.RedisServerExe() is not null && Redis.Start()) Ok($"redis on :{Redis.Port}");
             if (Services.Enabled("memcached", cfg) && Tools.MemcachedExe() is not null && Memcached.Start()) Ok($"memcached on :{Memcached.Port}");
             if (Services.Enabled("mailpit", cfg) && Tools.MailpitExe() is not null && MailpitServer.Start()) Ok($"mailpit on UI :{MailpitServer.UiPort}");
-            if (Services.Enabled("apache", cfg) && Tools.HttpdExe() is not null) { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
-            if (Services.Enabled("nginx", cfg) && Tools.NginxExe() is not null) { var (ok, msg) = Nginx.Start(cfg); if (ok) Ok(msg); else Warn(msg); }
+            // (nginx + apache were already started FIRST, above, so a php problem can't take sites down.)
             return;
         }
         // python (and fnm/node) are TOOLS, not daemons — "active once installed", nothing to start.
@@ -373,6 +388,10 @@ public sealed class Engine
             var start = DateTime.UtcNow;
             var delayMs = 12000;                        // 12s → grows to 60s between passes
             var pass = 0;
+            // Before any respawn passes: a version whose configured loader DLL is MISSING on disk can
+            // never be fixed by respawning — re-install the loader first (the actual 2026-07 root cause).
+            foreach (var v in versions)
+                try { ReinstallIonCubeIfDllMissing(v); } catch { }
             while ((DateTime.UtcNow - start).TotalSeconds < maxSeconds)
             {
                 pass++;
@@ -397,6 +416,71 @@ public sealed class Engine
         }
         finally { mutex.ReleaseMutex(); }
     }
+    /// <summary>⭐ If a version's ini points at an ionCube loader DLL that does NOT exist on disk,
+    /// re-run the full loader install (download + extract + rewrite the ini). THE actual fix for the
+    /// long "ionCube never loads" saga: the referenced DLL was simply missing from the real filesystem,
+    /// so respawning php forever could never help — the FILE had to be (re)installed. Also covers a
+    /// user machine where the AV quarantines the (unsigned) loader DLL. Returns true if it reinstalled.</summary>
+    private bool ReinstallIonCubeIfDllMissing(string v)
+    {
+        var missing = PhpCgi.MissingIonCubeDll(v);
+        if (missing is null) return false;
+        PhpCgi.HealLog($"php {v}: configured ionCube loader DLL is MISSING on disk ({missing}) — re-installing");
+        try
+        {
+            Php.Ioncube(v, m => PhpCgi.HealLog($"php {v}: {m}"));
+            return true;
+        }
+        catch (Exception e)
+        {
+            PhpCgi.HealLog($"php {v}: ionCube re-install FAILED: {e.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>USER-TRIGGERED "Enable ionCube" — the reliable warm path. For every active PHP version
+    /// that has ionCube configured: if the loader DLL file is missing, re-install it first; then verify
+    /// the running workers actually loaded it and respawn (up to 3 quick tries) until they do. A DIRECT
+    /// one-shot — no persistent loop, no shared mutex — so it can NEVER get stuck, and it can't be
+    /// blocked by a stuck heal. All operations are bounded (VerifyIonCube + the time-capped Stop).
+    /// Returns a per-version summary. `quiet` marks the auto-run-on-app-open path in the log.</summary>
+    public (bool ok, string summary) EnableIonCube(bool quiet = false)
+    {
+        NeedInit();
+        var cfg = Config.Load();
+        var versions = ActivePhpVersions(cfg).Where(PhpCgi.HasIonCube).ToList();
+        if (versions.Count == 0) return (true, "No PHP version has ionCube configured.");
+        var parts = new System.Collections.Generic.List<string>();
+        var allOk = true;
+        var changed = false;
+        foreach (var v in versions)
+        {
+            if (ReinstallIonCubeIfDllMissing(v)) changed = true;   // missing FILE → re-install, not respawn
+            var ok = PhpCgi.VerifyIonCube(v);
+            for (var a = 0; a < 3 && !ok; a++) { changed = true; PhpCgi.HealOnce(v); ok = PhpCgi.VerifyIonCube(v); }
+            parts.Add($"PHP {v} {(ok ? "✓" : "✗")}");
+            if (!ok) allOk = false;
+        }
+        var summary = string.Join("   ", parts);
+        PhpCgi.HealLog($"EnableIonCube ({(quiet ? "auto" : "manual")}{(changed ? ", healed" : "")}): {summary}");
+        return (allOk, summary);
+    }
+
+    /// <summary>READ-ONLY: are all ionCube-configured PHP versions' running workers actually loading it?
+    /// No spawning — a cheap health probe used by the app's auto-check and the Dashboard button.</summary>
+    public bool IonCubeAllHealthy()
+    {
+        try
+        {
+            NeedInit();
+            var cfg = Config.Load();
+            foreach (var v in ActivePhpVersions(cfg).Where(PhpCgi.HasIonCube))
+                if (!PhpCgi.VerifyIonCube(v)) return false;
+            return true;
+        }
+        catch { return true; }   // never nag on an error
+    }
+
     public void Enable(string svc)  { NeedInit(); Services.Enable(svc, Config.Load()); Ok($"{svc} will auto-start"); }
     public void Disable(string svc) { NeedInit(); Services.Disable(svc, Config.Load()); Ok($"{svc} won't auto-start"); }
 
@@ -465,7 +549,11 @@ public sealed class Engine
         if (server == "apache")
         {
             Apache.RenderVhost(name, domain, root, phpKey, cfg);
-            var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg);
+            // Apache.Start() NO-OPS when httpd is already running — so the SECOND (and every later)
+            // Apache-backed site was never loaded into the running Apache: its requests fell through
+            // to the first loaded vhost (another site!) until a manual restart. Reload when running.
+            if (Apache.Running()) { Apache.Reload(); Ok("apache reloaded (new vhost)"); }
+            else { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
             NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
         }
         else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);

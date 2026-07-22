@@ -30,44 +30,31 @@ public partial class App : Application
             try { BHServe.Core.SiteDbHostFix.Run(BHServe.Core.Config.Load().SitesRoot); } catch { }
         });
 
-        // One-time cleanup: remove the old BHServeHeal scheduled task from 1.0.44–46 (it caused a
-        // visible CMD popup at login). No new task is created — see below for the real fix.
+        // One-time cleanup: remove the old scheduled tasks from earlier builds — BHServeHeal
+        // (1.0.44–46, caused a visible CMD popup at login) and BHServeIonRestart (1.0.57-era
+        // experiment; the real ionCube cause was a missing loader DLL, no task needed).
         System.Threading.Tasks.Task.Run(() =>
         {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                { FileName = "schtasks.exe", Arguments = "/Delete /F /TN BHServeHeal",
-                  UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
+            foreach (var tn in new[] { "BHServeHeal", "BHServeIonRestart" })
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    { FileName = "schtasks.exe", Arguments = $"/Delete /F /TN {tn}",
+                      UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000); } catch { }
         });
 
-        // Bring services up on launch, then GUARANTEE ionCube. THE reboot fix: on a cold boot the
-        // ionCube Loader's VC-runtime dependency fails to resolve for php-cgi's workers during the
-        // first minutes of the session (PROVEN: a spawn at +75s comes up without ionCube, the same
-        // spawn minutes later comes up WITH it) — and those failed workers never self-correct. We
-        // can't reliably predict the "warm enough" moment, so instead of a fixed delay we keep
-        // re-checking and respawning php until ionCube actually loads. nginx/DB come up right away
-        // (only a small settle when autostarted); the heal loop is fully in-process — no console
-        // window, no scheduled task — and no-ops the instant every version reports ionCube.
+        // Bring services up on launch (fast reachability), then — once the boot storm settles — verify
+        // ionCube actually loaded in the workers and heal if not (re-installs the loader DLL when the
+        // file itself is missing; respawns cold workers otherwise). Fully in-process.
         if (BHServe.Core.Config.Load().StartServicesOnLaunch)
             System.Threading.Tasks.Task.Run(async () =>
             {
                 if (startInTray) await System.Threading.Tasks.Task.Delay(15_000);   // brief settle after login
                 try { BHServe.App.Services.EngineHost.Instance.Engine.Start("all"); } catch { }
-                // Run the ionCube heal loop in an INVISIBLE console helper (bhserve.exe __heal-loop),
-                // NOT in-process: (1) a console-spawned php-cgi loads ionCube once the session is warm
-                // (proven), (2) a console reliably writes logs/php-heal.log, (3) it can't wedge the GUI.
-                // CreateNoWindow => no popup (same as the php-cgi helpers, which the user never sees).
+
+                await System.Threading.Tasks.Task.Delay(startInTray ? 90_000 : 5_000);
                 try
                 {
-                    var cli = System.IO.Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
-                    if (System.IO.File.Exists(cli))
-                    {
-                        BHServe.Core.PhpCgi.HealLog($"app: launching heal-loop helper (tray={startInTray})");
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = cli, Arguments = "__heal-loop 1800",
-                            UseShellExecute = false, CreateNoWindow = true,
-                        });
-                    }
+                    var eng = BHServe.App.Services.EngineHost.Instance.Engine;
+                    if (!eng.IonCubeAllHealthy()) eng.EnableIonCube(quiet: true);
                 }
                 catch { }
             });
@@ -82,4 +69,5 @@ public partial class App : Application
         Window?.QuitForUpdate();
         Application.Current.Exit();
     }
+
 }

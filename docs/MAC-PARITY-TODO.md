@@ -2,41 +2,53 @@
 
 ---
 
-## 📬 NOTE TO MAC CLAUDE — branch divergence, let's converge on ONE branch (2026-07-22, from Windows/Linux Claude)
+## 📬 NOTE TO MAC CLAUDE — I merged master into windows-port-cli; PR is open, here's exactly what I did and why (2026-07-22, W/L Claude)
 
-**The problem.** `master` (yours) and `windows-port-cli` (mine) split at `c40c755` (2026-07-19)
-and have been evolving in parallel over the SAME files: since the split, master has ~4 commits we
-don't have (your v1.7.7/v1.7.8 ionCube work in `engine/bhserve`, plus follow-ups) and
-windows-port-cli has ~17 commits you don't have. The dangerous part: **both of us ship Linux from
-different branches.** You've landed Linux-affecting fixes on master; meanwhile every `linux-v1.0.4x`
-release (latest: `linux-v1.0.42`, which adds a full **OpenLiteSpeed backend** — see
-`linux/engine/DELTAS.md`) builds from windows-port-cli, so YOUR linux fixes never shipped and MY
-linux/windows work isn't on the default branch that community PRs target (there are 2 open PRs from
-`plusemon` right now, based on master). GitHub's "Compare & pull request" banner has been nudging
-Benjamin about exactly this.
+**Why.** Our branches split at `c40c755` (2026-07-19) and evolved in parallel over the same tree:
+your side added the v1.7.7/v1.7.8 ionCube work (`engine/bhserve` + `macos/` build scripts + docs);
+my side added ~17 commits (Windows 1.0.58–61: the ionCube missing-DLL root cause + self-heal, JIT
+crash fix, PHP CA bundle, session/temp pinning, Apache-reload-on-site-add; Linux 1.0.41: the
+ionCube Linux-loader override; Linux 1.0.42: a full **OpenLiteSpeed backend**). Each of us was
+shipping releases from a history the other couldn't see, and community PRs (2 open from `plusemon`)
+target master, which lacked all my work. Benjamin approved converging on ONE branch.
 
-**What I think is best (Benjamin asked me to propose):**
-1. **I do the merge** — `origin/master` → `windows-port-cli` on my side, since my delta is the big
-   one and the likely conflicts are in files I authored (`engine/platform-linux.sh` — my OLS/ionCube
-   sections vs your `nginx_restart` work; `docs/MAC-PARITY-TODO.md` — both append; the `app/` →
-   `macos/` rename should auto-merge since I never touch that tree). I'll verify the Windows build +
-   the Linux .deb in WSL after the merge.
-2. **Then a PR windows-port-cli → master.** You review the mac-side surface (anything touching
-   `engine/bhserve` — I have NOT modified it in this window, my engine work is all in
-   `platform-linux.sh` overrides — plus docs), sanity-build macOS, and merge.
-3. **After the merge: we BOTH work on `master` and `windows-port-cli` is deleted.** Same model as
-   the bangla-keyboard repo: `git fetch` + rebase before pushing, one branch, per-OS tags
-   (`v*` mac / `win-v*` / `linux-v*`) and the one-release-per-OS policy unchanged.
-4. **Until the merge lands, please hold off on further `engine/` or `linux/` changes on master**
-   (macOS-app-only work in `macos/` is no risk). I'll do the same in reverse and keep my changes
-   staged locally.
-5. Ongoing coordination stays as-is: this file for Windows→Mac handoffs, `linux/engine/DELTAS.md`
-   for the Linux delta layer, and commit messages that name the OS + version.
+**What I did (merge commit `a653352` on `windows-port-cli`, now PR'd to master):**
+1. Merged `origin/master` → `windows-port-cli`. Almost everything auto-merged because we changed
+   disjoint files. **Your `engine/bhserve` came through byte-identical to master's tip — I have made
+   zero changes to it**, so the macOS surface of this PR is exactly the master you already ship.
+2. **One conflict**, `linux/engine/DELTAS.md`, and it was a happy one: your v1.7.7 commit added a
+   TODO sketch ("§8: override php_ioncube for Linux") for exactly the override I had already shipped
+   as linux-v1.0.41. Resolution: kept my implemented sections and converted your §8 into a ✅-done
+   marker that records how your two cross-platform hints are covered — (a) ionCube-before-opcache is
+   solved via the DISTRO conf.d (`00-bhserve-ioncube.ini` sorts before `10-opcache.ini`; on Debian
+   the compiled-in scan dir is read regardless, so the `PHP_INI_SCAN_DIR="$cd_dir:"` trailing-colon
+   trick isn't sufficient there), and (b) the Linux `php_mm` never executes PHP (key → version), so
+   8.5 startup-deprecation output can't pollute it. Nothing of yours was dropped.
+3. **Verified the merged result:** bash syntax on both engine files; full Linux functional pass in
+   WSL2 Ubuntu with the merged engine — `php status` shows ionCube loaded on 7.4–8.4, and a fresh
+   `site add --server ols` serves PHP end-to-end (nginx → OLS → php-fpm), then clean removal.
+   Windows code was untouched by the merge (only my side changed it post-split).
 
-If you'd rather run the merge yourself from the mac side, that's fine too — everything you need to
-reconcile my side is documented in `linux/engine/DELTAS.md` (OpenLiteSpeed section is the newest and
-biggest) and the win-v1.0.58–61 sections below. Just don't let us keep shipping from parallel
-universes. — W/L Claude
+**What I need from you:**
+1. Check out the PR branch, build/run the macOS app once (expected zero risk — your files are
+   byte-identical — but verify, don't trust).
+2. Merge the PR, then **delete `windows-port-cli`**.
+3. From then on **we both work on `master` only**: `git fetch` + rebase before pushing (the model
+   that already works on the bangla-keyboard repo), per-OS tags (`v*` / `win-v*` / `linux-v*`) and
+   the one-release-per-OS policy unchanged, coordination via this file + `linux/engine/DELTAS.md`
+   as before. Single branch = this class of drift can't recur.
+4. The two `plusemon` PRs (subdomain management; open-site-config menu item) will need a rebase
+   review after the merge — whichever of us gets there first.
+
+**Heads-up — `master` is now protected (2026-07-22).** Benjamin enabled a branch ruleset
+(`protect-master`, active, targets the default branch): **force-pushes and branch deletion are
+BLOCKED on master** — no bypass list, so it applies to us too. Normal pushes/merges are unaffected;
+it changes nothing about the fetch-rebase-push workflow. If a history rewrite is ever truly needed
+(e.g. scrubbing a leaked secret), Benjamin must temporarily disable the ruleset in
+Settings → Rules → Rulesets. No PR requirement and no status checks were enabled — direct pushes to
+master stay fine for both of us.
+
+— W/L Claude
 
 ---
 
@@ -573,32 +585,97 @@ site like `api.foo.test` now re-renders correctly on secure).
 
 ---
 
-## win-v1.0.50 — ionCube reboot reliability (Windows-specific; verify Mac is unaffected)
+## ionCube on Windows — FINAL (win-v1.0.58). ⚠️ Earlier 1.0.44–1.0.57 entries were WRONG and are removed
 
-**1.0.50 update — the real freeze:** after more reboots still failing, live diagnosis found the heal loop
-was wedging in `PhpCgi.Stop()`, which reads `Process.MainModule.FileName` for every php-cgi to kill
-orphans — at cold boot (~78 churning php-cgi under I/O contention) that Win32 call HANGS (it's instant
-warm, so every warm test passed). Fix: time-bound each MainModule read (400ms) + cap the orphan scan (3s)
-so `Stop()` can never wedge; robust log writes so boot lines aren't lost. The invisible-console-helper +
-fast-direct-respawn design from 1.0.49 is kept. **Mac note:** the analogous risk is any per-process
-inspection in the Mac stop/restart path (reading a proc's exe path over many procs) — if the Mac ever
-adds one, bound it. The temporal ionCube retry itself is still expected to be a no-op on macOS (dyld
-resolves the loader's deps regardless of session warmth).
+**Correction:** this file previously carried entries (win-v1.0.47/48/49/50) claiming the after-reboot
+ionCube failure was *temporal* — "cold php-cgi can't resolve the loader's VC-runtime dependency (err
+126); a warm respawn loads it". That analysis was wrong, contaminated by the dev environment: the dev
+shell ran inside an MSIX-packaged app whose AppData writes are virtualized, so the ionCube loader DLLs
+existed only in that package's private store. Dev-spawned php saw the DLLs (tests "passed"); the app /
+Task Scheduler / the real user never had the file at all. The "boot-vs-warm A/B proof" was actually
+comparing dev-context spawns vs real-context spawns.
 
-## win-v1.0.48 — ionCube reboot reliability (superseded by 1.0.49)
+**The one real root cause:** `php.ini` referenced an ionCube loader DLL **file that did not exist on
+the real filesystem**. Respawning PHP can never fix a missing file — which is why every retry/delay/
+console/environment scheme across 1.0.44–1.0.57 failed.
 
-**Windows symptom + fix (supersedes the 1.0.47 75s-delay attempt):** ionCube-encoded sites lost the
-Loader after a reboot because php-cgi's workers, spawned in the first *minutes* of a cold session,
-can't resolve the ionCube loader's VC-runtime dependency (error 126) and never self-correct. Proven
-purely temporal by a boot-vs-warm A/B: a worker spawned at +75s → no ionCube; the same version
-respawned minutes later (warm) → ionCube loads. So there's no static/one-shot fix. Fix =
-`Engine.PhpHealUntilHealthy()`: after `Start("all")`, keep verifying + respawning any php version that
-lacks ionCube (growing delay 12s→60s, up to 20 min) until all load it — fully in-process, **no console
-window, no scheduled task**, no-ops once healthy. (All the older heal machinery — 5-pass scheduler,
-UI-timer, `BHServeHeal` schtask + CMD popup, `boot-heal.cmd` — was already removed.)
+**Fix shipped in win-v1.0.58:**
+- `PhpCgi.MissingIonCubeDll(version)` — parse the ini's `zend_extension=…ioncube…` path; report when
+  the FILE is absent.
+- `Engine.ReinstallIonCubeIfDllMissing` — missing file → re-download + re-extract the loader bundle +
+  rewrite the ini (also purges a stale/partially-extracted loader-bundle cache before giving up).
+  Called first by `EnableIonCube` (app launch + window-open auto-check) and by the boot heal loop;
+  only then verify workers / respawn. Covers real-user cases too: AV-quarantined or deleted loader
+  DLLs, interrupted installs.
+- Removed the Scheduled-Task restart machinery (BHServeIonRestart) and the dashboard "Enable ionCube"
+  button — healing is fully automatic and silent.
+- `PhpHealUntilHealthy` remains as a plain verify-and-respawn safety net after `Start("all")` (no-ops
+  once healthy).
 
-**macOS action:** likely **NONE** — this is a Windows DLL-dependency-resolution-during-cold-boot issue;
-macOS launchd + dyld resolve the ionCube `.so` deps regardless of session warmth. Just **confirm** on a
-Mac reboot that an ionCube-encoded site (e.g. a WHMCS install) reports the Loader active right after
-login. If it ever DOESN'T, the analogous fix is a launchd-side "verify workers → restart php until the
-Loader is present" retry, not a fixed delay.
+**Still true from that era (kept):** `PhpCgi.Stop()` used to wedge reading `Process.MainModule.FileName`
+across ~78 churning php-cgi processes at cold boot; it now time-bounds each read (400ms) and caps the
+orphan scan (3s). **Mac note:** if the Mac stop/restart path ever inspects many processes' exe paths,
+bound those reads the same way.
+
+**macOS actions:**
+1. Add the same self-heal — before verifying/restarting php over ionCube, check the `zend_extension`
+   path in the loaded ini actually EXISTS on disk; if not, re-run the ionCube install (download + ini
+   rewrite) instead of restarting php.
+2. Nothing else — the temporal/cold-boot theory is retracted, so there is no "warm-up retry" behavior
+   to port.
+
+## win-v1.0.59 — OPcache JIT disabled (php-cgi workers crashed under real apps)
+
+`opcache.jit = tracing` (BHServe's own php.ini tuning) crashed PHP 8.4 php-cgi workers with
+`0xc0000005` mid-request under a Filament/Livewire admin panel → intermittent 502s on that site only.
+It only ever ran on versions WITHOUT ionCube (the loader force-disables JIT), which is why
+ionCube-configured versions never crashed. Verified: JIT off → 0 crashes under a 40-request hammer
+(was ~10/hour). New defaults in `PhpCgi.Limits`: `opcache.jit = disable`, `opcache.jit_buffer_size = 0`
+— OPcache itself (the real perf win) stays on.
+
+**macOS action:** check whether the Mac engine's php.ini/FPM tuning enables `opcache.jit`; if it does,
+disable it the same way (keep OPcache). JIT's web-app gain is minor and worker crashes surface as
+random 502s that look like an app bug.
+
+## win-v1.0.60 — PHP CA bundle (curl error 60 on all PHP HTTPS calls)
+
+Windows PHP ships with NO CA bundle, so every PHP curl/openssl HTTPS call that verifies certificates
+failed with "unable to get local issuer certificate" (curl error 60) — surfaced as the WHMCS
+"LICENSING ERROR" page (its license phone-home), and would equally break payment gateways / any API
+SDK. Laragon + XAMPP ship a cacert.pem; now BHServe does too: `EnsureCaBundle` downloads the Mozilla
+bundle (curl.se/ca/cacert.pem, sanity-checked) to `bin\cacert.pem` once, and the php.ini tuner wires
+`curl.cainfo` + `openssl.cafile` to it for every version. Offline-safe (retries on later spawns;
+never points ini at a missing file).
+
+**macOS action:** brew PHP normally gets a CA bundle via brew's openssl/ca-certificates — VERIFY with
+`php -r 'var_dump(ini_get("openssl.cafile"), ini_get("curl.cainfo"));'` + a live
+`curl_exec` to an https URL. **Linux note (done differently):** distro PHP uses the system
+ca-certificates store natively — fine; but the static-php fallback builds may lack a default CA path —
+worth the same live-probe check there (would need the same ini wiring to /etc/ssl/certs/ca-certificates.crt).
+
+## win-v1.0.60 (part 2) — pin PHP sessions/uploads/temp to a writable BHServe dir
+
+A WHMCS copied from a cPanel server showed "PHP session storage is not writeable": the site's
+`.user.ini` carried `session.save_path=/tmp` (Linux path), and worse, with save_path unset PHP falls
+back to the worker's TEMP env — which can be missing in service-context workers (GetTempPath then
+returns C:\Windows, not user-writable). EnsureLimits now pins `session.save_path` (tmp\php-sessions),
+`upload_tmp_dir` and `sys_temp_dir` to BHServe's tmp in every php.ini. Site-level fix for imports:
+comment out `session.save_path` in the copied `.user.ini` (it overrides php.ini per-site).
+
+**macOS action:** the Mac engine's FPM pools — verify session.save_path/upload_tmp_dir point at a
+BHServe-writable dir (brew PHP defaults may rely on /var/tmp — usually fine on mac, but pinning to
+~/.bhserve/tmp is the same robustness win, and imported-site `.user.ini` Linux paths can bite there
+too, e.g. /tmp exists but per-site paths like /var/cpanel/... don't).
+
+## win-v1.0.61 — Apache-backed site add never reloaded Apache
+
+Adding a site with the Apache backend called `Apache.Start()`, which no-ops when httpd is already
+running — so the FIRST Apache site worked (it started Apache) but every LATER one was never loaded:
+its requests fell through to Apache's first loaded vhost (another site — e.g. a WHMCS that then
+redirected to its own domain). Site-delete and server-switch already reloaded; only add forgot.
+Fix: after rendering the vhost, `Apache.Running() ? Reload() : Start()`. Verified E2E: second
+Apache site (php 7.4) serves correct PHP immediately after add, existing sites untouched.
+
+**macOS action:** check the Mac engine's site-add path for the same pattern — if the Apache (or any
+secondary backend) start step is a no-op when already running, the new vhost needs an explicit
+reload in site-add, not just in delete/switch.

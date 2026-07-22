@@ -28,6 +28,43 @@ try
         // Hidden: the GUI delegates php-cgi startup here so the worker is a child of THIS plain
         // console (where ionCube loads) instead of the WinUI app (where it silently doesn't).
         case "__spawn-php": PhpCgi.SpawnWorker(Arg(rest, 0)); break;
+        // Hidden: DIAGNOSTIC — dump how THIS process resolves paths + whether it can write the heal log,
+        // to %TEMP%\bhdiag-<pid>.txt. Lets us compare an app-launched context vs a console-launched one.
+        case "__diag":
+        {
+            var lines = new System.Text.StringBuilder();
+            void L(string s) => lines.AppendLine(s);
+            try { L($"pid={Environment.ProcessId}"); } catch (Exception e) { L($"pid ERR {e.Message}"); }
+            try { L($"cwd={Environment.CurrentDirectory}"); } catch (Exception e) { L($"cwd ERR {e.Message}"); }
+            try { L($"LOCALAPPDATA={Environment.GetEnvironmentVariable("LOCALAPPDATA")}"); } catch { }
+            try { L($"OutputRedirected={Console.IsOutputRedirected} ErrorRedirected={Console.IsErrorRedirected}"); } catch (Exception e) { L($"redir ERR {e.Message}"); }
+            try { L($"Paths.Home={BHServe.Core.Paths.Home}"); } catch (Exception e) { L($"Home ERR {e.GetType().Name} {e.Message}"); }
+            try { L($"Paths.Logs={BHServe.Core.Paths.Logs}"); } catch (Exception e) { L($"Logs ERR {e.GetType().Name} {e.Message}"); }
+            try { L($"Paths.ConfigJson={BHServe.Core.Paths.ConfigJson} exists={System.IO.File.Exists(BHServe.Core.Paths.ConfigJson)}"); } catch (Exception e) { L($"Config ERR {e.GetType().Name} {e.Message}"); }
+            // The exact write the heal log does:
+            try
+            {
+                System.IO.Directory.CreateDirectory(BHServe.Core.Paths.Logs);
+                var p = System.IO.Path.Combine(BHServe.Core.Paths.Logs, "php-heal.log");
+                using var fs = new System.IO.FileStream(p, System.IO.FileMode.Append, System.IO.FileAccess.Write, System.IO.FileShare.ReadWrite);
+                var b = System.Text.Encoding.UTF8.GetBytes($"{DateTime.Now:HH:mm:ss} [{Environment.ProcessId}] __diag test-write OK{Environment.NewLine}");
+                fs.Write(b, 0, b.Length);
+                L("heal-log write=OK");
+            }
+            catch (Exception e) { L($"heal-log write=FAIL {e.GetType().Name}: {e.Message}"); }
+            try
+            {
+                var outp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"bhdiag-{Environment.ProcessId}.txt");
+                System.IO.File.WriteAllText(outp, lines.ToString());
+            }
+            catch { }
+            break;
+        }
+        // Enable/reload the ionCube loader on all active PHP versions (the warm, reliable path — same
+        // as the Dashboard "Enable ionCube" button). Prints a per-version summary.
+        case "ioncube" when Arg(rest, 0) is "enable" or "reload" or "":
+        case "enable-ioncube":
+        { var (_, summary) = engine.EnableIonCube(); Console.WriteLine(summary); break; }
         // Hidden: single verify-and-heal pass (respawns any php version whose workers lack ionCube).
         case "__heal-php": engine.PhpHealPass(); break;
         // Hidden: the reboot heal LOOP — keep respawning until every php version loads ionCube (or the

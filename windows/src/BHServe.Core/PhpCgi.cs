@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -32,13 +33,56 @@ public static class PhpCgi
 
     public static PhpRun? Info(string version)
     {
-        try
+        var f = RunFile(version);
+        // ⚠️ Share-tolerant read. The dashboard's 2s status refresh reads EVERY runfile via this method;
+        // if it opens php-<v>.json without allowing concurrent write/DELETE, a simultaneous Stop()/spawn
+        // (e.g. the "Enable ionCube" button respawning) fails with "being used by another process" — which
+        // made the respawn fail and ionCube report ✗ while the app was running (fine with the app stopped).
+        for (var t = 0; t < 3; t++)
         {
-            var f = RunFile(version);
-            if (!File.Exists(f)) return null;
-            return JsonSerializer.Deserialize<PhpRun>(File.ReadAllText(f));
+            try
+            {
+                if (!File.Exists(f)) return null;
+                using var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var sr = new StreamReader(fs);
+                return JsonSerializer.Deserialize<PhpRun>(sr.ReadToEnd());
+            }
+            catch (IOException) { System.Threading.Thread.Sleep(25); }
+            catch { return null; }
         }
-        catch { return null; }
+        return null;
+    }
+
+    /// <summary>Write a version's runfile, tolerating concurrent readers (the 2s status refresh) and
+    /// retrying on a transient lock so a spawn's bookkeeping can't be lost to a race.</summary>
+    private static void WriteRunFile(string version, PhpRun run)
+    {
+        var f = RunFile(version);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(run));
+        for (var t = 0; t < 8; t++)
+        {
+            try
+            {
+                Directory.CreateDirectory(Paths.Run);
+                using var fs = new FileStream(f, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                fs.Write(bytes, 0, bytes.Length);
+                return;
+            }
+            catch (IOException) { System.Threading.Thread.Sleep(40); }
+            catch { return; }
+        }
+    }
+
+    /// <summary>Delete a version's runfile, retrying past a transient reader lock.</summary>
+    private static void DeleteRunFile(string version)
+    {
+        var f = RunFile(version);
+        for (var t = 0; t < 8; t++)
+        {
+            try { if (File.Exists(f)) File.Delete(f); return; }
+            catch (IOException) { System.Threading.Thread.Sleep(40); }
+            catch { return; }
+        }
     }
 
     public static bool Running(string version)
@@ -53,48 +97,13 @@ public static class PhpCgi
     public static bool Start(string version)
     {
         if (Running(version)) return true;
-        // ⚠️ THE ionCube-in-php-cgi ROOT CAUSE (win-v1.0.38): when the WinUI3 GUI process
-        // (BHServe.App) spawns php-cgi, its worker children SILENTLY FAIL to load zend_extensions
-        // like ionCube — a WinUI3/WindowsAppSDK process-context quirk. Proven exhaustively: a plain
-        // console process (the bhserve.exe CLI, a bare .NET console, even Python) spawning the SAME
-        // php-cgi with the SAME env/args loads ionCube fine; only GUI-spawned workers fail. So when
-        // we're the GUI, DELEGATE the real spawn to the plain bhserve.exe CLI; when we're already a
-        // console (the CLI itself, incl. the hidden __spawn-php verb), spawn directly.
-        if (IsGuiProcess()) return SpawnViaCli(version);
+        // Always spawn php-cgi DIRECTLY (in this process). History: win-v1.0.38 thought "the WinUI GUI
+        // can't spawn ionCube-capable workers" and delegated to a child bhserve.exe (__spawn-php). The
+        // real cause was a stripped Path/SystemRoot, now rebuilt in SpawnOnce — and PROVEN: the app's own
+        // in-process spawn produces php that loads ionCube. Meanwhile the child-bhserve.exe path proved
+        // UNRELIABLE when launched by the WinUI app at boot (it hung / silently did nothing). So no child
+        // helper — spawn here, whether we're the GUI app or the console CLI.
         return SpawnWorker(version);
-    }
-
-    /// <summary>True when we're running inside the WinUI GUI (BHServe.App) rather than the console CLI.</summary>
-    private static bool IsGuiProcess()
-    {
-        try { return Process.GetCurrentProcess().ProcessName.Equals("BHServe.App", StringComparison.OrdinalIgnoreCase); }
-        catch { return false; }
-    }
-
-    /// <summary>GUI path: run `bhserve.exe __spawn-php &lt;version&gt;` so php-cgi is a child of the plain
-    /// console (where ionCube loads), then confirm via the runfile. No handle inheritance / no window
-    /// so nothing of the GUI's process context leaks into the CLI or its php-cgi grandchildren.</summary>
-    private static bool SpawnViaCli(string version)
-    {
-        try
-        {
-            var cli = Path.Combine(AppContext.BaseDirectory, "bhserve.exe");
-            if (!File.Exists(cli))
-            { Heal($"gui: bhserve.exe helper NOT FOUND — spawning php {version} directly from the GUI"); return SpawnWorker(version); }
-            var psi = new ProcessStartInfo
-            {
-                FileName = cli,
-                Arguments = $"__spawn-php {version}",
-                UseShellExecute = false,
-                CreateNoWindow = true,      // no redirect => bInheritHandles=false => clean context
-            };
-            var p = Process.Start(psi);
-            if (p is null) { Heal($"gui: helper Process.Start returned null for php {version}"); return false; }
-            p.WaitForExit(120000);   // generous: the helper may respawn-heal several times at boot
-            if (!p.HasExited) Heal($"gui: helper for php {version} still running after 120s (continuing)");
-            return Running(version);
-        }
-        catch (Exception e) { Heal($"gui: helper launch FAILED for php {version}: {e.GetType().Name}: {e.Message}"); return false; }
     }
 
     /// <summary>The REAL php-cgi spawn + VERIFY-AND-HEAL. MUST run in a plain console process
@@ -105,14 +114,18 @@ public static class PhpCgi
     /// makes ionCube survive reboots by construction, independent of WHY a given load failed.</summary>
     public static bool SpawnWorker(string version)
     {
-        if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
-        // Just spawn — FAST, no nested verify/retry (that used to block this call for up to ~2 min per
-        // version and made Start("all") crawl, delaying nginx). ionCube verification + respawn-until-warm
-        // is owned entirely by the out-of-band heal loop (Engine.PhpHealUntilHealthy). Breadcrumb every
-        // spawn so a boot with "nothing logged" is impossible.
-        var ok = SpawnOnce(version);
-        Heal($"spawn php {version}: {(ok ? "started" : "FAILED — php missing?")}");
-        return ok;
+        try
+        {
+            if (Running(version)) { Heal($"spawn php {version}: already running — skipped"); return true; }
+            // Just spawn — FAST, no nested verify/retry (that used to block this call for up to ~2 min per
+            // version and made Start("all") crawl, delaying nginx). ionCube verification + respawn-until-warm
+            // is owned entirely by the out-of-band heal loop (Engine.PhpHealUntilHealthy). Breadcrumb every
+            // spawn so a boot with "nothing logged" is impossible.
+            var ok = SpawnOnce(version);
+            Heal($"spawn php {version}: {(ok ? "started" : "FAILED — php missing?")}");
+            return ok;
+        }
+        catch (Exception e) { Heal($"spawn php {version}: EXCEPTION {e.GetType().Name}: {e.Message}"); return false; }
     }
 
     /// <summary>Is an ionCube zend_extension configured for this version (php.ini or our conf.d)?</summary>
@@ -241,6 +254,38 @@ public static class PhpCgi
         SpawnOnce(version);
     }
 
+    /// <summary>Public check: is an ionCube zend_extension configured for this version?</summary>
+    public static bool HasIonCube(string version) => IonCubeConfigured(version);
+
+    /// <summary>⭐ If ionCube is CONFIGURED but the loader DLL file the ini points at does NOT exist,
+    /// return that missing path (else null). THE final root cause of the "ionCube after reboot" saga:
+    /// php.ini referenced a loader DLL that wasn't on the real filesystem (here: it lived only inside
+    /// an MSIX package's virtualized AppData store), so every spawn printed "Failed loading …" and no
+    /// amount of respawning could ever fix it. A missing FILE needs a re-install (download), not a
+    /// respawn — Engine.EnableIonCube uses this to re-run the loader install instead of spinning.</summary>
+    public static string? MissingIonCubeDll(string version)
+    {
+        try
+        {
+            var exe = Tools.PhpCgiExe(version);
+            if (exe is null) return null;
+            var files = new List<string>();
+            var ini = Path.Combine(Path.GetDirectoryName(exe)!, "php.ini");
+            if (File.Exists(ini)) files.Add(ini);
+            var confd = ConfDir(version);
+            if (Directory.Exists(confd)) files.AddRange(Directory.EnumerateFiles(confd, "*.ini"));
+            foreach (var f in files)
+                foreach (Match m in Regex.Matches(File.ReadAllText(f),
+                             @"(?im)^\s*zend_extension\s*=\s*""?([^""\r\n;]*ioncube[^""\r\n;]*?)""?\s*$"))
+                {
+                    var dll = m.Groups[1].Value.Trim().Replace('/', '\\');
+                    if (dll.Length > 0 && Path.IsPathRooted(dll) && !File.Exists(dll)) return dll;
+                }
+        }
+        catch { }
+        return null;
+    }
+
     /// <summary>Append to the php-heal audit log from outside this class (e.g. the pass banner).</summary>
     public static void HealLog(string msg) => Heal(msg);
 
@@ -337,63 +382,103 @@ public static class PhpCgi
         // both nginx- and Apache-served PHP are fast. Idempotent + survives reinstalls (runs on
         // every start, only writes when something differs). OPcache is the big WordPress win —
         // Windows PHP ships it off, so every request recompiles all PHP without this.
+        EnsureCaBundle();
         EnsureLimits(Path.GetDirectoryName(exe)!);
 
         var port = PortFor(version);
-        var psi = new ProcessStartInfo
-        {
-            FileName = exe,
-            Arguments = $"-b 127.0.0.1:{port}",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            // Redirect (and never read) so the daemon does NOT inherit the caller's
-            // console/stdout handle — otherwise a foreground shell stays "open" waiting
-            // on this long-running child. php-cgi -b logs to nginx, not stdout.
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = Path.GetDirectoryName(exe)!,
-        };
-        // PHP_FCGI_MAX_REQUESTS=0 → never recycle the listener.
-        psi.Environment["PHP_FCGI_MAX_REQUESTS"] = "0";
-        // PHP_FCGI_CHILDREN: spawn a pool of worker processes so one slow/cold request (a WordPress
-        // first-load phoning home, a heavy app compile) doesn't block every other site on this PHP
-        // version. Without it, php-cgi -b on Windows serializes to a SINGLE request at a time → 502s
-        // under multi-site load.
-        psi.Environment["PHP_FCGI_CHILDREN"] = "12";
-        // Load BHServe's per-version conf.d (ionCube etc.) on top of the build's php.ini.
-        // Leading ';' keeps the compiled-in scan dir (Windows path-list separator).
+        var phpDir = Path.GetDirectoryName(exe)!;
         var confd = ConfDir(version);
         Directory.CreateDirectory(confd);
-        psi.Environment["PHP_INI_SCAN_DIR"] = ";" + confd;
-
-        // ── Guarantee a usable Path + SystemRoot for the workers ────────────────────────────────
-        // The tray App can be launched with a STRIPPED environment (empty Path/SystemRoot — observed
-        // when it starts via its login-item/elevation path). php-cgi inherits that, and the FastCGI
-        // CHILD workers the master then spawns can't resolve the ionCube loader's dependency DLLs (the
-        // VC++ runtime in System32) → ionCube SILENTLY fails to load, breaking every ionCube-encoded
-        // app (e.g. WHMCS). A directly-launched php-cgi loads ionCube fine even with an empty env; only
-        // the master-spawned children are hit, and only when Path/SystemRoot are missing. Rebuild a
-        // sane Path (php dir + Windows system dirs) + SystemRoot so the workers load ionCube regardless
-        // of how the App itself was launched. Prepend our dirs; keep any inherited Path after them.
         var sysDir = Environment.GetFolderPath(Environment.SpecialFolder.System);   // C:\Windows\System32
         var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);  // C:\Windows
-        var phpDir = Path.GetDirectoryName(exe)!;
-        var pathParts = new List<string> { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir };
-        if (psi.Environment.TryGetValue("Path", out var inheritedPath) && !string.IsNullOrWhiteSpace(inheritedPath))
-            pathParts.Add(inheritedPath);
-        psi.Environment["Path"] = string.Join(";",
-            pathParts.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
-        if (!psi.Environment.TryGetValue("SystemRoot", out var sr) || string.IsNullOrWhiteSpace(sr))
-            psi.Environment["SystemRoot"] = winDir;
-        if (!psi.Environment.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd))
-            psi.Environment["windir"] = winDir;
 
-        var proc = Process.Start(psi);
-        if (proc is null) return false;
-        Directory.CreateDirectory(Paths.Run);
-        File.WriteAllText(RunFile(version),
-            JsonSerializer.Serialize(new PhpRun(version, port, proc.Id)));
+        // Clean, WHITELISTED environment — do NOT inherit the app's full process env. Hygiene, not the
+        // ionCube fix (that turned out to be a missing loader DLL — see MissingIonCubeDll): the app's env
+        // carries injected vars (AV hooks, WindowsAppSDK MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY, …)
+        // that long-lived php workers have no business seeing, and a stripped/stale Path or SystemRoot
+        // from a bad parent has bitten us before. Copy ONLY the standard Windows + PHP vars a worker
+        // actually needs; rebuild the essentials explicitly below.
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        void Keep(string k) { var v = Environment.GetEnvironmentVariable(k); if (!string.IsNullOrEmpty(v)) env[k] = v; }
+        foreach (var k in new[]
+        {
+            "SystemDrive", "ComSpec", "PATHEXT",
+            "TEMP", "TMP", "USERPROFILE", "USERNAME", "USERDOMAIN", "HOMEDRIVE", "HOMEPATH", "LOGONSERVER",
+            "APPDATA", "LOCALAPPDATA", "ALLUSERSPROFILE", "ProgramData",
+            "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+            "CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION",
+            "COMPUTERNAME", "OS",
+        }) Keep(k);
+        // Explicit, clean essentials (never taken from the possibly-polluted inherited values).
+        env["SystemRoot"]            = winDir;
+        env["windir"]                = winDir;
+        env["Path"]                  = string.Join(";", new[] { phpDir, sysDir, Path.Combine(sysDir, "Wbem"), winDir }
+                                                     .Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase));
+        env["PHP_FCGI_MAX_REQUESTS"] = "0";                 // never recycle the listener
+        env["PHP_FCGI_CHILDREN"]     = "12";                // worker pool → concurrency (no 502 under multi-site load)
+        env["PHP_INI_SCAN_DIR"]      = ";" + confd;         // load our per-version conf.d on top of php.ini
+
+        // Spawn windowless via raw CreateProcess: no console, no window, NO inherited handles and no
+        // redirected pipes (a parent-held pipe once hung Stop/spawn paths). Not the ionCube fix — that
+        // was a missing loader DLL (see MissingIonCubeDll) — but the clean way to run php-cgi from
+        // either the GUI app or the CLI with zero popups.
+        var pid = SpawnHiddenConsole(exe, $"-b 127.0.0.1:{port}", env, phpDir);
+        if (pid <= 0) return false;
+        WriteRunFile(version, new PhpRun(version, port, pid));   // share-tolerant + retried
         return true;
+    }
+
+    // ── Win32 CreateProcess, no console window, no pipes, no inherited handles ───────────────────────
+    private const uint CREATE_NO_WINDOW = 0x08000000;   // run console app WITHOUT a console (no window, no new console alloc)
+    private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+    private const int  STARTF_USESHOWWINDOW = 0x00000001;
+    private const short SW_HIDE = 0;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CreateProcess(
+        string? lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
+        bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    /// <summary>Spawn a background program with its OWN real console, HIDDEN (like RunHiddenConsole).
+    /// Returns the PID or -1. No inherited handles; the process has its own console for stdio.</summary>
+    private static int SpawnHiddenConsole(string exe, string args, IDictionary<string, string> env, string workingDir)
+    {
+        var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>(), dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_HIDE };
+        var sb = new System.Text.StringBuilder();
+        foreach (var kv in env.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            sb.Append(kv.Key).Append('=').Append(kv.Value).Append('\0');
+        sb.Append('\0');
+        var envPtr = Marshal.StringToHGlobalUni(sb.ToString());
+        try
+        {
+            var ok = CreateProcess(null, $"\"{exe}\" {args}", IntPtr.Zero, IntPtr.Zero, false,
+                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi);
+            if (!ok) { Heal($"CreateProcess(php-cgi) failed: Win32 err {Marshal.GetLastWin32Error()}"); return -1; }
+            var pid = pi.dwProcessId;
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return pid;
+        }
+        catch (Exception e) { Heal($"SpawnHiddenConsole exception: {e.GetType().Name}: {e.Message}"); return -1; }
+        finally { Marshal.FreeHGlobal(envPtr); }
     }
 
     /// <summary>BHServe's php.ini defaults — generous uploads + performance (OPcache/JIT/realpath).</summary>
@@ -417,9 +502,40 @@ public static class PhpCgi
         ("opcache.max_accelerated_files",  "20000"),
         ("opcache.validate_timestamps",    "1"),   // still picks up file edits...
         ("opcache.revalidate_freq",        "2"),   // ...but only re-stats every 2s
-        ("opcache.jit",                    "tracing"),
-        ("opcache.jit_buffer_size",        "128M"),
+        // JIT stays OFF: tracing JIT on Windows php-cgi crashes workers (0xc0000005 mid-request → 502)
+        // under real apps (PHP 8.4 + Filament/Livewire, 2026-07-20). It only ever ran on versions
+        // without ionCube anyway (the loader force-disables JIT), and its gain for web apps is minor —
+        // opcache itself is the real win. Stability > JIT.
+        ("opcache.jit",                    "disable"),
+        ("opcache.jit_buffer_size",        "0"),
     };
+
+    /// <summary>Path of the shared Mozilla CA bundle used by every PHP build's curl/openssl.</summary>
+    private static string CaBundlePath => Path.Combine(Paths.Bin, "cacert.pem");
+
+    /// <summary>Windows PHP ships with NO CA bundle, so every PHP curl/openssl HTTPS call that
+    /// verifies certificates fails with "unable to get local issuer certificate" (curl error 60) —
+    /// e.g. the WHMCS/Blesta license phone-home, payment gateways, any API SDK. Laragon and XAMPP
+    /// both ship a cacert.pem and point php.ini at it; so do we: download the standard Mozilla
+    /// bundle (curl.se) once into bin\cacert.pem, and EnsureLimits wires curl.cainfo +
+    /// openssl.cafile to it. Offline at first start → silently retried on every later spawn.</summary>
+    private static void EnsureCaBundle()
+    {
+        try
+        {
+            if (File.Exists(CaBundlePath)) return;
+            Directory.CreateDirectory(Paths.Bin);
+            using var http = new HttpClient() { Timeout = TimeSpan.FromSeconds(25) };
+            var bytes = http.GetByteArrayAsync("https://curl.se/ca/cacert.pem").GetAwaiter().GetResult();
+            // Sanity: the real bundle is ~200+ KB of PEM blocks — never install an error page.
+            if (bytes.Length > 100_000 &&
+                System.Text.Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4096))
+                      .Contains("##") &&
+                System.Text.Encoding.ASCII.GetString(bytes).Contains("BEGIN CERTIFICATE"))
+                File.WriteAllBytes(CaBundlePath, bytes);
+        }
+        catch { }   // no network yet → PHP still runs; picked up on a later spawn
+    }
 
     /// <summary>Apply BHServe's limits + performance directives to a build's php.ini (active or
     /// commented), enabling the OPcache extension. Only writes if something changed; never throws.</summary>
@@ -442,6 +558,36 @@ public static class PhpCgi
             {
                 var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
                 text = rx.IsMatch(text) ? rx.Replace(text, $"{key} = {val}", 1) : text.TrimEnd() + $"\n{key} = {val}\n";
+            }
+            // Point curl + openssl at the shared CA bundle (see EnsureCaBundle) so PHP HTTPS calls
+            // verify certificates. Only when the bundle actually exists — never point at a void.
+            if (File.Exists(CaBundlePath))
+            {
+                var ca = CaBundlePath.Replace('\\', '/');
+                foreach (var key in new[] { "curl.cainfo", "openssl.cafile" })
+                {
+                    var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
+                    var line = $"{key} = \"{ca}\"";
+                    text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
+                }
+            }
+            // Pin sessions/uploads/temp to a guaranteed-writable BHServe dir. Unset, PHP falls back
+            // to the process TEMP env — which can be missing for a service-context worker (then
+            // GetTempPath returns C:\Windows, NOT user-writable → "session storage is not writeable").
+            // Sites imported from Linux servers also carry .user.ini `session.save_path=/tmp` — that
+            // still overrides per-site, but at least the php.ini default is always a real, writable dir.
+            var sess = Path.Combine(Paths.Tmp, "php-sessions");
+            Directory.CreateDirectory(sess);
+            foreach (var (key, val) in new[]
+            {
+                ("session.save_path", sess),
+                ("upload_tmp_dir",    Paths.Tmp),
+                ("sys_temp_dir",      Paths.Tmp),
+            })
+            {
+                var rx = new Regex($@"(?m)^[ \t]*;?[ \t]*{Regex.Escape(key)}[ \t]*=.*$");
+                var line = $"{key} = \"{val.Replace('\\', '/')}\"";
+                text = rx.IsMatch(text) ? rx.Replace(text, line, 1) : text.TrimEnd() + $"\n{line}\n";
             }
             if (text != orig) File.WriteAllText(ini, text);
         }
@@ -486,7 +632,7 @@ public static class PhpCgi
                 finally { p.Dispose(); }
             }
         }
-        try { File.Delete(RunFile(version)); } catch { }
+        DeleteRunFile(version);   // share-tolerant + retried (the 2s status refresh may be reading it)
     }
 
     /// <summary>Read a process's main-module path with a hard timeout. MainModule can be very slow or
