@@ -410,14 +410,7 @@ struct SubdomainsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Subdomains").font(.title2.bold())
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("Close")
-            }
+            Text("Subdomains").font(.title2.bold())
             Text(site.domain).font(.caption).foregroundStyle(.secondary)
             HStack {
                 TextField("api or api.\(site.domain)", text: $value)
@@ -451,7 +444,7 @@ struct SubdomainsSheet: View {
                     }
                 }
             }
-            HStack { Spacer(); Button("Close") { dismiss() } }
+            HStack { Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
         .padding(20)
         .frame(width: 430)
