@@ -608,7 +608,7 @@ class ServicesPage(Gtk.Box):
             b = Gtk.Button(label="Install", css_classes=["suggested-action"])
             b.connect("clicked", lambda *_, k=key: self.win.run_progress(
                 ["install", k], f"Installing {k}",
-                f"Downloading and setting up {k}. Large packages (Apache, PHP, databases) can take a minute…",
+                f"Downloading and setting up {k} — this can take a minute for larger packages…",
                 f"{k} installed."))
             box.append(b)
         else:
