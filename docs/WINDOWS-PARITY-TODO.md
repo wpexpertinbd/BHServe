@@ -172,3 +172,38 @@ dropdown on `DatabasesPage` / `NodePage` / `PythonPage`. So it's just centralizi
 > "available versions" message). Windows solved its *own*, different ionCube problems in **win-v1.0.58–61**
 > (the loader DLL missing from the real FS + a polluted-env root cause + JIT-crash fix + self-heal), so the
 > macOS engine-specific fixes don't port. Verified against `windows/` source — nothing to do here.
+
+---
+
+## 8. Subdomain / alias management — Windows code is ALREADY on master (verify + ship)  *(macOS: v1.7.9; community PR #3 by @plusemon)*
+
+**This one is different: you don't need to port anything — @plusemon's PR #3 (merged to master 2026-07-22)
+already includes a full Windows implementation.** Your job is to **build-verify + functionally test it on a
+real Windows box, then ship it** in a `win-v1.0.x` release. macOS shipped it as **v1.7.9**; the engine flow
+(`bhserve site subdomain {list|add|rm}`) is verified working there (add/list/rm, cross-site conflict
+rejection, SSL cert reissued to cover aliases). Aliases are stored **in the vhost `server_name` line** (no
+separate store) so they survive re-renders.
+
+**Where the Windows code already lives (review these):**
+- `windows/src/BHServe.Core/Engine.cs` — `SiteSubdomains()` / `SiteSubdomainAdd()` / `SiteSubdomainRemove()`
+  (~L749–800) + helpers `NormalizeAlias` / `VhostDomains` / `VhostAliases` / `AllDomains` /
+  `RewriteServerName` / `ReissueSiteCertificateIfSecure` / `RestartOrReloadAfterAliasChange`.
+- `windows/src/BHServe.Core/{NginxConfig,NodeSite,PySite}.cs` — pass aliases into the vhost `server_name`.
+- `windows/src/BHServe.Cli/Program.cs` — the `case "subdomain":` CLI subcommand (~L96).
+- `windows/src/BHServe.App/Views/SiteListControl.xaml{,.cs}` — the "Manage subdomains…" dialog + alias badge.
+
+**⚠️ Windows-specific things to VERIFY (plusemon likely tested on one platform, not Windows):**
+1. **It compiles.** Build `windows/BHServe.sln` — a community PR may have C# errors that only surface on a
+   real toolchain. (The logic reads clean, but confirm.)
+2. **Hosts-file entries (Windows has no dnsmasq).** Add calls `EnsureHosts(host)`; remove calls
+   `Hosts.Remove(host)` and falls back to `Elevation.Run("hosts-remove", host)`. **Confirm your
+   `bhserve-elevate.exe` actually implements a `hosts-remove` verb** — if it doesn't, removing a subdomain
+   leaves a stale `hosts` line (and add needs the per-subdomain hosts entry to resolve at all).
+3. **SSL reissue with multiple SANs.** `ReissueSiteCertificateIfSecure` re-runs mkcert with canonical +
+   aliases. Verify Windows mkcert issues a multi-name cert and `RestartOrReloadAfterAliasChange` does a full
+   nginx **stop→start** on cert change (it does in the code — confirm it takes effect).
+4. **Functional pass:** add `api` + `shop` to a site → both resolve; `list` shows them; a second site
+   claiming `api.<first>.test` is **rejected**; `rm api` leaves `shop`. Then ship.
+
+Minor style note (not a bug): `SiteSubdomainRemove` uses `!aliases.RemoveAll(...).Equals(1)` to detect
+"exactly one removed" — works, but `!= 1` would read clearer.
