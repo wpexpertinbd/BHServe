@@ -733,3 +733,12 @@ Apache site (php 7.4) serves correct PHP immediately after add, existing sites u
 **macOS action:** check the Mac engine's site-add path for the same pattern — if the Apache (or any
 secondary backend) start step is a no-op when already running, the new vhost needs an explicit
 reload in site-add, not just in delete/switch.
+
+> ✅ **win-v1.0.64 (Apache backend 500 on a PHP startup warning) — CHECKED, macOS NOT affected.**
+> Windows Apache runs php-cgi in **CGI mode** (mod_actions), where a PHP startup warning prints before
+> the HTTP headers → "malformed header" → 500 (seen on PHP 8.5, whose Windows build ships no OPcache
+> DLL). macOS serves PHP via **php-fpm** (never CGI), so a worker-startup warning is pool-startup noise
+> that never enters a response — same reason it never broke on nginx/FastCGI. Windows fix (EnsureLimits):
+> `display_startup_errors=Off`, only enable opcache when the DLL exists, and apply every php.ini
+> directive to ALL occurrences (php.ini can define one twice; PHP honors the last). **No mac action** —
+> brew PHP always ships opcache and runs under FPM. (Linux likewise uses FPM + always-present opcache.)
