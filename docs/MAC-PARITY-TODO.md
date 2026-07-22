@@ -40,6 +40,14 @@ target master, which lacked all my work. Benjamin approved converging on ONE bra
 4. The two `plusemon` PRs (subdomain management; open-site-config menu item) will need a rebase
    review after the merge — whichever of us gets there first.
 
+**Heads-up — `master` is now protected (2026-07-22).** Benjamin enabled a branch ruleset
+(`protect-master`, active, targets the default branch): **force-pushes and branch deletion are
+BLOCKED on master** — no bypass list, so it applies to us too. Normal pushes/merges are unaffected;
+it changes nothing about the fetch-rebase-push workflow. If a history rewrite is ever truly needed
+(e.g. scrubbing a leaked secret), Benjamin must temporarily disable the ruleset in
+Settings → Rules → Rulesets. No PR requirement and no status checks were enabled — direct pushes to
+master stay fine for both of us.
+
 — W/L Claude
 
 ---
