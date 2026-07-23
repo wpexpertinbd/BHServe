@@ -121,7 +121,11 @@ public static class Nginx
     {
         NginxConfig.RenderMain(cfg);
         var exe = Tools.NginxExe();
-        if (exe is null || !Running()) return;
-        Run(exe, $"-s reload -p \"{NginxConfig.Fwd(NginxDir)}\" -c \"{NginxConfig.Fwd(ConfPath)}\"");
+        if (exe is null) return;
+        if (Running())
+        {
+            Stop();
+            Start(cfg);
+        }
     }
 }

@@ -1636,18 +1636,18 @@ nginx_start(){
   grep -q "syntax is ok" <<<"$t" || { printf '%s\n' "$t"; die "nginx config test failed"; }
   $pre "$bin" -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" && ok "nginx started${pre:+ (sudo)}" || no "nginx failed to start"
 }
-# Graceful reload of the running nginx (picks up new/changed vhosts).
 nginx_reload(){
   nginx_running || return 0
-  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-  $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
-    && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
+  nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || {
+    local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+    $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
+      && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
+  }
 }
-# Auto-apply config changes: reload interactively (one sudo prompt); from the GUI
-# (no tty) just note it — the GUI issues its own privileged restart.
+# Auto-apply config changes
 maybe_reload_nginx(){
   nginx_running || return 0
-  if [ -t 1 ]; then nginx_reload; else info "reload nginx to serve changes (bhserve restart nginx)"; fi
+  nginx_reload
 }
 
 nginx_stop(){

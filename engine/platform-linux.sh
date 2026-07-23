@@ -642,21 +642,21 @@ hosts_sync_all(){
 # go through here; in non-tty (GUI) mode it still syncs hosts before deferring the reload.
 maybe_reload_nginx(){
   hosts_sync_all
-  # ALWAYS (re)load nginx when a site changes. The old `[ -t 1 ]` tty gate meant the GUI (which runs
-  # us non-interactively) never actually reloaded — so a GUI-added site's vhost wasn't served until a
-  # manual restart. And if nginx is down, START it (else the new site 502s / doesn't load at all).
-  if nginx_running; then nginx_reload; else nginx_start >/dev/null 2>&1 && ok "nginx started" || warn "start nginx to serve the site (bhserve start nginx)"; fi
+  if nginx_running; then
+    nginx_restart >/dev/null 2>&1 || nginx_reload
+  else
+    nginx_start >/dev/null 2>&1 && ok "nginx started" || warn "start nginx to serve the site (bhserve start nginx)"
+  fi
 }
 
-# nodesite/pysite add + `secure` call nginx_reload DIRECTLY (not via maybe_reload_nginx),
-# so sync /etc/hosts here too — this is the real choke point every reload passes through.
-# hosts_sync_all is idempotent (no-op + no sudo when nothing changed), so double calls are free.
 nginx_reload(){
   hosts_sync_all
   nginx_running || return 0
-  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-  $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
-    && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
+  nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || {
+    local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+    $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
+      && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
+  }
 }
 
 # `bhserve dns` — default: (re)sync /etc/hosts for all sites. `bhserve dns wildcard` —
