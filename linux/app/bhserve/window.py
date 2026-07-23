@@ -547,15 +547,60 @@ class MainWindow(Adw.ApplicationWindow):
 
     def db_root_dialog(self) -> None:
         # Pass the password via BHSERVE_DB_PASSWORD env, not argv — keeps it out of `ps`.
-        self._pw_dialog(
-            "Root password",
-            "Sets the MySQL/MariaDB root password BHServe uses everywhere (new WordPress sites + "
-            "phpMyAdmin). Leave blank to remove it. Local-dev only.",
-            "new root password (blank = remove)",
-            lambda pw: self.run_verb(["db", "root-passwd"],
-                                     "Setting root password…" if pw else "Removing root password…",
-                                     env={"BHSERVE_DB_PASSWORD": pw}),
-            apply_label="Apply")
+        _rc, out = self.engine.run("db", "root-status")
+        root_status = out.strip().splitlines()[-1].strip() if out.strip() else ""
+        is_set = (root_status == "set")
+
+        dlg = Adw.MessageDialog(
+            transient_for=self,
+            heading="Root password",
+            body="Sets or removes the MySQL/MariaDB root password. Leave blank to remove it. Local-dev only.")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        old_entry = Gtk.Entry(placeholder_text="Current root password", hexpand=True)
+        if is_set:
+            old_row = Gtk.Box(spacing=10)
+            old_row.append(Gtk.Label(label="Current", width_chars=10, xalign=0))
+            old_row.append(old_entry)
+            box.append(old_row)
+
+        new_entry = Gtk.Entry(
+            placeholder_text="New root password (blank = remove)" if is_set else "New root password",
+            hexpand=True)
+        new_row_box = Gtk.Box(spacing=8)
+        new_row_box.append(new_entry)
+        gen = Gtk.Button(label="Generate", valign=Gtk.Align.CENTER)
+        gen.connect("clicked", lambda *_: new_entry.set_text(self._gen_password()))
+        new_row_box.append(gen)
+
+        new_row = Gtk.Box(spacing=10)
+        new_row.append(Gtk.Label(label="New", width_chars=10, xalign=0))
+        new_row.append(new_row_box)
+        box.append(new_row)
+
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Apply")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def resp(d, r):
+            if r != "ok":
+                return
+            old_pw = old_entry.get_text() if is_set else ""
+            new_pw = new_entry.get_text()
+            msg = ("Removing root password…" if not new_pw else
+                   ("Changing root password…" if is_set else "Setting root password…"))
+            env = {"BHSERVE_DB_PASSWORD": new_pw}
+            if old_pw:
+                env["BHSERVE_OLD_DB_PASSWORD"] = old_pw
+            self.run_verb(["db", "root-passwd"], msg, env=env)
+
+        dlg.connect("response", resp)
+        dlg.present()
 
     def db_password_dialog(self, name) -> None:
         self._pw_dialog(

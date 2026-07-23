@@ -1792,7 +1792,7 @@ cmd_restart() {
 }
 
 # ── databases (mysql/mariadb + postgresql) ──────────────────────────────────
-MYSQL_CLI(){ echo "$BREW_PREFIX/bin/mysql"; }
+MYSQL_CLI(){ [ -x "$BREW_PREFIX/bin/mysql" ] && echo "$BREW_PREFIX/bin/mysql" || command -v mysql 2>/dev/null || command -v mariadb 2>/dev/null || echo /usr/bin/mysql; }
 PSQL_CLI(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/psql"; }
 PG_BIN(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/$1"; }
 
@@ -1804,8 +1804,14 @@ valid_site_name(){ [[ "$1" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || die "invalid site name
 # unix_socket account), then passwordless -u root (Oracle MySQL / older setups).
 mysql_run(){
   local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
+  local saved_pw; saved_pw="$(jget root_password "")"
   if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
   elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
+  elif [ -n "${BHSERVE_OLD_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_OLD_PASSWORD:-}" ] && MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_PASSWORD:-}" ] && MYSQL_PWD="$DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${BHSERVE_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "$saved_pw" ] && MYSQL_PWD="$saved_pw" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$saved_pw" "$c" -u root "$@"
   else return 1; fi
 }
 
@@ -1854,18 +1860,59 @@ cmd_db(){
 
 # Whether mysql/mariadb root@localhost has a password set. Prints set|blank|unavailable.
 db_root_status(){
-  local r
+  local r out cli
   r="$(mysql_run -N -e "SELECT IF(LENGTH(authentication_string)>0,'set','blank') FROM mysql.user WHERE user='root' AND host='localhost' LIMIT 1;" 2>/dev/null)" || true
-  [ -n "$r" ] && printf '%s\n' "$r" || echo unavailable
+  if [ -n "$r" ]; then
+    printf '%s\n' "$r"
+    return 0
+  fi
+  cli="$(MYSQL_CLI 2>/dev/null || echo mysql)"
+  out="$("$cli" -u root -N -e "SELECT 1;" 2>&1 || true)"
+  if grep -qi "Access denied" <<<"$out"; then
+    echo set
+  else
+    echo unavailable
+  fi
 }
 
 # Set (or, with empty password, clear) the mysql/mariadb root@localhost password.
 # Only touches root — the OS-user socket account we operate through is untouched.
 db_root_passwd(){
   local epw; epw="$(mysql_esc "$DB_PASSWORD")"
-  mysql_run -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;" \
-    && ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")" \
-    || die "failed (server running? do you have privilege?)"
+  local sql="ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;"
+  if mysql_run -e "$sql" 2>/dev/null; then
+    json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+    ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+    return 0
+  fi
+  # Fallback 1: Privileged execution via pkexec/sudo if unprivileged connect failed
+  local cli; cli="$(MYSQL_CLI 2>/dev/null || echo mysql)"
+  if [ -x "$cli" ]; then
+    if [ "$(id -u)" != 0 ] && command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+      if pkexec "$cli" -e "$sql" 2>/dev/null; then
+        json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+        ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+        return 0
+      fi
+    elif [ "$(id -u)" = 0 ] || command -v sudo >/dev/null 2>&1; then
+      if $SUDO "$cli" -e "$sql" 2>/dev/null; then
+        json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+        ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+        return 0
+      fi
+    fi
+  fi
+  # Fallback 2: Legacy MariaDB/MySQL SQL syntax
+  for alt_sql in \
+    "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING '$epw'; FLUSH PRIVILEGES;" \
+    "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$epw'); FLUSH PRIVILEGES;"; do
+    if mysql_run -e "$alt_sql" 2>/dev/null; then
+      json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+      ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+      return 0
+    fi
+  done
+  die "failed (server running? do you have privilege?)"
 }
 
 db_list(){
@@ -2002,14 +2049,15 @@ cmd_config(){
 # Rewrite bhserve.json from current values, overriding one key.
 json_set(){
   local k="$1" v="$2"
-  local tld httpp httpsp dphp dweb bp sroot autostart
+  local tld httpp httpsp dphp dweb bp sroot autostart rootpw
   tld="$(jget tld test)"; httpp="$(jget http_port 80)"; httpsp="$(jget https_port 443)"
   dphp="$(jget default_php 8.4)"; dweb="$(jget default_web nginx)"
   bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/BHServe/www")"
-  autostart="$(jget autostart false)"
+  autostart="$(jget autostart false)"; rootpw="$(jget root_password "")"
   case "$k" in
     tld) tld="$v";; http_port) httpp="$v";; https_port) httpsp="$v";;
     default_php) dphp="$v";; default_web) dweb="$v";; sites_root) sroot="$v";; autostart) autostart="$v";;
+    root_password) rootpw="$v";;
   esac
   cat > "$BH_HOME/config/bhserve.json" <<JSON
 {
@@ -2020,7 +2068,8 @@ json_set(){
   "default_web": "$dweb",
   "brew_prefix": "$bp",
   "sites_root": "$sroot",
-  "autostart": $autostart
+  "autostart": $autostart,
+  "root_password": "$rootpw"
 }
 JSON
 }
@@ -2055,6 +2104,7 @@ config_set(){
     default_php) val="$(php_key "$val")" ;;
     default_web) [[ "$val" =~ ^(nginx|apache)$ ]] || die "default_web must be nginx|apache" ;;
     autostart) [[ "$val" =~ ^(true|false)$ ]] || die "autostart must be true|false" ;;
+    root_password) ;;
     *) die "unknown/uneditable key: $key" ;;
   esac
   json_set "$key" "$val"

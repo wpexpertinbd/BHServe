@@ -764,19 +764,27 @@ PG_BIN(){ local v; for v in 17 16 15; do [ -x "/usr/lib/postgresql/$v/bin/$1" ] 
 # then -u root, so db verbs work however the server is configured.
 mysql_run(){
   local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
+  local saved_pw; saved_pw="$(jget root_password "")"
   if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
-  elif $SUDO "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" "$@"
   elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
+  elif [ -n "${BHSERVE_OLD_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_OLD_PASSWORD:-}" ] && MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_PASSWORD:-}" ] && MYSQL_PWD="$DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${BHSERVE_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "$saved_pw" ] && MYSQL_PWD="$saved_pw" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$saved_pw" "$c" -u root "$@"
+  elif command -v sudo >/dev/null 2>&1 && $SUDO "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" "$@"
+  elif command -v sudo >/dev/null 2>&1 && $SUDO "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" -u root "$@"
   else return 1; fi
 }
 
 # Make root@localhost a BLANK-password native account — same posture as the Mac (root has
 # no password; the server is bound to loopback only) so the engine + WordPress connect over
-# TCP as root. Tries MariaDB then MySQL syntax.
+# TCP as root. Tries MySQL 8.x, MariaDB, then legacy syntax.
 _db_open_root(){
   local cli i; cli="$(MYSQL_CLI)"
   for i in 1 2 3 4 5 6; do $SUDO "$cli" -e "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done
-  $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
+  $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED BY ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
+    || $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
     || $SUDO "$cli" -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
     || $SUDO "$cli" -e "SET PASSWORD FOR 'root'@'localhost' = ''; FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
   db_secure_bind
