@@ -93,7 +93,7 @@ Port each Mac engine verb to a `BHServe.Core` method + a `bhserve.exe` subcomman
 - [ ] `init` — create `%LOCALAPPDATA%\BHServe\{config,nginx\sites,bin,run,logs,sites,certs,tmp}`
 - [ ] `install <tool>` — download+extract a pinned portable build (php@x.y / nginx / mariadb / node / mkcert / mailpit / adminer / phpmyadmin)
 - [ ] `update <tool>` / `uninstall <tool>`
-- [ ] `site add <name> [--php 8.4] [--root] [--server nginx] [--type wordpress|php|others]` — render vhost, add hosts line, auto-create DB, WP download for `--type wordpress`
+- [ ] `site add <name> [--php 8.4] [--root] [--server nginx] [--type wordpress|php|laravel|others]` — render vhost, add hosts line, auto-create DB, WP download for `--type wordpress`
 - [ ] `site list|rm|php|server|root`
 - [ ] `secure <domain>` — mkcert into Windows store + re-render vhost ssl block
 - [ ] `dns` — hosts-file management (and/or Acrylic config)

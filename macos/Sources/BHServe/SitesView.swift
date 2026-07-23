@@ -200,6 +200,7 @@ struct AddSiteSheet: View {
             Picker("Type", selection: $type) {
                 Text("WordPress").tag("wordpress")
                 Text("PHP").tag("php")
+                Text("Laravel").tag("laravel")
                 Text("Others (static)").tag("others")
                 Text("Node app").tag("node")
                 Text("Python app").tag("python")
@@ -236,6 +237,7 @@ struct AddSiteSheet: View {
                     switch type {
                     case "wordpress": Text("Creates a database, downloads WordPress, and pre-fills wp-config (DB user root, no password). Just finish the title + admin step.")
                     case "php": Text("Creates a database named after the site (DB user root, no password).")
+                    case "laravel": Text("Creates a database named after the site; vhost points to site/public (DB user root, no password).")
                     default: Text("Just sets up the domain — no database.")
                     }
                 }

@@ -1244,7 +1244,7 @@ vhost_server(){ local s; s="$(sed -n 's/.*server=\([^ ]*\).*/\1/p' "$1" | head -
 
 site_add() {
   local name="" root="" phpv="" server="" type="others"
-  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]"
+  [ $# -ge 1 ] || die "usage: bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|laravel|others]"
   name="$1"; shift
   while [ $# -gt 0 ]; do case "$1" in
     --php) phpv="$2"; shift 2;;
@@ -1254,12 +1254,14 @@ site_add() {
     *) die "unknown flag: $1";;
   esac; done
   valid_site_name "$name"
-  case "$type" in wordpress|php|others) ;; *) die "--type must be wordpress|php|others" ;; esac
+  case "$type" in wordpress|php|laravel|others) ;; *) die "--type must be wordpress|php|laravel|others" ;; esac
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
   [ -n "$root" ] || root="$(jget sites_root "$HOME/BHServe/www")/$name"
   [ -n "$server" ] || server="$(jget default_web nginx)"
   local phpkey; phpkey="$(php_key "$phpv")"
+  local vhost_root="$root"
+  [ "$type" = "laravel" ] && vhost_root="$root/public"
 
   mkdir -p "$root"
   # Branded default landing page (identical to the Windows build). Quoted heredoc
@@ -1300,7 +1302,7 @@ PHP
 
   render_fpm_pool "$phpkey" || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the site's PHP pool is up (no 502)
-  render_site_vhost "$name" "$domain" "$root" "$phpkey" "$server"
+  render_site_vhost "$name" "$domain" "$vhost_root" "$phpkey" "$server"
   # apache_start no-ops when httpd is already up, so the FIRST apache site worked but every
   # LATER one was never loaded (requests fell through to the first vhost). Reload when running.
   if [ "$server" = apache ]; then
@@ -1309,6 +1311,7 @@ PHP
   hdr "Site '$name' added"
   info "domain : http://$domain"
   info "root   : $root"
+  [ "$vhost_root" != "$root" ] && info "vhost  : $vhost_root"
   info "php    : $phpkey   server: $server   type: $type"
 
   site_provision "$name" "$type" "$root" "$domain"
@@ -2667,7 +2670,7 @@ BHServe — usage:
   bhserve install <svc|all>      brew install a service
   bhserve update <svc|all>       brew upgrade a service
   bhserve uninstall <svc>        brew uninstall a service
-  bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]
+  bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|laravel|others]
   bhserve site list|rm <name>
   bhserve site php <name> <ver>  switch a site's PHP version
   bhserve db {list|create|drop|passwd} [name] [--engine mysql|pg] [--password PW]
