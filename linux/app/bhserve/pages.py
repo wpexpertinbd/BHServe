@@ -120,6 +120,23 @@ _WEB_SERVERS = [("nginx", "Switch to nginx"),
                 ("ols", "Switch to OpenLiteSpeed")]
 
 
+def site_change_root(win, s: dict) -> None:
+    def on_pick(dialog, result):
+        try:
+            f = dialog.select_folder_finish(result)
+            if f:
+                path = f.get_path()
+                win.run_verb(["site", "root", s["name"], path], f"Changing root for {s['name']} → {path}…")
+        except Exception:
+            pass
+
+    dlg = Gtk.FileDialog()
+    dlg.set_title(f"Select new root directory for {s['name']}")
+    if s.get("root") and os.path.isdir(s["root"]):
+        dlg.set_initial_folder(Gio.File.new_for_path(s["root"]))
+    dlg.select_folder(win, None, on_pick)
+
+
 def _site_menu(win, s: dict) -> Gtk.Popover:
     pop = Gtk.Popover()
     v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6,
@@ -144,6 +161,7 @@ def _site_menu(win, s: dict) -> Gtk.Popover:
             continue
         item(_label, "network-server-symbolic",
              lambda v=_val: win.run_verb(["site", "server", name, v], f"Switching {name} → {v}…"))
+    item("Change root directory…", "folder-symbolic", lambda: site_change_root(win, s))
     dom = s["domain"]
     if not s.get("secure"):
         item("Install SSL (HTTPS)", "security-high-symbolic",
