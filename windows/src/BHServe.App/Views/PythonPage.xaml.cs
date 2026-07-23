@@ -160,6 +160,23 @@ public sealed partial class PythonPage : Page
     private Task Info(string title, string body) =>
         new ContentDialog { Title = title, Content = body, CloseButtonText = "OK", XamlRoot = this.XamlRoot }.ShowAsync().AsTask();
 
+    private static Grid WithBrowse(TextBox box)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(box);
+        Grid.SetColumn(box, 0);
+        var btn = new Button { Content = "Browse…", VerticalAlignment = VerticalAlignment.Bottom };
+        btn.Click += async (_, _) => {
+            var path = await Picker.FolderAsync();
+            if (!string.IsNullOrEmpty(path)) box.Text = path;
+        };
+        grid.Children.Add(btn);
+        Grid.SetColumn(btn, 1);
+        return grid;
+    }
+
     private async void AddApp_Click(object s, RoutedEventArgs e)
     {
         // Python must be installed for the app to run / venv to build — offer to install it first.
@@ -185,7 +202,7 @@ public sealed partial class PythonPage : Page
         var port = new NumberBox { Header = "Port", Value = 8000, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         var venv = new ToggleSwitch { Header = "Create a virtualenv (.venv)", IsOn = true };
         var panel = new StackPanel { Spacing = 8 };
-        foreach (var c in new FrameworkElement[] { name, dir, cmd, port, venv }) panel.Children.Add(c);
+        foreach (var c in new FrameworkElement[] { name, WithBrowse(dir), cmd, port, venv }) panel.Children.Add(c);
 
         var dlg = new ContentDialog
         {
