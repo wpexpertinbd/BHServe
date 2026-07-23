@@ -96,8 +96,8 @@ public sealed class Engine
         // owns :80/:443 (+ TLS + *.test) and proxies to it. So "Apache" needs BOTH nginx AND apache —
         // otherwise an Apache-only install has nothing serving :80 and the site is dead.
         var req = server == "apache" ? new List<string> { "nginx", "apache" } : new List<string> { "nginx" };
-        if (type is "php" or "wordpress") req.Add(Services.PhpKey(php, cfg));
-        if (type == "wordpress")
+        if (type is "php" or "laravel" or "wordpress") req.Add(Services.PhpKey(php, cfg));
+        if (type is "wordpress" or "laravel")
             req.Add(Services.Installed("mysql", cfg) && !Services.Installed("mariadb", cfg) ? "mysql" : "mariadb");
         return req;
     }
@@ -529,6 +529,8 @@ public sealed class Engine
         // which Laragon supports. Must start and end with an alphanumeric.
         if (!Regex.IsMatch(name, "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"))
             throw new BhException($"invalid site name '{name}' (lowercase letters, digits, hyphens, dots)");
+        if (type is not ("wordpress" or "php" or "laravel" or "others"))
+            throw new BhException("--type must be wordpress|php|laravel|others");
 
         var cfg = Config.Load();
         var domain = $"{name}.{cfg.Tld}";
@@ -538,6 +540,7 @@ public sealed class Engine
         if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache from the Services page first");
         var phpKey = Services.PhpKey(php, cfg);
         var version = Services.PhpVersion(phpKey, cfg);
+        var vhostRoot = type == "laravel" ? Path.Combine(root, "public") : root;
 
         Directory.CreateDirectory(root);
         if (!File.Exists(Path.Combine(root, "index.php")) && !File.Exists(Path.Combine(root, "index.html")))
@@ -548,15 +551,15 @@ public sealed class Engine
 
         if (server == "apache")
         {
-            Apache.RenderVhost(name, domain, root, phpKey, cfg);
+            Apache.RenderVhost(name, domain, vhostRoot, phpKey, cfg);
             // Apache.Start() NO-OPS when httpd is already running — so the SECOND (and every later)
             // Apache-backed site was never loaded into the running Apache: its requests fell through
             // to the first loaded vhost (another site!) until a manual restart. Reload when running.
             if (Apache.Running()) { Apache.Reload(); Ok("apache reloaded (new vhost)"); }
             else { var (aok, amsg) = Apache.Start(); if (aok) Ok(amsg); else Warn(amsg); }
-            NginxConfig.RenderApacheFront(name, domain, root, phpKey, Apache.Port, cfg);
+            NginxConfig.RenderApacheFront(name, domain, vhostRoot, phpKey, Apache.Port, cfg);
         }
-        else NginxConfig.RenderPhpVhost(name, domain, root, phpKey, cfg);
+        else NginxConfig.RenderPhpVhost(name, domain, vhostRoot, phpKey, cfg);
         Ok($"site vhost: {Path.Combine(Paths.NginxSites, name + ".conf")}  (server={server})");
 
         // Serve it first (so the site works immediately), then map the hostname.
@@ -575,7 +578,7 @@ public sealed class Engine
     /// <summary>Per-type setup: WordPress (DB + files + wp-config) or php (DB only).</summary>
     private void Provision(string name, string type, string root)
     {
-        if (type is not ("php" or "wordpress")) return;
+        if (type is not ("php" or "laravel" or "wordpress")) return;
         // This site type needs a database. Make sure the server is installed + running,
         // installing it on demand (a fresh BHServe has no services yet).
         if (Tools.MysqldExe() is null)

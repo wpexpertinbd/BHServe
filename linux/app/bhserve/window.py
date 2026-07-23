@@ -318,8 +318,12 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.MessageDialog(transient_for=self, heading="Add a website",
                                 body="Creates the site folder, vhost and *.test domain.")
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        form.set_margin_top(12)
+        form.set_margin_bottom(12)
+        form.set_margin_start(12)
+        form.set_margin_end(12)
         name = Gtk.Entry(placeholder_text="site name (e.g. myshop)")
-        typ = Gtk.DropDown.new_from_strings(["wordpress", "php", "others"])
+        typ = Gtk.DropDown.new_from_strings(["wordpress", "php", "laravel", "others"])
         # Offer only the PHP versions actually installed (so you can't pick one that isn't there);
         # fall back to the full list if none installed yet.
         installed_php = [s["key"].replace("php@", "") for s in self.last_data.get("services", [])
@@ -336,12 +340,34 @@ class MainWindow(Adw.ApplicationWindow):
                              "on .htaccess changes and supports the LiteSpeed Cache plugin "
                              "(installed automatically on first use).")
         ssl = Gtk.CheckButton(label="Enable trusted HTTPS (mkcert)", active=True)
-        for w, lab in ((name, "Name"), (typ, "Type"), (php, "PHP"), (srv, "Web server")):
+        dir_entry = Gtk.Entry(placeholder_text="Default folder (optional)", hexpand=True)
+        dir_box = Gtk.Box(spacing=6)
+        dir_box.append(dir_entry)
+        browse_btn = Gtk.Button(label="Browse…", valign=Gtk.Align.CENTER)
+        browse_btn.set_tooltip_text("Select project directory")
+        dir_box.append(browse_btn)
+
+        for w, lab in ((name, "Name"), (typ, "Type"), (php, "PHP"), (srv, "Web server"), (dir_box, "Location")):
             row = Gtk.Box(spacing=10)
             row.append(Gtk.Label(label=lab, width_chars=10, xalign=0))
             w.set_hexpand(True)
             row.append(w)
             form.append(row)
+
+        def _pick_dir(btn, entry):
+            def on_pick(dialog, result):
+                try:
+                    f = dialog.select_folder_finish(result)
+                    if f:
+                        entry.set_text(f.get_path())
+                except Exception:
+                    pass
+
+            dlg = Gtk.FileDialog()
+            dlg.set_title("Select project directory")
+            dlg.select_folder(self, None, on_pick)
+
+        browse_btn.connect("clicked", _pick_dir, dir_entry)
         form.append(ssl)
         dlg.set_extra_child(form)
         dlg.add_response("cancel", "Cancel")
@@ -356,9 +382,12 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast("Enter a site name")
                 return
             args = ["site", "add", nm,
-                    "--type", ["wordpress", "php", "others"][typ.get_selected()],
+                    "--type", ["wordpress", "php", "laravel", "others"][typ.get_selected()],
                     "--php", php_choices[php.get_selected()],
                     "--server", ["nginx", "apache", "ols"][srv.get_selected()]]
+            d = dir_entry.get_text().strip()
+            if d:
+                args += ["--root", d]
             tld = self.last_data.get("config", {}).get("tld", "test")
             self._run_add_site(nm, args, ssl.get_active(), tld)
 
@@ -433,17 +462,37 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.MessageDialog(transient_for=self, heading=title,
                                 body="A managed, supervised app served behind a *.test reverse proxy.")
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        name = Gtk.Entry(placeholder_text="app name")
-        folder = Gtk.Entry(placeholder_text="/path/to/project")
+        folder = Gtk.Entry(placeholder_text="/path/to/project", hexpand=True)
+        folder_box = Gtk.Box(spacing=8)
+        folder_box.append(folder)
+        browse_btn = Gtk.Button(label="Browse…", valign=Gtk.Align.CENTER)
+
+        def _pick_folder(btn, entry):
+            def on_pick(dialog, result):
+                try:
+                    f = dialog.select_folder_finish(result)
+                    if f:
+                        entry.set_text(f.get_path())
+                except Exception:
+                    pass
+
+            dlg = Gtk.FileDialog()
+            dlg.set_title("Select project directory")
+            dlg.select_folder(self, None, on_pick)
+
+        browse_btn.connect("clicked", _pick_folder, folder)
+        folder_box.append(browse_btn)
+
         cmd = Gtk.Entry(text="python app.py" if kind == "py" else "npm run dev")
         port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
         port.set_value(8000 if kind == "py" else 3000)
         venv = Gtk.CheckButton(label="Create a virtualenv (.venv)", active=True)
-        rows = [(name, "Name"), (folder, "Folder"), (cmd, "Command"), (port, "Port")]
+        rows = [(name, "Name"), (folder_box, "Folder"), (cmd, "Command"), (port, "Port")]
         for w, lab in rows:
             row = Gtk.Box(spacing=10)
             row.append(Gtk.Label(label=lab, width_chars=10, xalign=0))
-            w.set_hexpand(True)
+            if w is not folder_box:
+                w.set_hexpand(True)
             row.append(w)
             form.append(row)
         if kind == "py":

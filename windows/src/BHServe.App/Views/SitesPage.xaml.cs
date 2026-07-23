@@ -57,6 +57,7 @@ public sealed partial class SitesPage : Page
     {
         "WordPress"  => "wordpress",
         "PHP"        => "php",
+        "Laravel"    => "laravel",
         "Node app"   => "node",
         "Python app" => "python",
         _            => "others",
@@ -163,18 +164,35 @@ public sealed partial class SitesPage : Page
         ToolTipService.SetToolTip(RootBtn, "Site root folder (optional — defaults to the Sites root)");
     }
 
+    private static Grid WithBrowse(TextBox box)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(box);
+        Grid.SetColumn(box, 0);
+        var btn = new Button { Content = "Browse…", VerticalAlignment = VerticalAlignment.Bottom };
+        btn.Click += async (_, _) => {
+            var path = await Picker.FolderAsync();
+            if (!string.IsNullOrEmpty(path)) box.Text = path;
+        };
+        grid.Children.Add(btn);
+        Grid.SetColumn(btn, 1);
+        return grid;
+    }
+
     /// <summary>Node-app setup sheet (revealed when Type = Node app), then create + show the result.</summary>
     private async Task AddNodeApp(string name)
     {
         var feDir = new TextBox  { Header = "Frontend folder", PlaceholderText = @"C:\path\to\frontend" };
         var feCmd = new TextBox  { Header = "Frontend command", Text = "npm run dev" };
         var fePort = new NumberBox { Header = "Frontend port", Value = 3000, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
-        var beDir = new TextBox  { Header = "Backend folder (optional)" };
+        var beDir = new TextBox  { Header = "Backend folder (optional)", PlaceholderText = @"C:\path\to\backend" };
         var beCmd = new TextBox  { Header = "Backend command (optional)", PlaceholderText = "npm start" };
         var bePort = new NumberBox { Header = "Backend port (optional)", Value = double.NaN, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline };
         var api   = new TextBox  { Header = "API path → backend", Text = "/api" };
         var panel = new StackPanel { Spacing = 8 };
-        foreach (var c in new FrameworkElement[] { feDir, feCmd, fePort, beDir, beCmd, bePort, api }) panel.Children.Add(c);
+        foreach (var c in new FrameworkElement[] { WithBrowse(feDir), feCmd, fePort, WithBrowse(beDir), beCmd, bePort, api }) panel.Children.Add(c);
 
         var dlg = new ContentDialog
         {
@@ -208,7 +226,7 @@ public sealed partial class SitesPage : Page
         var venv = new ToggleSwitch { Header = "Create a virtualenv (.venv)", IsOn = true };
         var hint = new TextBlock { Text = "Your app gets a PORT env var — read os.environ['PORT'] in code, or use %PORT% in the command (e.g. gunicorn app:app -b 127.0.0.1:%PORT%).", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 };
         var panel = new StackPanel { Spacing = 8 };
-        foreach (var c in new FrameworkElement[] { dir, cmd, port, venv, hint }) panel.Children.Add(c);
+        foreach (var c in new FrameworkElement[] { WithBrowse(dir), cmd, port, venv, hint }) panel.Children.Add(c);
 
         var dlg = new ContentDialog
         {

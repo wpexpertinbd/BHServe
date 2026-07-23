@@ -615,7 +615,7 @@ final class AppState {
             // :8080 for .htaccess), so it needs BOTH — an Apache-only setup has nothing on :80.
             reqs.append(.init(key: "nginx", label: "nginx"))
             if server == "apache" { reqs.append(.init(key: "httpd", label: "Apache")) }
-            if type == "php" || type == "wordpress" {
+            if type is "php" or "laravel" or "wordpress" {
                 reqs.append(.init(key: php, label: "PHP \(php.replacingOccurrences(of: "php@", with: ""))"))
                 reqs.append(.init(key: mysqlServiceKey, label: mysqlLabel))
             }
