@@ -825,11 +825,14 @@ to `<sites_root>/<name>` when that folder exists (warn), else refuse the action 
   helper itself). **macOS uses the shared render_site_vhost → gets the guard automatically at its next
   release; please sanity-check a php-switch + server-switch still renders correctly on the Mac.**
 
-## win-v1.0.69 — php.ini max_input_vars=10000 (2026-07-28) — mac please verify
+## win-v1.0.69 — php.ini max_input_vars=10000 (2026-07-28) — macOS ALREADY COVERED, no action
 Windows php.ini writer (PhpCgi.EnsureLimits) never set `max_input_vars`, so PHP's default 1000
 truncated big POSTs → phpMyAdmin's export/import page on a many-table DB (Blesta ~418 tables >1000
 form fields) died with "Internal error: TypeError". Added `("max_input_vars","10000")` to the Limits
-array — applied to EVERY installed PHP version's php.ini on each start (install/activation). **Linux
-already sets max_input_vars=10000 in its FPM pools (render_fpm_pool), so this is Windows catching up.
-macOS: confirm its php.ini / fpm pool sets max_input_vars (10000) too — same phpMyAdmin-on-Blesta
-symptom would hit the Mac otherwise.**
+array — applied to EVERY installed PHP version's php.ini on each start (install/activation).
+**This was a WINDOWS-ONLY gap. VERIFIED (2026-07-28): the SHARED `render_fpm_pool` (engine/bhserve:1011)
+already emits `php_admin_value[max_input_vars] = 10000` in every pool, and BOTH Linux and macOS use it
+(Linux `fpm_start` runs php-fpm with `-y $BH_HOME/php/php-<v>.conf`; neither overrides render_fpm_pool).
+`php_admin_value` is authoritative over php.ini for the web SAPI phpMyAdmin uses. So Linux + macOS are
+ALREADY protected — nothing to change on the Mac. (Windows differs only because it has its own C#
+php.ini writer instead of the shared FPM-pool renderer.)**
