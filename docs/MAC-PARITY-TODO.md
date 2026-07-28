@@ -824,3 +824,12 @@ to `<sites_root>/<name>` when that folder exists (warn), else refuse the action 
   render_site_vhost for the OLS backend — any platform that overrides render_site_vhost must call the
   helper itself). **macOS uses the shared render_site_vhost → gets the guard automatically at its next
   release; please sanity-check a php-switch + server-switch still renders correctly on the Mac.**
+
+## win-v1.0.69 — php.ini max_input_vars=10000 (2026-07-28) — mac please verify
+Windows php.ini writer (PhpCgi.EnsureLimits) never set `max_input_vars`, so PHP's default 1000
+truncated big POSTs → phpMyAdmin's export/import page on a many-table DB (Blesta ~418 tables >1000
+form fields) died with "Internal error: TypeError". Added `("max_input_vars","10000")` to the Limits
+array — applied to EVERY installed PHP version's php.ini on each start (install/activation). **Linux
+already sets max_input_vars=10000 in its FPM pools (render_fpm_pool), so this is Windows catching up.
+macOS: confirm its php.ini / fpm pool sets max_input_vars (10000) too — same phpMyAdmin-on-Blesta
+symptom would hit the Mac otherwise.**

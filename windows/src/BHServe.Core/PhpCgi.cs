@@ -491,6 +491,11 @@ public static class PhpCgi
         ("max_execution_time",  "600"),
         ("max_input_time",      "600"),
         ("max_file_uploads",    "50"),
+        // max_input_vars: PHP's default 1000 truncates big POSTs — phpMyAdmin's DB export/import
+        // pages on a many-table DB (Blesta ~400 tables) exceed 1000 form fields → the POST is
+        // silently cut → phpMyAdmin dies with "Internal error: TypeError". 10000 matches the Linux
+        // FPM pools; also helps big WP option/settings forms. (2026-07-28.)
+        ("max_input_vars",      "10000"),
         // ⚠️ display_startup_errors MUST be Off. The Apache backend runs php-cgi in CGI mode
         // (mod_actions), where a PHP startup warning (e.g. a missing/failed zend_extension) is
         // printed to stdout BEFORE the HTTP headers → Apache "malformed header: <br />" → 500 on
