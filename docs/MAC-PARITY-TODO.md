@@ -771,6 +771,22 @@ instead of a tiny spinner + 3s toast — matching the Windows install alert. If 
 is also just a spinner/toast, consider the same dialog for parity (apt/brew installs are slow enough
 that users need a clear "working… / done / failed").
 
+## ✅ macOS verdicts for the four checks below (checked in v1.7.16, 2026-07-29)
+> **(1) loginitem context — CORRECT on Mac:** the toggle runs **unprivileged** (`AppState` →
+> `runUser(["loginitem", enable|disable])`; engine uses `~/Library/LaunchAgents` + `launchctl
+> bootstrap gui/$uid` — a per-user op, no osascript-admin). Login behavior matches the intended
+> model: menu-bar appears without a window (background launch never shows the dashboard); services
+> auto-start passwordless only once the sudoers helper is installed (documented design).
+> **(2) probe stability — STABLE:** two consecutive `api` runs diff clean (no timestamped versions;
+> Mac's brew binary matches the `*httpd*` `-v` special-case).
+> **(3) linux-v1.0.50 OLS items — N/A on Mac** (no OLS backend; noted for if/when it's ported:
+> every `_ols_apply` caller must run privileged).
+> **(4) empty document-root guard — VERIFIED on Mac:** `vhost_root_check` is live in the shared
+> `render_site_vhost`; tested add → php-switch → server-switch(apache) → server-switch(nginx) on a
+> real site: root identical + non-empty at every step.
+> *(win-v1.0.69 max_input_vars: already marked covered — shared `render_fpm_pool` emits
+> `php_admin_value[max_input_vars]=10000`; nothing to do.)*
+
 ## CHECK — "Start at login" toggle: is the privileged/user context right? (Linux bug fixed linux-v1.0.48)
 On Linux the login toggle ran `loginitem enable` PRIVILEGED (pkexec/root), but `systemctl --user
 enable` must run as the DESKTOP USER — as root it enabled the unit for root, so the api's
