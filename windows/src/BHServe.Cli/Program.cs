@@ -237,7 +237,7 @@ static void Usage() => Console.WriteLine("""
       bhserve install <nginx|php@8.4|mkcert>
       bhserve start|stop|restart [svc|all]      (svc: nginx|mariadb|mailpit|php@X)
       bhserve enable|disable <svc>
-      bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|others]
+      bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|laravel|others]
       bhserve site rm|list <name>
       bhserve site php <name> <ver> | site server <name> <nginx|apache>
       bhserve site subdomain {list|add|rm} <site> [label-or-host]

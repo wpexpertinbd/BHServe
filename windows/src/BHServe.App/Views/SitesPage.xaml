@@ -21,11 +21,12 @@
                 <TextBox x:Name="NameBox" PlaceholderText="site name (e.g. myapp)" Width="180"/>
                 <ComboBox x:Name="PhpBox" Width="100" SelectedIndex="0"/>
                 <ComboBox x:Name="TypeBox" Width="150" SelectedIndex="0" SelectionChanged="Type_Changed">
-                    <ComboBoxItem Content="WordPress"/>
-                    <ComboBoxItem Content="PHP"/>
-                    <ComboBoxItem Content="Others (static)"/>
-                    <ComboBoxItem Content="Node app"/>
-                    <ComboBoxItem Content="Python app"/>
+                <ComboBoxItem Content="WordPress"/>
+                <ComboBoxItem Content="PHP"/>
+                <ComboBoxItem Content="Laravel"/>
+                <ComboBoxItem Content="Others (static)"/>
+                <ComboBoxItem Content="Node app"/>
+                <ComboBoxItem Content="Python app"/>
                 </ComboBox>
                 <ComboBox x:Name="ServerBox" Width="230" SelectedIndex="0"
                           ToolTipService.ToolTip="nginx serves PHP on its own — all you need for PHP/WordPress. Apache is only for sites that need native .htaccess; it runs behind nginx, so choosing it uses nginx too.">
