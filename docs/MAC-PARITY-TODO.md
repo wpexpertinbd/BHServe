@@ -852,3 +852,22 @@ already emits `php_admin_value[max_input_vars] = 10000` in every pool, and BOTH 
 `php_admin_value` is authoritative over php.ini for the web SAPI phpMyAdmin uses. So Linux + macOS are
 ALREADY protected — nothing to change on the Mac. (Windows differs only because it has its own C#
 php.ini writer instead of the shared FPM-pool renderer.)**
+
+## win-v1.0.70 + linux-v1.0.53 — quote the nginx document root (2026-07-28) — SHARED-ENGINE, macOS inherits
+A document root containing a SPACE rendered as a bare `root /srv/My Site;` → nginx `invalid number of
+arguments in "root" directive` → **nginx refuses to start = every site down** (same outage class as
+win-v1.0.68). And the readers (`awk '{print $2}'`) silently TRUNCATED such a root to `/srv/My`, which
+then got re-rendered on the next `site php`/`secure` — and at one call site that truncated value feeds
+`rm -rf` under `site rm --purge`. Pre-existing bug; a folder-picker PR (community #5/#6) made it likely.
+Fixed in the SHARED engine (so **macOS gets it automatically — please sanity-check one site render**):
+- **Writers quoted:** `root "$root";` in all 3 nginx templates (php vhost, apache-front, OLS-front) +
+  both Windows C# templates. (Apache's `DocumentRoot "$root"` was already quoted — that was the model.)
+- **New `vhost_root_read()`** (bash) / **`VhostRoot()`** (C#) replaces all 11 bash + 2 C# readers.
+  Accepts BOTH the new quoted form AND the LEGACY unquoted form still on disk in every existing
+  install (verified), plus an optional trailing comment.
+- **New `valid_site_root()`** (bash) / **`ValidateSiteRoot()`** (C#) on `site add` + `site root`:
+  rejects `;` `"` `{` `}` `$` `\` and newlines (config injection / fatal-error chars). **Spaces are
+  ALLOWED** — that's the point. ⚠️ the C# validator deliberately does NOT reject `\` (Windows paths).
+WSL-verified 17/17: spaced root renders quoted, nginx valid + site SERVES, round-trip re-render keeps
+the full path, api reports it intact, legacy unquoted vhosts still parse, all 5 injection payloads
+refused, nginx never corrupted. C# builds clean.

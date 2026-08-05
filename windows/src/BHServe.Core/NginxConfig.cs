@@ -152,7 +152,7 @@ public static class NginxConfig
         server {
         {{ListenBlock(domain, cfg)}}
             server_name {{ServerNames(domain, aliases)}};
-            root {{Fwd(root)}};
+            root "{{Fwd(root)}}";
             index index.php index.html index.htm;
 
             access_log {{home}}/logs/{{name}}-access.log;
@@ -187,7 +187,7 @@ public static class NginxConfig
         server {
         {{ListenBlock(domain, cfg)}}
             server_name {{ServerNames(domain, aliases)}};
-            root {{Fwd(root)}};   # served by Apache (:{{apachePort}}); kept for tooling
+            root "{{Fwd(root)}}";   # served by Apache (:{{apachePort}}); kept for tooling
 
             access_log {{home}}/logs/{{name}}-access.log;
             error_log  {{home}}/logs/{{name}}-error.log;
