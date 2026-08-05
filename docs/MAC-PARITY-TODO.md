@@ -880,3 +880,16 @@ Fixed in the SHARED engine (so **macOS gets it automatically — please sanity-c
 WSL-verified 17/17: spaced root renders quoted, nginx valid + site SERVES, round-trip re-render keeps
 the full path, api reports it intact, legacy unquoted vhosts still parse, all 5 injection payloads
 refused, nginx never corrupted. C# builds clean.
+
+## ⚙️ CI now gates every push + PR (added 2026-08-05) — heads-up for the macOS side
+`.github/workflows/build-check.yml` runs on every push to `master` and every pull request:
+**macOS `swift build`** (on GitHub's `macos-latest` runner) · **Windows `dotnet build BHServe.sln`** ·
+**Linux** `compileall` + `ruff --select F821,F822` (undefined names — the class `py_compile` can't
+see, because it only fails at runtime) + `bash -n` over `engine/bhserve` and every shipped `.sh`.
+Jobs are per-platform, so a Linux-only change is never blocked by a Windows job.
+**What this means for you:** a Swift compile error now turns the repo red immediately instead of
+sitting unnoticed until a release — and the same protection covers community PRs *before* either of
+us reviews them. Rule set is deliberately NARROW (correctness, not style) so it never fails a PR over
+formatting. Verified by injecting the two real bugs from community PR #5/#6 and confirming red →
+revert → green (`AppState.swift:618 error: expected type after 'is'`; `window.py:441 F821 Undefined
+name 'name'`), with Windows staying green throughout.
