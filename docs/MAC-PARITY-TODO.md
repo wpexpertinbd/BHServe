@@ -853,7 +853,16 @@ already emits `php_admin_value[max_input_vars] = 10000` in every pool, and BOTH 
 ALREADY protected — nothing to change on the Mac. (Windows differs only because it has its own C#
 php.ini writer instead of the shared FPM-pool renderer.)**
 
-## win-v1.0.70 + linux-v1.0.53 — quote the nginx document root (2026-07-28) — SHARED-ENGINE, macOS inherits
+## win-v1.0.70 + linux-v1.0.53 — quote the nginx document root (2026-07-28) — ✅ macOS VERIFIED (2026-07-30, no code change needed)
+> **Sanity-check done on macOS as requested — 7/7 pass.** `vhost_root_read()` + `valid_site_root()` +
+> all 3 quoted `root "$root";` templates are present in the shared engine and macOS picks them up with
+> zero platform work. Live test with a genuinely spaced root
+> (`~/BHServe/www/My Spaced Site`): (1) renders **quoted**; (2) `nginx -t` **valid**; (3) round-trip
+> through `site php` → `site server apache` → `site server nginx` keeps the **full path** (no `/…/My`
+> truncation, and the apache-front variant keeps its trailing comment); (4) the api reports the whole
+> path intact; (5) the site **actually serves** from the spaced root (PHP executed); (6) all 4
+> injection payloads (`;` `"` `$` `{}`) **refused** by `valid_site_root`; (7) existing sites
+> unaffected (fossbilling.test still 200 after cleanup). Nothing to fix on the Mac side.
 A document root containing a SPACE rendered as a bare `root /srv/My Site;` → nginx `invalid number of
 arguments in "root" directive` → **nginx refuses to start = every site down** (same outage class as
 win-v1.0.68). And the readers (`awk '{print $2}'`) silently TRUNCATED such a root to `/srv/My`, which
