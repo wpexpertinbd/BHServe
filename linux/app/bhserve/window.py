@@ -433,6 +433,7 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.MessageDialog(transient_for=self, heading=title,
                                 body="A managed, supervised app served behind a *.test reverse proxy.")
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        name = Gtk.Entry(placeholder_text="app name")
         folder = Gtk.Entry(placeholder_text="/path/to/project")
         cmd = Gtk.Entry(text="python app.py" if kind == "py" else "npm run dev")
         port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
