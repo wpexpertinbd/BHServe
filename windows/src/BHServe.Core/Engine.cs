@@ -535,6 +535,7 @@ public sealed class Engine
         var cfg = Config.Load();
         var domain = $"{name}.{cfg.Tld}";
         root ??= Path.Combine(cfg.SitesRoot, name);
+        ValidateSiteRoot(root);
         if (string.IsNullOrEmpty(server)) server = cfg.DefaultWeb;
         if (server is not ("nginx" or "apache")) throw new BhException("--server must be nginx or apache");
         if (server == "apache" && !Apache.Available) throw new BhException("apache backend needs httpd — install Apache from the Services page first");
@@ -712,6 +713,7 @@ public sealed class Engine
         var cfg = Config.Load();
         var conf = Path.Combine(Paths.NginxSites, $"{name}.conf");
         if (!File.Exists(conf)) throw new BhException($"no such site: {name}");
+        ValidateSiteRoot(newRoot);
         var (domain, _, phpKey) = ParseVhost(conf);
         Directory.CreateDirectory(newRoot);
         RenderSite(name, domain, newRoot, phpKey, VhostServer(conf), cfg, VhostAliases(conf, domain));
@@ -1072,7 +1074,7 @@ public sealed class Engine
     {
         var text = File.ReadAllText(conf);
         var domain = VhostDomainsFromText(text).FirstOrDefault() ?? "";
-        var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
+        var root   = VhostRoot(text);
         var phpKey = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
         if (string.IsNullOrEmpty(phpKey)) phpKey = "php";
         return (domain, root, phpKey);
@@ -1084,6 +1086,28 @@ public sealed class Engine
         if (File.Exists(on)) return on;
         var off = Path.Combine(Paths.NginxSites, $"{name}.conf.disabled");
         return File.Exists(off) ? off : null;
+    }
+
+    /// <summary>Reject a document root that would corrupt the vhost or a later re-parse. A folder
+    /// PICKER can hand us almost anything, and an unvalidated value lands in an nginx directive
+    /// (a `;` or newline = config injection / fatal error) and, via ParseVhost, in the delete path.
+    /// Spaces ARE allowed — the renderers quote the value.</summary>
+    private static void ValidateSiteRoot(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return;   // empty is handled by RenderSite's guard
+        if (root.IndexOfAny(new[] { ';', '"', '{', '}', '\n', '\r' }) >= 0)
+            throw new BhException($"invalid document root '{root}' (must not contain ; \" {{ }} or a newline)");
+    }
+
+    /// <summary>Read a vhost's document root, accepting BOTH the quoted form we render now
+    /// (root "C:/My Sites/shop";) and the LEGACY unquoted form still on disk in every install
+    /// created before the quoting fix. Paths with spaces are the reason for the quotes: a bare
+    /// `root C:/My Sites/shop;` is a FATAL nginx config error that stops every site.</summary>
+    private static string VhostRoot(string text)
+    {
+        var raw = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
+        if (raw.Length >= 2 && raw[0] == '"' && raw[^1] == '"') raw = raw[1..^1];
+        return raw;
     }
 
     private static IReadOnlyList<string> VhostDomains(string conf) => VhostDomainsFromText(File.ReadAllText(conf));
@@ -1167,7 +1191,7 @@ public sealed class Engine
             var domain = domains.FirstOrDefault() ?? "";
             var aliases = domains.Skip(1).ToList();
             var php    = Regex.Match(text, @"php=(\S+)").Groups[1].Value.Trim();
-            var root   = Regex.Match(text, @"(?m)^\s*root\s+([^;]+);").Groups[1].Value.Trim();
+            var root   = VhostRoot(text);
             var secure = text.Contains("ssl_certificate ");
             list.Add(new Site(name, domain, aliases, php, root, secure, enabled,
                               text.Contains("server=apache") ? "apache" : "nginx"));

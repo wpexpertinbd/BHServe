@@ -362,6 +362,31 @@ vhost_root_check(){
   printf '%s' "$root"
 }
 
+# Reject a document root that would corrupt the vhost or a later re-parse. A folder PICKER can
+# hand us almost anything, and an unvalidated value reaches an nginx directive (`;`/newline =
+# config injection / fatal error) and, via the readers below, `rm -rf` under `site rm --purge`.
+# Spaces ARE allowed — the renderers quote the value (that's the point of this pass).
+valid_site_root(){
+  local r="$1"
+  case "$r" in
+    "") return 0 ;;                                     # empty is handled by vhost_root_check
+    */*) ;; *) die "document root must be a path: '$r'" ;;
+  esac
+  case "$r" in
+    *';'*|*'"'*|*'{'*|*'}'*|*'$'*|*'\'*) die "invalid document root '$r' (must not contain ; \" { } \$ or \\)" ;;
+  esac
+  [ "$r" = "${r%%$'\n'*}" ] || die "invalid document root (contains a newline)"
+}
+
+# Read the document root back out of a vhost. Handles BOTH the quoted form we render now
+# (root "/srv/My Site";) and the LEGACY unquoted form (root /srv/site;) still on disk in every
+# pre-existing install, plus an optional trailing comment. Replaces a scattered
+# `awk '{print $2}' | tr -d ';'` that silently truncated any path containing a space.
+vhost_root_read(){
+  sed -n 's/^[[:space:]]*root[[:space:]]\{1,\}\([^;]*\);.*$/\1/p' "$1" 2>/dev/null \
+    | head -1 | sed 's/^"\(.*\)"$/\1/'
+}
+
 render_site_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" server="${5:-nginx}"
   root="$(vhost_root_check "$name" "$root")" || return 1
@@ -404,7 +429,7 @@ render_nginx_php_vhost() {
 server {
 $(nginx_listen_block "$domain")
     server_name $names;
-    root $root;
+    root "$root";
     index index.php index.html index.htm;
 
     access_log $BH_HOME/logs/$name-access.log;
@@ -436,7 +461,7 @@ render_nginx_proxy_vhost() {
 server {
 $(nginx_listen_block "$domain")
     server_name $names;
-    root $root;   # served by Apache (:$APACHE_PORT); kept for tooling/metadata
+    root "$root";   # served by Apache (:$APACHE_PORT); kept for tooling/metadata
 
     access_log $BH_HOME/logs/$name-access.log;
     error_log  $BH_HOME/logs/$name-error.log;
@@ -1193,7 +1218,7 @@ site_set_server() {
   [ "$newsrv" != apache ] || svc_installed httpd || die "apache needs httpd — bhserve install httpd"
   local domain root php
   domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
-  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(vhost_root_read "$conf")"
   php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
   [ "$newsrv" = nginx ] && rm -f "$BH_HOME/apache/sites/$name.conf"
   render_site_vhost "$name" "$domain" "$root" "$php" "$newsrv"
@@ -1226,7 +1251,7 @@ site_set_php() {
   [ -f "$conf" ] || die "no site '$name'"
   local domain root phpkey server
   domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
-  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(vhost_root_read "$conf")"
   server="$(vhost_server "$conf")"
   phpkey="$(php_key "$newphp")"
   svc_installed "$phpkey" || die "$phpkey not installed (bhserve install $phpkey)"
@@ -1245,6 +1270,7 @@ site_set_root() {
   local conf="$BH_HOME/nginx/sites/$1.conf"
   [ -f "$conf" ] || die "no site '$name'"
   case "$newroot" in /*) ;; *) die "root must be an absolute path" ;; esac
+  valid_site_root "$newroot"
   local domain phpkey server
   domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
   phpkey="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
@@ -1270,7 +1296,7 @@ site_add() {
     --type) type="$2"; shift 2;;
     *) die "unknown flag: $1";;
   esac; done
-  valid_site_name "$name"
+  valid_site_name "$name"; valid_site_root "$root"
   case "$type" in wordpress|php|laravel|others) ;; *) die "--type must be wordpress|php|laravel|others" ;; esac
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
@@ -1411,7 +1437,7 @@ site_autosecure(){
   local caroot; caroot="$("$BREW_PREFIX/bin/mkcert" -CAROOT 2>/dev/null)"
   [ -n "$caroot" ] && [ -f "$caroot/rootCA.pem" ] || { info "https: bhserve secure $domain"; return 0; }
   ( cd "$BH_HOME/certs" && "$BREW_PREFIX/bin/mkcert" -cert-file "$domain.pem" -key-file "$domain-key.pem" "$domain" ) >/dev/null 2>&1 \
-    && { local root php server; root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$BH_HOME/nginx/sites/$name.conf" | tr -d ';')"
+    && { local root php server; root="$(vhost_root_read "$BH_HOME/nginx/sites/$name.conf")"
          php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$BH_HOME/nginx/sites/$name.conf" | head -1)"
          server="$(vhost_server "$BH_HOME/nginx/sites/$name.conf")"
          render_site_vhost "$name" "$domain" "$root" "$php" "$server"; ok "HTTPS enabled (mkcert)"; } \
@@ -1425,7 +1451,7 @@ site_rm() {
   valid_site_name "$name"
   # capture the doc root BEFORE deleting the vhost (needed for --purge file deletion)
   local conf="$BH_HOME/nginx/sites/$name.conf" root=""
-  [ -f "$conf" ] && root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  [ -f "$conf" ] && root="$(vhost_root_read "$conf")"
   rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled" \
         "$BH_HOME/apache/sites/$name.conf"
   ok "removed vhost for $name"
@@ -1564,7 +1590,7 @@ _rerender_site_vhost() {
       local port; port="$(sed -n 's#.*proxy_pass http://127.0.0.1:\([0-9]*\).*#\1#p' "$conf" | head -1)"
       render_nginx_proxy_site "$name" "$domain" "${port:-8025}"
     else
-      root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+      root="$(vhost_root_read "$conf")"
       php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
       render_site_vhost "$name" "$domain" "$root" "$php" "$server"
     fi
@@ -2056,7 +2082,7 @@ regen_all_vhosts(){
     # as a proxy, never as a normal site (that produced a broken `root ;` directive).
     port="$(sed -n 's#.*proxy_pass http://127.0.0.1:\([0-9][0-9]*\).*#\1#p' "$f" | head -1)"
     if [ -n "$port" ]; then render_nginx_proxy_site "$n" "$n.$tld" "$port"; continue; fi
-    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    root="$(vhost_root_read "$f")"
     [ -n "$root" ] || continue   # no root + no proxy → can't safely re-render, leave as-is
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
     server="$(vhost_server "$f")"
@@ -2607,7 +2633,7 @@ cmd_api() {
     case "$f" in *.conf.disabled) enabled=false; n="$(basename "$f" .conf.disabled)";; *) n="$(basename "$f" .conf)";; esac
     dom="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
     php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
-    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    root="$(vhost_root_read "$f")"
     grep -q "ssl_certificate " "$f" && sec=true
     local srv; srv="$(vhost_server "$f")"
     local tun=""; tunnel_running "$n" && tun="$(tunnel_url "$n")"

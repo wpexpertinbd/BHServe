@@ -51,13 +51,23 @@ final class DashboardWindow: NSObject, NSWindowDelegate {
         if window == nil {
             let host = NSHostingController(
                 rootView: ContentView().environment(AppState.shared).environment(Metrics.shared))
+            // Don't let SwiftUI constrain the AppKit window. With the default sizingOptions,
+            // NSHostingController pins the window to the content's reported min/ideal size —
+            // on first run (SetupView, flexible infinity frame) that blew the window taller
+            // than a MacBook's screen and Auto Layout snapped back every resize attempt
+            // ("welcome screen too tall + can't resize", user report). The window is ours;
+            // the user sizes it.
+            host.sizingOptions = []
             let w = NSWindow(contentViewController: host)
             w.title = "BHServe"
             // A solid, standard title bar (NOT fullSizeContentView/transparent) so each
             // tab's title + refresh button always sit on an opaque top bar — content
             // scrolls cleanly under it at any window size instead of bleeding to the top.
             w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-            w.setContentSize(NSSize(width: 860, height: 620))
+            // Clamp the initial size to the screen so small MacBooks never start offscreen.
+            let vis = (NSScreen.main?.visibleFrame.size) ?? NSSize(width: 1280, height: 800)
+            w.setContentSize(NSSize(width: min(860, vis.width - 40), height: min(620, vis.height - 60)))
+            w.contentMinSize = NSSize(width: 520, height: 420)
             w.titlebarAppearsTransparent = false
             w.isReleasedWhenClosed = false
             w.center()

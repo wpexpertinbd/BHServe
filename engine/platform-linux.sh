@@ -661,6 +661,8 @@ hosts_sync_all(){
 # go through here; in non-tty (GUI) mode it still syncs hosts before deferring the reload.
 maybe_reload_nginx(){
   hosts_sync_all
+  # ALWAYS (re)load nginx when a site changes — the GUI runs us non-interactively. And if
+  # nginx is down, START it (else the new site 502s / doesn't load at all).
   if nginx_running; then
     nginx_reload
   else
@@ -1344,7 +1346,7 @@ _ols_heal_vhosts(){
     vh="$LSWS_ROOT/conf/vhosts/bhserve-$name/vhconf.conf"
     $SUDO grep -q 'X-Forwarded-Proto' "$vh" 2>/dev/null && continue
     domain="$(awk '/server_name/{print $2; exit}' "$f" | tr -d ';')"
-    root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+    root="$(vhost_root_read "$f")"
     phpkey="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$f" | head -1)"
     [ -n "$domain" ] && [ -n "$root" ] && [ -n "$phpkey" ] \
       && render_ols_vhost "$name" "$domain" "$root" "$phpkey" >/dev/null 2>&1 || true
@@ -1359,7 +1361,7 @@ render_nginx_ols_proxy_vhost(){
 server {
 $(nginx_listen_block "$domain")
     server_name $domain;
-    root $root;   # served by OpenLiteSpeed (:$OLS_PORT); kept for tooling/metadata
+    root "$root";   # served by OpenLiteSpeed (:$OLS_PORT); kept for tooling/metadata
 
     access_log $BH_HOME/logs/$name-access.log;
     error_log  $BH_HOME/logs/$name-error.log;
@@ -1395,7 +1397,7 @@ _ols_sync_config(){
       # listener map — mapping only $2 (the canonical) left aliases unrouted: OLS got the
       # subdomain's Host, matched nothing, and served the wrong site.
       domain="$(awk '/server_name/{for(i=2;i<=NF;i++){gsub(/;/,"",$i); printf "%s%s",(i>2?", ":""),$i}; exit}' "$f")"
-      root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$f" | tr -d ';')"
+      root="$(vhost_root_read "$f")"
       printf 'virtualhost bhserve-%s {\n  vhRoot                  %s\n  configFile              conf/vhosts/bhserve-%s/vhconf.conf\n  allowSymbolLink         1\n  enableScript            1\n  restrained              0\n}\n' "$name" "$root" "$name"
       maps="$maps  map                     bhserve-$name $domain
 "
@@ -1474,7 +1476,7 @@ site_set_server() {
   local domain root php oldsrv
   oldsrv="$(vhost_server "$conf")"
   domain="$(awk '/server_name/{print $2; exit}' "$conf" | tr -d ';')"
-  root="$(awk '/^[[:space:]]*root /{print $2; exit}' "$conf" | tr -d ';')"
+  root="$(vhost_root_read "$conf")"
   php="$(sed -n 's/.*php=\([^[:space:]]*\).*/\1/p' "$conf" | head -1)"
   [ "$newsrv" = nginx ] && rm -f "$BH_HOME/apache/sites/$name.conf"
   if [ "$oldsrv" = ols ] && [ "$newsrv" != ols ]; then

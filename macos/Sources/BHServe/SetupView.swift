@@ -6,6 +6,9 @@ struct SetupView: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
+        // ScrollView so a small window scrolls the steps instead of clipping (or, worse,
+        // demanding a window taller than a MacBook screen — see DashboardWindow.show()).
+        ScrollView {
         VStack(spacing: 22) {
             VStack(spacing: 8) {
                 Image(systemName: "server.rack").font(.system(size: 44)).foregroundStyle(.blue)
@@ -56,7 +59,8 @@ struct SetupView: View {
             Text("BHServe v\(state.appVersion) · BiswasHost").font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(36)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        }
         .task {
             await state.reload()
             while !Task.isCancelled {           // poll so it advances after Terminal finishes

@@ -771,6 +771,22 @@ instead of a tiny spinner + 3s toast — matching the Windows install alert. If 
 is also just a spinner/toast, consider the same dialog for parity (apt/brew installs are slow enough
 that users need a clear "working… / done / failed").
 
+## ✅ macOS verdicts for the four checks below (checked in v1.7.16, 2026-07-29)
+> **(1) loginitem context — CORRECT on Mac:** the toggle runs **unprivileged** (`AppState` →
+> `runUser(["loginitem", enable|disable])`; engine uses `~/Library/LaunchAgents` + `launchctl
+> bootstrap gui/$uid` — a per-user op, no osascript-admin). Login behavior matches the intended
+> model: menu-bar appears without a window (background launch never shows the dashboard); services
+> auto-start passwordless only once the sudoers helper is installed (documented design).
+> **(2) probe stability — STABLE:** two consecutive `api` runs diff clean (no timestamped versions;
+> Mac's brew binary matches the `*httpd*` `-v` special-case).
+> **(3) linux-v1.0.50 OLS items — N/A on Mac** (no OLS backend; noted for if/when it's ported:
+> every `_ols_apply` caller must run privileged).
+> **(4) empty document-root guard — VERIFIED on Mac:** `vhost_root_check` is live in the shared
+> `render_site_vhost`; tested add → php-switch → server-switch(apache) → server-switch(nginx) on a
+> real site: root identical + non-empty at every step.
+> *(win-v1.0.69 max_input_vars: already marked covered — shared `render_fpm_pool` emits
+> `php_admin_value[max_input_vars]=10000`; nothing to do.)*
+
 ## CHECK — "Start at login" toggle: is the privileged/user context right? (Linux bug fixed linux-v1.0.48)
 On Linux the login toggle ran `loginitem enable` PRIVILEGED (pkexec/root), but `systemctl --user
 enable` must run as the DESKTOP USER — as root it enabled the unit for root, so the api's
@@ -836,3 +852,44 @@ already emits `php_admin_value[max_input_vars] = 10000` in every pool, and BOTH 
 `php_admin_value` is authoritative over php.ini for the web SAPI phpMyAdmin uses. So Linux + macOS are
 ALREADY protected — nothing to change on the Mac. (Windows differs only because it has its own C#
 php.ini writer instead of the shared FPM-pool renderer.)**
+
+## win-v1.0.70 + linux-v1.0.53 — quote the nginx document root (2026-07-28) — ✅ macOS VERIFIED (2026-07-30, no code change needed)
+> **Sanity-check done on macOS as requested — 7/7 pass.** `vhost_root_read()` + `valid_site_root()` +
+> all 3 quoted `root "$root";` templates are present in the shared engine and macOS picks them up with
+> zero platform work. Live test with a genuinely spaced root
+> (`~/BHServe/www/My Spaced Site`): (1) renders **quoted**; (2) `nginx -t` **valid**; (3) round-trip
+> through `site php` → `site server apache` → `site server nginx` keeps the **full path** (no `/…/My`
+> truncation, and the apache-front variant keeps its trailing comment); (4) the api reports the whole
+> path intact; (5) the site **actually serves** from the spaced root (PHP executed); (6) all 4
+> injection payloads (`;` `"` `$` `{}`) **refused** by `valid_site_root`; (7) existing sites
+> unaffected (fossbilling.test still 200 after cleanup). Nothing to fix on the Mac side.
+A document root containing a SPACE rendered as a bare `root /srv/My Site;` → nginx `invalid number of
+arguments in "root" directive` → **nginx refuses to start = every site down** (same outage class as
+win-v1.0.68). And the readers (`awk '{print $2}'`) silently TRUNCATED such a root to `/srv/My`, which
+then got re-rendered on the next `site php`/`secure` — and at one call site that truncated value feeds
+`rm -rf` under `site rm --purge`. Pre-existing bug; a folder-picker PR (community #5/#6) made it likely.
+Fixed in the SHARED engine (so **macOS gets it automatically — please sanity-check one site render**):
+- **Writers quoted:** `root "$root";` in all 3 nginx templates (php vhost, apache-front, OLS-front) +
+  both Windows C# templates. (Apache's `DocumentRoot "$root"` was already quoted — that was the model.)
+- **New `vhost_root_read()`** (bash) / **`VhostRoot()`** (C#) replaces all 11 bash + 2 C# readers.
+  Accepts BOTH the new quoted form AND the LEGACY unquoted form still on disk in every existing
+  install (verified), plus an optional trailing comment.
+- **New `valid_site_root()`** (bash) / **`ValidateSiteRoot()`** (C#) on `site add` + `site root`:
+  rejects `;` `"` `{` `}` `$` `\` and newlines (config injection / fatal-error chars). **Spaces are
+  ALLOWED** — that's the point. ⚠️ the C# validator deliberately does NOT reject `\` (Windows paths).
+WSL-verified 17/17: spaced root renders quoted, nginx valid + site SERVES, round-trip re-render keeps
+the full path, api reports it intact, legacy unquoted vhosts still parse, all 5 injection payloads
+refused, nginx never corrupted. C# builds clean.
+
+## ⚙️ CI now gates every push + PR (added 2026-08-05) — heads-up for the macOS side
+`.github/workflows/build-check.yml` runs on every push to `master` and every pull request:
+**macOS `swift build`** (on GitHub's `macos-latest` runner) · **Windows `dotnet build BHServe.sln`** ·
+**Linux** `compileall` + `ruff --select F821,F822` (undefined names — the class `py_compile` can't
+see, because it only fails at runtime) + `bash -n` over `engine/bhserve` and every shipped `.sh`.
+Jobs are per-platform, so a Linux-only change is never blocked by a Windows job.
+**What this means for you:** a Swift compile error now turns the repo red immediately instead of
+sitting unnoticed until a release — and the same protection covers community PRs *before* either of
+us reviews them. Rule set is deliberately NARROW (correctness, not style) so it never fails a PR over
+formatting. Verified by injecting the two real bugs from community PR #5/#6 and confirming red →
+revert → green (`AppState.swift:618 error: expected type after 'is'`; `window.py:441 F821 Undefined
+name 'name'`), with Windows staying green throughout.
