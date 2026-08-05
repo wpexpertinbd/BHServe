@@ -1,0 +1,78 @@
+# Build/lint gate for every push + pull request.
+#
+# Why this exists: BHServe ships three front-ends (Swift/macOS, C#/Windows, Python/Linux) over one
+# shared bash engine, and a contributor commonly makes "the same" edit in all three. Nothing ever
+# compiled the other platforms, so a community PR sat open containing C# pattern-matching syntax
+# pasted verbatim into a .swift file (`if type is "php" or "wordpress"`) — which cannot compile —
+# plus a deleted Python variable that was still referenced (a runtime NameError that PyGObject
+# swallows, so the button just silently did nothing). Both are caught here in ~2 minutes.
+#
+# Each job builds ONLY its own platform, so a Linux-only change can't be blocked by a Windows job.
+name: build check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch/PR cancels the previous run (saves runner time, keeps the tip green).
+concurrency:
+  group: build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS · swift build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift build
+        working-directory: macos
+        run: swift build -v
+
+  windows:
+    name: Windows · dotnet build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: dotnet build (whole solution)
+        working-directory: windows
+        run: dotnet build BHServe.sln -c Release --nologo
+
+  linux:
+    name: Linux · python + bash
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Syntax errors in the GTK app.
+      - name: python syntax (compileall)
+        run: python -m compileall -q linux/app/bhserve
+
+      # Undefined/removed names — the class of bug py_compile CANNOT see, because it only fails at
+      # runtime. Deliberately a NARROW rule set (F821 undefined name, F822 undefined __all__ export):
+      # this is a correctness gate, not a style gate, so it never fails a PR over formatting.
+      - name: python undefined names (ruff F821/F822)
+        run: |
+          pipx install ruff || pip install ruff
+          ruff check --select F821,F822 linux/app/bhserve/
+
+      # The shared engine + every shipped shell script must at least parse. `bash -n` only — NOT
+      # shellcheck — so existing style warnings don't turn the gate red.
+      - name: bash syntax (bash -n)
+        run: |
+          fail=0
+          for f in $(git ls-files '*.sh') engine/bhserve; do
+            if bash -n "$f"; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
+          done
+          exit $fail
