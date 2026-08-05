@@ -121,8 +121,10 @@ public static class Nginx
     {
         NginxConfig.RenderMain(cfg);
         var exe = Tools.NginxExe();
-        if (exe is null) return;
-        if (Running())
+        if (exe is null || !Running()) return;
+        // Graceful -s reload is the primary path; full stop+start only as a fallback.
+        var (code, _) = Run(exe, $"-s reload -p \"{NginxConfig.Fwd(NginxDir)}\" -c \"{NginxConfig.Fwd(ConfPath)}\"");
+        if (code != 0)
         {
             Stop();
             Start(cfg);

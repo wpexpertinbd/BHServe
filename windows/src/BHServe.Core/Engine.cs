@@ -542,9 +542,9 @@ public sealed class Engine
         var version = Services.PhpVersion(phpKey, cfg);
         var vhostRoot = type == "laravel" ? Path.Combine(root, "public") : root;
 
-        Directory.CreateDirectory(root);
-        if (!File.Exists(Path.Combine(root, "index.php")) && !File.Exists(Path.Combine(root, "index.html")))
-            File.WriteAllText(Path.Combine(root, "index.php"), DefaultIndexPhp);
+        Directory.CreateDirectory(vhostRoot);
+        if (!File.Exists(Path.Combine(vhostRoot, "index.php")) && !File.Exists(Path.Combine(vhostRoot, "index.html")))
+            File.WriteAllText(Path.Combine(vhostRoot, "index.php"), DefaultIndexPhp);
 
         if (PhpCgi.Start(version)) Ok($"php-cgi {version} on :{PhpCgi.PortFor(version)}");
         else Warn($"php {version} not installed — bhserve install php@{version} (site will 502 until then)");

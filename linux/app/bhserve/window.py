@@ -462,6 +462,7 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.MessageDialog(transient_for=self, heading=title,
                                 body="A managed, supervised app served behind a *.test reverse proxy.")
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        name = Gtk.Entry(placeholder_text="app name", hexpand=True)
         folder = Gtk.Entry(placeholder_text="/path/to/project", hexpand=True)
         folder_box = Gtk.Box(spacing=8)
         folder_box.append(folder)

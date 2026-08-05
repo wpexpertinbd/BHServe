@@ -662,7 +662,7 @@ hosts_sync_all(){
 maybe_reload_nginx(){
   hosts_sync_all
   if nginx_running; then
-    nginx_restart >/dev/null 2>&1 || nginx_reload
+    nginx_reload
   else
     nginx_start >/dev/null 2>&1 && ok "nginx started" || warn "start nginx to serve the site (bhserve start nginx)"
   fi
@@ -671,11 +671,13 @@ maybe_reload_nginx(){
 nginx_reload(){
   hosts_sync_all
   nginx_running || return 0
-  nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || {
-    local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-    $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
-      && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
-  }
+  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+  if $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null; then
+    ok "nginx reloaded"
+  else
+    # graceful reload is the primary path; full restart only as a fallback
+    nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || warn "reload failed — run: bhserve restart nginx"
+  fi
 }
 
 # `bhserve dns` — default: (re)sync /etc/hosts for all sites. `bhserve dns wildcard` —

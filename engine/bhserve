@@ -1280,10 +1280,11 @@ site_add() {
   local vhost_root="$root"
   [ "$type" = "laravel" ] && vhost_root="$root/public"
 
-  mkdir -p "$root"
+  mkdir -p "$vhost_root"
   # Branded default landing page (identical to the Windows build). Quoted heredoc
-  # so the PHP `$…` is written literally, not shell-expanded.
-  [ -f "$root/index.php" ] || [ -f "$root/index.html" ] || cat > "$root/index.php" <<'PHP'
+  # so the PHP `$…` is written literally, not shell-expanded. Written to the DOCUMENT
+  # ROOT ($vhost_root) — for Laravel that's $root/public, not $root.
+  [ -f "$vhost_root/index.php" ] || [ -f "$vhost_root/index.html" ] || cat > "$vhost_root/index.php" <<'PHP'
 <?php // BHServe default page - replace this index.php with your own site. ?>
 <!doctype html>
 <html lang='en'>
@@ -1655,11 +1656,13 @@ nginx_start(){
 }
 nginx_reload(){
   nginx_running || return 0
-  nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || {
-    local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-    $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null \
-      && ok "nginx reloaded" || warn "reload failed — run: bhserve restart nginx"
-  }
+  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
+  if $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null; then
+    ok "nginx reloaded"
+  else
+    # graceful reload is the primary path; full restart only as a fallback
+    nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || warn "reload failed — run: bhserve restart nginx"
+  fi
 }
 # Auto-apply config changes
 maybe_reload_nginx(){
