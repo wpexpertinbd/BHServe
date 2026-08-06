@@ -1838,7 +1838,7 @@ cmd_restart() {
 }
 
 # ── databases (mysql/mariadb + postgresql) ──────────────────────────────────
-MYSQL_CLI(){ echo "$BREW_PREFIX/bin/mysql"; }
+MYSQL_CLI(){ [ -x "$BREW_PREFIX/bin/mysql" ] && echo "$BREW_PREFIX/bin/mysql" || command -v mysql 2>/dev/null || command -v mariadb 2>/dev/null || echo /usr/bin/mysql; }
 PSQL_CLI(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/psql"; }
 PG_BIN(){ echo "$BREW_PREFIX/opt/postgresql@17/bin/$1"; }
 
@@ -1852,6 +1852,10 @@ mysql_run(){
   local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
   if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
   elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
+  elif [ -n "${BHSERVE_OLD_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_OLD_PASSWORD:-}" ] && MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${DB_PASSWORD:-}" ] && MYSQL_PWD="$DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_PASSWORD" "$c" -u root "$@"
+  elif [ -n "${BHSERVE_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root "$@"
   else return 1; fi
 }
 
@@ -1900,18 +1904,63 @@ cmd_db(){
 
 # Whether mysql/mariadb root@localhost has a password set. Prints set|blank|unavailable.
 db_root_status(){
-  local r
+  local r out cli
   r="$(mysql_run -N -e "SELECT IF(LENGTH(authentication_string)>0,'set','blank') FROM mysql.user WHERE user='root' AND host='localhost' LIMIT 1;" 2>/dev/null)" || true
-  [ -n "$r" ] && printf '%s\n' "$r" || echo unavailable
+  if [ -n "$r" ]; then
+    printf '%s\n' "$r"
+    return 0
+  fi
+  cli="$(MYSQL_CLI 2>/dev/null || echo mysql)"
+  out="$("$cli" -u root -N -e "SELECT 1;" 2>&1 || true)"
+  if grep -qi "Access denied" <<<"$out"; then
+    echo set
+  else
+    echo unavailable
+  fi
 }
 
 # Set (or, with empty password, clear) the mysql/mariadb root@localhost password.
 # Only touches root — the OS-user socket account we operate through is untouched.
+# The password is never persisted (the GUI re-prompts for the current one); each run gets it
+# via env (BHSERVE_DB_PASSWORD / BHSERVE_OLD_DB_PASSWORD), which keeps it out of `ps`/argv.
 db_root_passwd(){
   local epw; epw="$(mysql_esc "$DB_PASSWORD")"
-  mysql_run -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;" \
-    && ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")" \
-    || die "failed (server running? do you have privilege?)"
+  local sql="ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;"
+  if mysql_run -e "$sql" 2>/dev/null; then
+    ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+    return 0
+  fi
+  # Fallback 1: Privileged execution via pkexec/sudo if unprivileged connect failed.
+  # The SQL goes on STDIN, not `-e` argv: the mysql client scrubs `-p<PW>` but not `-e`,
+  # and pkexec/sudo record the full command vector in their audit logs permanently.
+  # `${SUDO-sudo}` also keeps the set -u engine from aborting on macOS, where $SUDO is never
+  # assigned (this shared code runs before the Linux platform layer is sourced). `-` (not `:-`)
+  # preserves the Linux convention where platform-linux.sh sets SUDO="" = already root, no
+  # elevation — so we don't re-escalate an already-root run through sudo.
+  local cli; cli="$(MYSQL_CLI 2>/dev/null || echo mysql)"
+  if [ -x "$cli" ]; then
+    if [ "$(id -u)" != 0 ] && command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+      if printf '%s\n' "$sql" | pkexec "$cli" 2>/dev/null; then
+        ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+        return 0
+      fi
+    elif [ "$(id -u)" = 0 ] || command -v sudo >/dev/null 2>&1; then
+      if printf '%s\n' "$sql" | ${SUDO-sudo} "$cli" 2>/dev/null; then
+        ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+        return 0
+      fi
+    fi
+  fi
+  # Fallback 2: Legacy MariaDB/MySQL SQL syntax
+  for alt_sql in \
+    "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING '$epw'; FLUSH PRIVILEGES;" \
+    "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$epw'); FLUSH PRIVILEGES;"; do
+    if mysql_run -e "$alt_sql" 2>/dev/null; then
+      ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
+      return 0
+    fi
+  done
+  die "failed (server running? do you have privilege?)"
 }
 
 db_list(){
@@ -2039,10 +2088,21 @@ cmd_config(){
   need_init
   local sub="${1:-show}"; shift || true
   case "$sub" in
-    show) cat "$BH_HOME/config/bhserve.json" ;;
+    show) config_dump ;;
     set)  config_set "$@" ;;
     *) die "usage: bhserve config {show|set <key> <value>}" ;;
   esac
+}
+
+# Print the config, redacting any legacy `root_password` key a pre-1.0.53 build may have
+# persisted in plaintext (this build never writes it; the GUI re-prompts instead). Strip the
+# whole line so the secret never reaches the 4s API poll / status, and drop the trailing comma
+# a legacy build left when root_password was the last key (otherwise the JSON would be invalid
+# and cmd_api's inlined snapshot would blank the dashboard).
+config_dump(){
+  sed '/"root_password"[[:space:]]*:/d' "$BH_HOME/config/bhserve.json" 2>/dev/null \
+    | sed 'N;s/,\n}/}/;P;D' \
+    || cat "$BH_HOME/config/bhserve.json"
 }
 
 # Rewrite bhserve.json from current values, overriding one key.
@@ -2598,7 +2658,6 @@ json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 cmd_api() {
   need_init
-  local cfg="$BH_HOME/config/bhserve.json"
   local brewlist; brewlist="$(brew services list 2>/dev/null || true)"
   local svcs="" first=1
   local IFS='|'
@@ -2657,7 +2716,7 @@ cmd_api() {
   local brew=false; [ -n "$BREW" ] && brew=true
   local cf=false; cloudflared_installed && cf=true
   local li=false; loginitem_enabled && li=true
-  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s,"loginitem":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew" "$cf" "$li"
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s,"loginitem":%s}\n' "$(config_dump)" "$svcs" "$sites" "$helper" "$brew" "$cf" "$li"
 }
 
 # Install the core stack in one go (after Homebrew exists). Used by GUI onboarding.
@@ -2698,7 +2757,7 @@ cmd_doctor() {
 
 cmd_status() {
   hdr "BHServe status"
-  if [ -f "$BH_HOME/config/bhserve.json" ]; then cat "$BH_HOME/config/bhserve.json"; else echo "  not initialized (run: bhserve init)"; return; fi
+  if [ -f "$BH_HOME/config/bhserve.json" ]; then config_dump; else echo "  not initialized (run: bhserve init)"; return; fi
   hdr "Running"
   nginx_running && ok "nginx (pid $(cat "$BH_HOME/run/nginx.pid"))" || info "nginx stopped"
   for k in $(fpm_keys); do
