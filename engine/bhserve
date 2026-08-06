@@ -1850,14 +1850,12 @@ valid_site_name(){ [[ "$1" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || die "invalid site name
 # unix_socket account), then passwordless -u root (Oracle MySQL / older setups).
 mysql_run(){
   local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
-  local saved_pw; saved_pw="$(jget root_password "")"
   if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
   elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
   elif [ -n "${BHSERVE_OLD_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root "$@"
   elif [ -n "${DB_OLD_PASSWORD:-}" ] && MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root "$@"
   elif [ -n "${DB_PASSWORD:-}" ] && MYSQL_PWD="$DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_PASSWORD" "$c" -u root "$@"
   elif [ -n "${BHSERVE_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root "$@"
-  elif [ -n "$saved_pw" ] && MYSQL_PWD="$saved_pw" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$saved_pw" "$c" -u root "$@"
   else return 1; fi
 }
 
@@ -1923,26 +1921,31 @@ db_root_status(){
 
 # Set (or, with empty password, clear) the mysql/mariadb root@localhost password.
 # Only touches root — the OS-user socket account we operate through is untouched.
+# The password is never persisted (the GUI re-prompts for the current one); each run gets it
+# via env (BHSERVE_DB_PASSWORD / BHSERVE_OLD_DB_PASSWORD), which keeps it out of `ps`/argv.
 db_root_passwd(){
   local epw; epw="$(mysql_esc "$DB_PASSWORD")"
   local sql="ALTER USER 'root'@'localhost' IDENTIFIED BY '$epw'; FLUSH PRIVILEGES;"
   if mysql_run -e "$sql" 2>/dev/null; then
-    json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
     ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
     return 0
   fi
-  # Fallback 1: Privileged execution via pkexec/sudo if unprivileged connect failed
+  # Fallback 1: Privileged execution via pkexec/sudo if unprivileged connect failed.
+  # The SQL goes on STDIN, not `-e` argv: the mysql client scrubs `-p<PW>` but not `-e`,
+  # and pkexec/sudo record the full command vector in their audit logs permanently.
+  # `${SUDO-sudo}` also keeps the set -u engine from aborting on macOS, where $SUDO is never
+  # assigned (this shared code runs before the Linux platform layer is sourced). `-` (not `:-`)
+  # preserves the Linux convention where platform-linux.sh sets SUDO="" = already root, no
+  # elevation — so we don't re-escalate an already-root run through sudo.
   local cli; cli="$(MYSQL_CLI 2>/dev/null || echo mysql)"
   if [ -x "$cli" ]; then
     if [ "$(id -u)" != 0 ] && command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-      if pkexec "$cli" -e "$sql" 2>/dev/null; then
-        json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+      if printf '%s\n' "$sql" | pkexec "$cli" 2>/dev/null; then
         ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
         return 0
       fi
     elif [ "$(id -u)" = 0 ] || command -v sudo >/dev/null 2>&1; then
-      if $SUDO "$cli" -e "$sql" 2>/dev/null; then
-        json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
+      if printf '%s\n' "$sql" | ${SUDO-sudo} "$cli" 2>/dev/null; then
         ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
         return 0
       fi
@@ -1953,7 +1956,6 @@ db_root_passwd(){
     "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING '$epw'; FLUSH PRIVILEGES;" \
     "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('$epw'); FLUSH PRIVILEGES;"; do
     if mysql_run -e "$alt_sql" 2>/dev/null; then
-      json_set "root_password" "$DB_PASSWORD" 2>/dev/null || true
       ok "root password $([ -n "$DB_PASSWORD" ] && echo set || echo "cleared (blank)")"
       return 0
     fi
@@ -2086,24 +2088,34 @@ cmd_config(){
   need_init
   local sub="${1:-show}"; shift || true
   case "$sub" in
-    show) cat "$BH_HOME/config/bhserve.json" ;;
+    show) config_dump ;;
     set)  config_set "$@" ;;
     *) die "usage: bhserve config {show|set <key> <value>}" ;;
   esac
 }
 
+# Print the config, redacting any legacy `root_password` key a pre-1.0.53 build may have
+# persisted in plaintext (this build never writes it; the GUI re-prompts instead). Strip the
+# whole line so the secret never reaches the 4s API poll / status, and drop the trailing comma
+# a legacy build left when root_password was the last key (otherwise the JSON would be invalid
+# and cmd_api's inlined snapshot would blank the dashboard).
+config_dump(){
+  sed '/"root_password"[[:space:]]*:/d' "$BH_HOME/config/bhserve.json" 2>/dev/null \
+    | sed 'N;s/,\n}/}/;P;D' \
+    || cat "$BH_HOME/config/bhserve.json"
+}
+
 # Rewrite bhserve.json from current values, overriding one key.
 json_set(){
   local k="$1" v="$2"
-  local tld httpp httpsp dphp dweb bp sroot autostart rootpw
+  local tld httpp httpsp dphp dweb bp sroot autostart
   tld="$(jget tld test)"; httpp="$(jget http_port 80)"; httpsp="$(jget https_port 443)"
   dphp="$(jget default_php 8.4)"; dweb="$(jget default_web nginx)"
   bp="$(jget brew_prefix "$BREW_PREFIX")"; sroot="$(jget sites_root "$HOME/BHServe/www")"
-  autostart="$(jget autostart false)"; rootpw="$(jget root_password "")"
+  autostart="$(jget autostart false)"
   case "$k" in
     tld) tld="$v";; http_port) httpp="$v";; https_port) httpsp="$v";;
     default_php) dphp="$v";; default_web) dweb="$v";; sites_root) sroot="$v";; autostart) autostart="$v";;
-    root_password) rootpw="$v";;
   esac
   cat > "$BH_HOME/config/bhserve.json" <<JSON
 {
@@ -2114,8 +2126,7 @@ json_set(){
   "default_web": "$dweb",
   "brew_prefix": "$bp",
   "sites_root": "$sroot",
-  "autostart": $autostart,
-  "root_password": "$rootpw"
+  "autostart": $autostart
 }
 JSON
 }
@@ -2150,7 +2161,6 @@ config_set(){
     default_php) val="$(php_key "$val")" ;;
     default_web) [[ "$val" =~ ^(nginx|apache)$ ]] || die "default_web must be nginx|apache" ;;
     autostart) [[ "$val" =~ ^(true|false)$ ]] || die "autostart must be true|false" ;;
-    root_password) ;;
     *) die "unknown/uneditable key: $key" ;;
   esac
   json_set "$key" "$val"
@@ -2648,7 +2658,6 @@ json_esc(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 cmd_api() {
   need_init
-  local cfg="$BH_HOME/config/bhserve.json"
   local brewlist; brewlist="$(brew services list 2>/dev/null || true)"
   local svcs="" first=1
   local IFS='|'
@@ -2707,7 +2716,7 @@ cmd_api() {
   local brew=false; [ -n "$BREW" ] && brew=true
   local cf=false; cloudflared_installed && cf=true
   local li=false; loginitem_enabled && li=true
-  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s,"loginitem":%s}\n' "$(cat "$cfg")" "$svcs" "$sites" "$helper" "$brew" "$cf" "$li"
+  printf '{"config":%s,"services":[%s],"sites":[%s],"helper":%s,"brew":%s,"cloudflared":%s,"loginitem":%s}\n' "$(config_dump)" "$svcs" "$sites" "$helper" "$brew" "$cf" "$li"
 }
 
 # Install the core stack in one go (after Homebrew exists). Used by GUI onboarding.
@@ -2748,7 +2757,7 @@ cmd_doctor() {
 
 cmd_status() {
   hdr "BHServe status"
-  if [ -f "$BH_HOME/config/bhserve.json" ]; then cat "$BH_HOME/config/bhserve.json"; else echo "  not initialized (run: bhserve init)"; return; fi
+  if [ -f "$BH_HOME/config/bhserve.json" ]; then config_dump; else echo "  not initialized (run: bhserve init)"; return; fi
   hdr "Running"
   nginx_running && ok "nginx (pid $(cat "$BH_HOME/run/nginx.pid"))" || info "nginx stopped"
   for k in $(fpm_keys); do

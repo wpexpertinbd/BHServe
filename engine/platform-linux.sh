@@ -835,14 +835,12 @@ PG_BIN(){ local v; for v in 17 16 15; do [ -x "/usr/lib/postgresql/$v/bin/$1" ] 
 # then -u root, so db verbs work however the server is configured.
 mysql_run(){
   local c; c="$(MYSQL_CLI)"; [ -x "$c" ] || return 127
-  local saved_pw; saved_pw="$(jget root_password "")"
   if "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" "$@"
   elif "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then "$c" -u root "$@"
   elif [ -n "${BHSERVE_OLD_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_OLD_DB_PASSWORD" "$c" -u root "$@"
   elif [ -n "${DB_OLD_PASSWORD:-}" ] && MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_OLD_PASSWORD" "$c" -u root "$@"
   elif [ -n "${DB_PASSWORD:-}" ] && MYSQL_PWD="$DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$DB_PASSWORD" "$c" -u root "$@"
   elif [ -n "${BHSERVE_DB_PASSWORD:-}" ] && MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$BHSERVE_DB_PASSWORD" "$c" -u root "$@"
-  elif [ -n "$saved_pw" ] && MYSQL_PWD="$saved_pw" "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then MYSQL_PWD="$saved_pw" "$c" -u root "$@"
   elif command -v sudo >/dev/null 2>&1 && $SUDO "$c" -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" "$@"
   elif command -v sudo >/dev/null 2>&1 && $SUDO "$c" -u root -N -e "SELECT 1;" >/dev/null 2>&1; then $SUDO "$c" -u root "$@"
   else return 1; fi
