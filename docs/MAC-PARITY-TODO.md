@@ -922,3 +922,17 @@ Two things a Windows user hit that the Mac/Linux builds don't have:
   session-end path now stops only the DATABASES gracefully (bounded 3s — the sole data-at-risk piece)
   and kills the rest by matching the executable path against BHServe's own folders (which also sweeps
   orphans from earlier crashes). **Measured 2.7s for 97 processes.**
+
+### win-v1.0.73 (2026-08-21) — the last of the shutdown story: don't race your own kill
+1.0.72 stopped the shutdown BLOCK (Windows now shuts down immediately), but a cosmetic
+"php-cgi.exe — This application was unable to start correctly" box still appeared. Cause: the sweep
+kills the workers, the **ionCube heal loop** then sees php "not running" and **respawns one**, and
+that fresh worker tries to initialise against a system already tearing down. Fixes: (a) a one-way
+`ShutdownGuard.IsShuttingDown` flag checked in `PhpCgi.SpawnOnce`, so nothing can respawn once the
+session is ending; (b) children inherit the creator's error mode, so we now wrap the spawn in
+`SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX)` and restore ours
+immediately — a background worker that fails to load logs it instead of blocking the user behind a
+modal (this also would have muted the VCRUNTIME140 dialog storm). **Reusable anywhere a supervisor
+kills its own children: if you have a health/heal loop, disarm it BEFORE you start killing, or it
+will faithfully undo your shutdown.** macOS: launchd owns the lifecycle, so no equivalent —
+but if the Mac ever gains a self-heal respawn loop, it needs the same disarm-on-quit flag.

@@ -25,9 +25,15 @@ namespace BHServe.Core;
 /// </summary>
 public static class ShutdownGuard
 {
+    /// <summary>Set as soon as Windows starts ending the session. PhpCgi checks it so the heal
+    /// loop cannot respawn a worker into a machine that is shutting down (which is what produced
+    /// the "php-cgi.exe was unable to start correctly" dialog). One-way: nothing clears it.</summary>
+    public static volatile bool IsShuttingDown;
+
     /// <summary>Stop every BHServe-managed process, FAST. Safe to call twice; never throws.</summary>
     public static void StopAllForShutdown()
     {
+        IsShuttingDown = true;   // stop the heal loop respawning behind us
         // Measured: a normal graceful `stop all` takes ~16s on a busy stack (13 nginx + 91 php-cgi
         // workers, each asked to quit politely). Windows shows its "preventing shutdown" screen after
         // about 5, so doing that here would just move the blocking process from php-cgi to us.

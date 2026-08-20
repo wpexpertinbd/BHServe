@@ -378,6 +378,13 @@ public static class PhpCgi
         var exe = Tools.PhpCgiExe(version);
         if (exe is null) return false;
 
+        // Windows is ending the session: do NOT start anything. Otherwise the shutdown sweep kills
+        // the workers, the ionCube heal loop notices php is "not running" and respawns one, and that
+        // fresh php-cgi tries to initialise against a system already tearing itself down — which is
+        // the "php-cgi.exe - This application was unable to start correctly" box users saw during
+        // restart. Killing is not the problem; racing the kill with a respawn is.
+        if (ShutdownGuard.IsShuttingDown) return false;
+
         // Refuse to launch when the Microsoft VC runtime is missing. php-cgi.exe would fail in the
         // OS loader and Windows pops a modal "VCRUNTIME140.dll was not found" error — once per spawn,
         // so the heal loop turns it into a dialog storm — while every site 502s with no clue why.
@@ -441,6 +448,13 @@ public static class PhpCgi
 
     // ── Win32 CreateProcess, no console window, no pipes, no inherited handles ───────────────────────
     private const uint CREATE_NO_WINDOW = 0x08000000;   // run console app WITHOUT a console (no window, no new console alloc)
+    // Error-mode bits: a child inherits these from us at CreateProcess time, which is how we stop
+    // php-cgi popping modal "unable to start correctly" boxes at shutdown or on a missing DLL.
+    private const uint SEM_FAILCRITICALERRORS  = 0x0001;
+    private const uint SEM_NOGPFAULTERRORBOX   = 0x0002;
+    private const uint SEM_NOOPENFILEERRORBOX  = 0x8000;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint SetErrorMode(uint uMode);
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const int  STARTF_USESHOWWINDOW = 0x00000001;
     private const short SW_HIDE = 0;
@@ -479,8 +493,21 @@ public static class PhpCgi
         var envPtr = Marshal.StringToHGlobalUni(sb.ToString());
         try
         {
-            var ok = CreateProcess(null, $"\"{exe}\" {args}", IntPtr.Zero, IntPtr.Zero, false,
-                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi);
+            // A child inherits the CREATING process's error mode (we deliberately do NOT pass
+            // CREATE_DEFAULT_ERROR_MODE). So suppress the "unable to start correctly" / hard-error
+            // dialogs for php-cgi only, around the spawn, then restore ours immediately. A background
+            // worker that fails to load should write to the log, never block a user behind a modal
+            // they cannot act on — this covers the shutdown race above AND a missing dependency.
+            PROCESS_INFORMATION pi;
+            var prevErrMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+            bool ok;
+            try
+            {
+                ok = CreateProcess(null, $"\"{exe}\" {args}", IntPtr.Zero, IntPtr.Zero, false,
+                    CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, envPtr, workingDir, ref si, out var pi2);
+                pi = pi2;
+            }
+            finally { SetErrorMode(prevErrMode); }
             if (!ok) { Heal($"CreateProcess(php-cgi) failed: Win32 err {Marshal.GetLastWin32Error()}"); return -1; }
             var pid = pi.dwProcessId;
             CloseHandle(pi.hThread);
