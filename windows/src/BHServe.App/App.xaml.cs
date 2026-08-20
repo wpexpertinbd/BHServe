@@ -10,18 +10,12 @@ public partial class App : Application
 
     public App() => InitializeComponent();
 
-    /// <summary>Windows is ending the session: stop the servers so nothing blocks shutdown.
+    /// <summary>Windows is ending the session: stop EVERY BHServe process so nothing blocks shutdown.
     /// Windows only allows a few seconds here, so PHP (the process users actually see listed)
     /// goes first, then the rest — MariaDB via the normal stop path so it closes its files cleanly.</summary>
     private static void OnSessionEnding(object? sender, Microsoft.Win32.SessionEndingEventArgs e)
     {
-        try
-        {
-            foreach (var v in BHServe.Core.Services.PhpVersions)
-                try { BHServe.Core.PhpCgi.Stop(v); } catch { }
-        }
-        catch { }
-        try { BHServe.App.Services.EngineHost.Instance.Engine.Stop("all"); } catch { }
+        BHServe.Core.ShutdownGuard.StopAllForShutdown();
     }
 
 

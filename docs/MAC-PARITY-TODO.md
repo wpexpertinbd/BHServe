@@ -910,3 +910,15 @@ Two things a Windows user hit that the Mac/Linux builds don't have:
    `SystemEvents.SessionEnding` → stop PHP first, then `Stop("all")`. **macOS/Linux are already fine**
    because launchd/systemd signal services at session end. If the Mac ever spawns long-lived children
    OUTSIDE launchd's supervision, it would need the same treatment.
+
+### win-v1.0.72 follow-up (2026-08-21) — the shutdown fix had to cover EVERY process, and be FAST
+1.0.71 only stopped PHP at session end, so users then hit the same "preventing shutdown" screen for
+**nginx.exe**. Two lessons that would apply to any platform doing this:
+- **Coverage:** `Stop("all")` never touched **node apps, python apps or Cloudflare tunnels** — all
+  long-lived processes that block shutdown just like php-cgi. Fixed in `Engine.Stop("all")` too, so
+  `bhserve stop all` finally means *all*. (Worth checking the Mac's stop-all covers node/py/tunnels.)
+- **Speed:** MEASURED — a graceful `stop all` on a busy stack (13 nginx + 91 php-cgi) takes **16.1s**,
+  but Windows shows the blocking screen after ~5s, so the "fix" would have become the blocker. The
+  session-end path now stops only the DATABASES gracefully (bounded 3s — the sole data-at-risk piece)
+  and kills the rest by matching the executable path against BHServe's own folders (which also sweeps
+  orphans from earlier crashes). **Measured 2.7s for 97 processes.**

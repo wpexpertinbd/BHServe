@@ -338,6 +338,12 @@ public sealed class Engine
             if (Memcached.Running()) { Memcached.Stop(); Ok("memcached stopped"); }
             if (MailpitServer.Running()) { MailpitServer.Stop(); Ok("mailpit stopped"); }
             if (Apache.Running()) { Apache.Stop(); Ok("apache stopped"); }
+            // Node apps, Python apps and Cloudflare tunnels are long-running processes too, and
+            // "stop all" never touched them — so they kept serving after a stop, and they held up
+            // Windows shutdown exactly like php-cgi did. Best-effort so one bad app can't abort the rest.
+            foreach (var n in NodeSite.List()) { try { if (NodeSite.Running(n)) { NodeSite.Stop(n); Ok($"node-app {n} stopped"); } } catch { } }
+            foreach (var n in PySite.List())   { try { if (PySite.Running(n))   { PySite.Stop(n);   Ok($"python-app {n} stopped"); } } catch { } }
+            foreach (var (tn, _) in BHServe.Core.Tunnel.List()) { try { BHServe.Core.Tunnel.Stop(tn); Ok($"tunnel {tn} stopped"); } catch { } }
             return;
         }
         if (svc is "python" or "python3" or "fnm" or "node") { Ok($"{svc} is a tool — nothing to stop"); return; }

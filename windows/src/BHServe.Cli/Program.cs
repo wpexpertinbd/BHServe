@@ -66,7 +66,11 @@ try
         case "enable-ioncube":
         { var (_, summary) = engine.EnableIonCube(); Console.WriteLine(summary); break; }
         // Hidden: single verify-and-heal pass (respawns any php version whose workers lack ionCube).
-        case "__heal-php": engine.PhpHealPass(); break;
+        case "__heal-php": engine.PhpHealPass(); break;
+        // Same work the app does when Windows ends the session (see Core/ShutdownGuard):
+        // stop the databases cleanly, kill everything else fast. Hidden: it exists so the
+        // shutdown path is testable and scriptable, not as everyday UI.
+        case "__shutdown-stop": BHServe.Core.ShutdownGuard.StopAllForShutdown(); break;
         // Hidden: the reboot heal LOOP — keep respawning until every php version loads ionCube (or the
         // cap). The App runs this in-process at launch; also runnable manually. Optional arg = cap secs.
         case "__heal-loop": engine.PhpHealUntilHealthy(int.TryParse(Arg(rest, 0), out var hl) ? hl : 1200); break;
