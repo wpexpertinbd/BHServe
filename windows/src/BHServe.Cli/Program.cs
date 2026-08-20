@@ -235,6 +235,7 @@ static void Usage() => Console.WriteLine("""
     BHServe (Windows) — usage:
       bhserve init | doctor | status | api
       bhserve install <nginx|php@8.4|mkcert>
+      bhserve install vcredist            Microsoft Visual C++ runtime (PHP needs it)
       bhserve start|stop|restart [svc|all]      (svc: nginx|mariadb|mailpit|php@X)
       bhserve enable|disable <svc>
       bhserve site add <name> [--php 8.4] [--root path] [--server nginx|apache] [--type wordpress|php|laravel|others]
