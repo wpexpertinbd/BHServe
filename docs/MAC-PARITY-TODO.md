@@ -893,3 +893,20 @@ us reviews them. Rule set is deliberately NARROW (correctness, not style) so it 
 formatting. Verified by injecting the two real bugs from community PR #5/#6 and confirming red →
 revert → green (`AppState.swift:618 error: expected type after 'is'`; `window.py:441 F821 Undefined
 name 'name'`), with Windows staying green throughout.
+
+## Windows-only user reports (2026-08-20) — no macOS action expected, but worth a glance
+Two things a Windows user hit that the Mac/Linux builds don't have:
+1. **Missing Microsoft Visual C++ runtime → PHP cannot start at all.** php.net's Windows builds link
+   `vcruntime140.dll`; a clean Windows never had it, so php-cgi.exe dies in the OS loader with a modal
+   "The code execution cannot proceed because VCRUNTIME140.dll was not found" — once per spawn attempt
+   (so the heal loop makes it a dialog storm) while every site 502s. Fixed Windows-side: detect it,
+   auto-install Microsoft's official redistributable at PHP-install time, refuse to spawn php-cgi when
+   it's absent (kills the dialog storm), a GUI dialog with the actual download link if it goes missing
+   later, `bhserve install vcredist`, and a `doctor` check. **Nothing to do on macOS** — Homebrew PHP
+   has no such external runtime dependency.
+2. **php-cgi blocked Windows shutdown/restart.** Nothing stopped the services on session end, so
+   Windows showed "this app is preventing you from shutting down" naming php-cgi.exe and OK did
+   nothing (nobody had asked the processes to exit) — the user had to force the shutdown. Fixed with
+   `SystemEvents.SessionEnding` → stop PHP first, then `Stop("all")`. **macOS/Linux are already fine**
+   because launchd/systemd signal services at session end. If the Mac ever spawns long-lived children
+   OUTSIDE launchd's supervision, it would need the same treatment.

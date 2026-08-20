@@ -73,6 +73,8 @@ public sealed class Engine
                 "fnm" or "node" => Get("fnm",    cfg, () => Downloader.InstallFnm()),
                 "python" or "python3" => Get("python", cfg, () => Downloader.InstallPython()),
                 "cloudflared" => !_force && Tools.CloudflaredExe() is not null ? Done("cloudflared") : Run("cloudflared", () => Downloader.InstallCloudflared()),
+                "vcredist" or "vcruntime" => VcRedist.Install(m => Info(m))
+                                              ? "Microsoft Visual C++ runtime" : throw new BhException(VcRedist.Guidance("vcruntime140.dll")),
                 _ when tool.StartsWith("php") => InstallPhp(tool, cfg),
                 _ => throw new BhException($"unknown tool: {tool}"),
             };
@@ -184,6 +186,16 @@ public sealed class Engine
         if (!_force && Tools.PhpCgiExe(ver) is not null) { Ok($"php {ver} already installed"); return null; }
         Hdr($"Installing PHP {ver} (NTS x64 from windows.php.net)");
         var exe = Downloader.InstallPhp(ver).GetAwaiter().GetResult();
+        // php.net builds link the Microsoft VC runtime, which a clean Windows does not ship. Without
+        // it php-cgi.exe cannot start at all (modal "VCRUNTIME140.dll was not found"), so catch it at
+        // INSTALL time — when the user is present and expecting a prompt — instead of letting every
+        // site 502 later. Best-effort: never fail the PHP install over it.
+        if (!VcRedist.Installed(Path.GetDirectoryName(exe), out var vcMissing))
+        {
+            Warn($"the Microsoft Visual C++ runtime is missing ({vcMissing}) — PHP cannot run without it");
+            try { VcRedist.Install(m => Info(m)); } catch (Exception ex) { Warn($"auto-install failed: {ex.Message}"); }
+            if (!VcRedist.Installed()) Warn(VcRedist.Guidance(vcMissing));
+        }
         // Auto-enable ionCube so encoded apps (WHMCS, etc.) work out of the box on every PHP version.
         // Best-effort: an ionCube loader-download hiccup must never fail the PHP install itself.
         try { Php.Ioncube(ver, Out); }
@@ -1263,6 +1275,9 @@ public sealed class Engine
         Tool("mkcert",  Tools.MkcertExe());
         Tool("mailpit", Tools.MailpitExe());
         Tool("fnm",     Tools.FnmExe());
+        // PHP physically cannot start without this, so surface it as a first-class check.
+        if (VcRedist.Installed(null, out var vcMiss)) Ok("Microsoft Visual C++ runtime");
+        else No($"Microsoft Visual C++ runtime MISSING ({vcMiss}) — {VcRedist.Guidance(vcMiss)}");
 
         Hdr("Ports");
         Port("HTTP ", cfg.HttpPort);

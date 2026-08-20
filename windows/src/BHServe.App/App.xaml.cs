@@ -10,9 +10,34 @@ public partial class App : Application
 
     public App() => InitializeComponent();
 
+    /// <summary>Windows is ending the session: stop the servers so nothing blocks shutdown.
+    /// Windows only allows a few seconds here, so PHP (the process users actually see listed)
+    /// goes first, then the rest — MariaDB via the normal stop path so it closes its files cleanly.</summary>
+    private static void OnSessionEnding(object? sender, Microsoft.Win32.SessionEndingEventArgs e)
+    {
+        try
+        {
+            foreach (var v in BHServe.Core.Services.PhpVersions)
+                try { BHServe.Core.PhpCgi.Stop(v); } catch { }
+        }
+        catch { }
+        try { BHServe.App.Services.EngineHost.Instance.Engine.Stop("all"); } catch { }
+    }
+
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         Window = new MainWindow();
+        // Stop our services when Windows shuts down / restarts / logs off.
+        // Without this, the php-cgi.exe workers (and nginx/MariaDB) are still running when the
+        // session ends, so Windows puts up its "this app is preventing you from shutting down"
+        // screen naming php-cgi.exe — clicking OK does nothing because nobody ever asks the
+        // processes to exit, and the user has to force the shutdown. Linux/macOS never showed this
+        // because systemd/launchd signal the services on session end; on Windows nothing did.
+        // NOTE: this is deliberately tied to SESSION END only — quitting the GUI leaves the servers
+        // running on purpose (BHServe keeps serving from the tray / after the window is closed).
+        try { Microsoft.Win32.SystemEvents.SessionEnding += OnSessionEnding; } catch { }
+
         // Launched with --tray (autostart at login) → run in the TRAY ONLY: never show the window
         // and keep it out of the taskbar/Alt-Tab. The old code Activate()'d then Minimize()'d, which
         // flashed the window on screen and left a taskbar button. The tray icon is the only UI until

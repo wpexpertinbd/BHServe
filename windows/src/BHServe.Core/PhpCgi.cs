@@ -378,6 +378,16 @@ public static class PhpCgi
         var exe = Tools.PhpCgiExe(version);
         if (exe is null) return false;
 
+        // Refuse to launch when the Microsoft VC runtime is missing. php-cgi.exe would fail in the
+        // OS loader and Windows pops a modal "VCRUNTIME140.dll was not found" error — once per spawn,
+        // so the heal loop turns it into a dialog storm — while every site 502s with no clue why.
+        // Failing here instead surfaces one actionable line in the heal log / GUI.
+        if (!VcRedist.CanRunPhp(Path.GetDirectoryName(exe)))
+        {
+            Heal($"php {version}: {VcRedist.Guidance("vcruntime140.dll")}");
+            return false;
+        }
+
         // Tune the build's php.ini before launching (uploads + OPcache/JIT + realpath cache) so
         // both nginx- and Apache-served PHP are fast. Idempotent + survives reinstalls (runs on
         // every start, only writes when something differs). OPcache is the big WordPress win —

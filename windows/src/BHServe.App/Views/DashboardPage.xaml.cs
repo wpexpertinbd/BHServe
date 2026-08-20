@@ -33,7 +33,7 @@ public sealed partial class DashboardPage : Page
         SiteList.Changed += (_, _) => Refresh();   // re-pull after a per-site action
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); AutoEnableIonCube(); }
+    protected override void OnNavigatedTo(NavigationEventArgs e) { Refresh(); _timer.Start(); AutoEnableIonCube(); _ = CheckVcRuntimeAsync(); }
     protected override void OnNavigatedFrom(NavigationEventArgs e) => _timer.Stop();
 
     // ── ionCube ──────────────────────────────────────────────────────────────────────────────
@@ -59,6 +59,64 @@ public sealed partial class DashboardPage : Page
             }
             catch { }
         });
+    }
+
+    // ── Microsoft Visual C++ runtime ────────────────────────────────────────────────────────
+    // php.net's Windows builds link vcruntime140.dll / msvcp140.dll, which a clean Windows does NOT
+    // ship. Without them php-cgi.exe cannot even start: Windows pops a modal
+    // "The code execution cannot proceed because VCRUNTIME140.dll was not found" and every site 502s.
+    // It's normally installed during setup, but a machine can still arrive here without it (PHP added
+    // later, runtime removed by a cleaner, restored/imaged PC) — so tell the user plainly WHICH
+    // package is missing, offer to install it, and give the real download link either way.
+    private bool _vcPrompted;
+
+    private async Task CheckVcRuntimeAsync()
+    {
+        if (_vcPrompted) return;                       // once per app session, never nagging
+        if (BHServe.Core.VcRedist.Installed()) return; // the overwhelmingly common case: no-op
+        if ((Content as FrameworkElement)?.XamlRoot is not { } root && this.XamlRoot is null) return;
+        _vcPrompted = true;
+
+        const string url = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+        var dlg = new ContentDialog
+        {
+            Title = "PHP can't run — a Microsoft component is missing",
+            Content = @"Windows is missing the Microsoft Visual C++ Runtime, which PHP requires.
+
+Until it is installed, PHP will not start and your sites will show an error.
+
+BHServe can download and install it for you (about 25 MB, from Microsoft). Windows will ask for permission.
+
+Package: Microsoft Visual C++ 2015-2022 Redistributable (x64)
+" + url,
+            PrimaryButtonText = "Install now",
+            SecondaryButtonText = "Open download page",
+            CloseButtonText = "Later",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.XamlRoot,
+        };
+
+        var choice = await dlg.ShowAsync();
+        if (choice == ContentDialogResult.Secondary)
+        {
+            // Let them see exactly which package it is, on Microsoft's own page.
+            try { await Windows.System.Launcher.LaunchUriAsync(new Uri(url)); } catch { }
+            return;
+        }
+        if (choice != ContentDialogResult.Primary) return;
+
+        var ok = await Task.Run(() => BHServe.Core.VcRedist.Install());
+        await new ContentDialog
+        {
+            Title = ok ? "Visual C++ Runtime installed" : "Not installed",
+            Content = ok
+                ? "PHP can start now. Click Start all (or restart PHP) and your sites will work."
+                : @"The installation did not complete. You can install it manually from:
+" + url,
+            CloseButtonText = "OK",
+            XamlRoot = this.XamlRoot,
+        }.ShowAsync();
+        if (ok) Refresh();
     }
 
     private void OnLog(string line) =>

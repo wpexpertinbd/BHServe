@@ -82,6 +82,16 @@ public static class Downloader
         return Task.CompletedTask;
     }
 
+    /// <summary>Public wrapper over the curl-based downloader for callers outside this class
+    /// (VcRedist). Same guarantees: the SIGNED system curl.exe does the fetch, HTTPS only, and the
+    /// file lands in BHServe's tmp — so bhserve.exe is never the process that writes an exe to disk.</summary>
+    public static async Task<string> DownloadPublic(string url, string fileName)
+    {
+        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("refusing a non-HTTPS download: " + url);
+        return await DownloadToTmp(url, fileName);
+    }
+
     private static async Task<string> DownloadToTmp(string url, string fileName, string? ua = UA)
     {
         var dest = Path.Combine(Paths.Tmp, fileName);
