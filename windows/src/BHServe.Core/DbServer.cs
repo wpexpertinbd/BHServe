@@ -51,7 +51,7 @@ public static class DbServer
             FileName = exe, Arguments = args, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var p = Process.Start(psi)!;
+        var p = ChildProc.Start(psi)!;
         var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
         p.WaitForExit();
         return (p.ExitCode, outp);
@@ -92,6 +92,10 @@ public static class DbServer
     /// <summary>Start a specific engine on :3306. Refuses if the OTHER engine already holds the port.</summary>
     public static (bool ok, string msg) Start(string engine)
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return (false, "shutting down");
         engine = engine == "mariadb" ? "mariadb" : "mysql";
         if (Running())
         {
@@ -118,7 +122,7 @@ public static class DbServer
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Path.GetDirectoryName(mysqld)!,
         };
-        var proc = Process.Start(psi);
+        var proc = ChildProc.Start(psi);
         if (proc is null) return (false, "failed to spawn mysqld");
         Directory.CreateDirectory(Paths.Run);
         File.WriteAllText(RunFile, JsonSerializer.Serialize(new { pid = proc.Id, port = Port, engine }));

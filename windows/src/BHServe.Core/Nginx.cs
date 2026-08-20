@@ -38,7 +38,7 @@ public static class Nginx
             RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var proc = Process.Start(psi)!;
+        var proc = ChildProc.Start(psi)!;
         if (!wait)
             // Detached daemon: DON'T read the streams — ReadToEnd() would block until the
             // child exits (i.e. forever for nginx). Redirecting (above) is enough to keep
@@ -58,6 +58,10 @@ public static class Nginx
 
     public static (bool ok, string msg) Start(Config cfg)
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return (false, "shutting down");
         NginxConfig.RenderMain(cfg);
         var exe = Tools.NginxExe();
         if (exe is null) return (false, "nginx not installed — run: bhserve install nginx");

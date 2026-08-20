@@ -27,6 +27,10 @@ public static class MailpitServer
 
     public static bool Start()
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return false;
         if (Running()) return true;
         var exe = Tools.MailpitExe();
         if (exe is null) return false;
@@ -54,7 +58,7 @@ public static class MailpitServer
             psi.Environment["SystemRoot"] = winDir;
         if (!psi.Environment.TryGetValue("windir", out var wd) || string.IsNullOrWhiteSpace(wd))
             psi.Environment["windir"] = winDir;
-        var p = Process.Start(psi);
+        var p = ChildProc.Start(psi);
         if (p is null) return false;
         Directory.CreateDirectory(Paths.Run);
         File.WriteAllText(RunFile, JsonSerializer.Serialize(new { pid = p.Id, ui = UiPort, smtp = SmtpPort }));

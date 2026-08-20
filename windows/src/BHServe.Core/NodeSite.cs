@@ -91,7 +91,7 @@ public static class NodeSite
             psi.Environment["PATH"] = nodeBin + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
         psi.Environment["PORT"] = p.Port.ToString();
 
-        var proc = Process.Start(psi);
+        var proc = ChildProc.Start(psi);
         if (proc is null) return false;
         Directory.CreateDirectory(Paths.Run);
         File.WriteAllText(RunFile(name, which), JsonSerializer.Serialize(new { pid = proc.Id, port = p.Port }));
@@ -176,7 +176,7 @@ public static class NodeSite
         if (nodeBin is not null) psi.Environment["PATH"] = nodeBin + ";" + (Environment.GetEnvironmentVariable("PATH") ?? "");
         try
         {
-            var p = Process.Start(psi)!;
+            var p = ChildProc.Start(psi)!;
             var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd();
             p.WaitForExit();
             return (p.ExitCode == 0, (o + e).Trim());

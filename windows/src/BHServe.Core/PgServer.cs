@@ -30,7 +30,7 @@ public static class PgServer
             FileName = exe, Arguments = args, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var p = Process.Start(psi)!;
+        var p = ChildProc.Start(psi)!;
         var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
         p.WaitForExit();
         return (p.ExitCode, outp);
@@ -52,6 +52,10 @@ public static class PgServer
 
     public static (bool ok, string msg) Start()
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return (false, "shutting down");
         if (Running()) return (true, "PostgreSQL already running");
         var init = EnsureInitialized();
         if (!init.ok) return init;
@@ -90,7 +94,7 @@ public static class PgDatabase
             WorkingDirectory = Path.GetDirectoryName(psql)!,
         };
         psi.Environment["PGPASSWORD"] = "";   // trust auth
-        var p = Process.Start(psi)!;
+        var p = ChildProc.Start(psi)!;
         var outp = p.StandardOutput.ReadToEnd();
         var err = p.StandardError.ReadToEnd();
         p.WaitForExit();

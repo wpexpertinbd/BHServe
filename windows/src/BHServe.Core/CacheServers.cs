@@ -15,6 +15,10 @@ internal static class CacheProc
 
     public static bool Start(string runName, string? exe, string args, int port)
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return false;
         if (exe is null) return false;
         if (PortOpen(port)) return true;
         var psi = new ProcessStartInfo
@@ -24,7 +28,7 @@ internal static class CacheProc
             RedirectStandardOutput = true, RedirectStandardError = true,   // detach: don't inherit the console
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var p = Process.Start(psi);
+        var p = ChildProc.Start(psi);
         if (p is null) return false;
         Directory.CreateDirectory(Paths.Run);
         File.WriteAllText(Path.Combine(Paths.Run, $"{runName}.json"), JsonSerializer.Serialize(new { pid = p.Id, port }));

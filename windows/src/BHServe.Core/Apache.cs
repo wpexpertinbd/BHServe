@@ -141,7 +141,7 @@ public static class Apache
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var p = Process.Start(psi)!;
+        var p = ChildProc.Start(psi)!;
         var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
         p.WaitForExit();
         return (outp.Contains("Syntax OK"), outp);
@@ -173,6 +173,10 @@ public static class Apache
 
     public static (bool ok, string msg) Start()
     {
+        // Windows is ending the session — never start a server into a machine that is shutting
+        // down (the shutdown sweep would kill it mid-initialisation, which is what produced the
+        // "unable to start correctly" dialogs). See ShutdownGuard.
+        if (ShutdownGuard.IsShuttingDown) return (false, "shutting down");
         var exe = Tools.HttpdExe();
         if (exe is null) return (false, "Apache not installed (no httpd.exe)");
         RenderMain();
@@ -191,7 +195,7 @@ public static class Apache
             RedirectStandardOutput = true, RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        Process.Start(psi);
+        ChildProc.Start(psi);
         for (var i = 0; i < 12 && !Running(); i++) System.Threading.Thread.Sleep(300);
         return Running() ? (true, $"apache started (:{Port})") : (false, "apache failed to start (see logs\\apache-error.log)");
     }

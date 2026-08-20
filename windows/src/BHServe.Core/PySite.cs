@@ -70,7 +70,7 @@ public static class PySite
         var venv = Path.Combine(dir, ".venv");
         if (Directory.Exists(Path.Combine(venv, "Scripts"))) return (true, "venv already exists");
         var psi = NewPsi($"\"{py}\" -m venv \"{venv}\"", dir, capture: true);
-        try { var p = Process.Start(psi)!; var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd(); p.WaitForExit(); return (p.ExitCode == 0, (o + e).Trim()); }
+        try { var p = ChildProc.Start(psi)!; var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd(); p.WaitForExit(); return (p.ExitCode == 0, (o + e).Trim()); }
         catch (Exception ex) { return (false, ex.Message); }
     }
 
@@ -114,7 +114,7 @@ public static class PySite
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
         SetEnv(psi, cfg);
-        var proc = Process.Start(psi);
+        var proc = ChildProc.Start(psi);
         if (proc is null) return (false, "failed to spawn the process");
         Directory.CreateDirectory(Paths.Run);
         File.WriteAllText(RunFile(name), JsonSerializer.Serialize(new { pid = proc.Id, port = cfg.Port }));
@@ -157,7 +157,7 @@ public static class PySite
         var inner = pip is not null ? $"\"{pip}\" install {target}" : $"python -m pip install {target}";
         var psi = NewPsi(inner, cfg.Dir, capture: true);
         SetEnv(psi, cfg);
-        try { var p = Process.Start(psi)!; var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd(); p.WaitForExit(); return (p.ExitCode == 0, (o + e).Trim()); }
+        try { var p = ChildProc.Start(psi)!; var o = p.StandardOutput.ReadToEnd(); var e = p.StandardError.ReadToEnd(); p.WaitForExit(); return (p.ExitCode == 0, (o + e).Trim()); }
         catch (Exception ex) { return (false, ex.Message); }
     }
 

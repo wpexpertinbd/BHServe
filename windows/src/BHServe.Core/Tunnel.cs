@@ -70,7 +70,7 @@ public static class Tunnel
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
-        var proc = Process.Start(psi);
+        var proc = ChildProc.Start(psi);
         if (proc is null) return (false, "failed to launch cloudflared");
         File.WriteAllText(PidFile(name), proc.Id.ToString());
 
