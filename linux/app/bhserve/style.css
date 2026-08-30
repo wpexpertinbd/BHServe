@@ -62,3 +62,30 @@ button.suggested-action:hover { background-color: #0b5ed7; }
   padding: 20px 24px;
 }
 .bh-hero .title { font-size: 22px; font-weight: 800; }
+
+/* aaPanel-style site config dialog */
+.bh-config-sidebar {
+  background: transparent;
+  min-width: 175px;
+}
+.bh-config-sidebar-scroll {
+  background: rgba(0, 0, 0, 0.08);
+}
+.bh-config-card {
+  padding: 16px 18px;
+}
+.bh-config-info-card {
+  background: rgba(13, 110, 253, 0.08);
+  border: 1px solid rgba(13, 110, 253, 0.2);
+  padding: 12px 14px;
+}
+.bh-config-danger-card {
+  border: 1px solid rgba(192, 28, 40, 0.35);
+  background: rgba(192, 28, 40, 0.05);
+  padding: 16px 18px;
+}
+.bh-config-editor {
+  font-family: monospace;
+  font-size: 13px;
+  padding: 10px;
+}
