@@ -126,7 +126,11 @@ def site_change_root(win, s: dict) -> None:
             f = dialog.select_folder_finish(result)
             if f:
                 path = f.get_path()
-                win.run_verb(["site", "root", s["name"], path], f"Changing root for {s['name']} → {path}…")
+                # force_root like the sibling verbs (site php / subdomain): on an OLS site this
+                # re-applies the OpenLiteSpeed config, which needs root. Without it the verb runs
+                # unprivileged and dies on the OLS step, so "Change root" did nothing on OLS sites.
+                win.run_verb(["site", "root", s["name"], path], f"Changing root for {s['name']} → {path}…",
+                             force_root=_is_ols(s))
         except Exception:
             pass
 

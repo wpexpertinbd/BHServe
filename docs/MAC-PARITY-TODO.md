@@ -936,3 +936,51 @@ modal (this also would have muted the VCRUNTIME140 dialog storm). **Reusable any
 kills its own children: if you have a health/heal loop, disarm it BEFORE you start killing, or it
 will faithfully undo your shutdown.** macOS: launchd owns the lifecycle, so no equivalent —
 but if the Mac ever gains a self-heal respawn loop, it needs the same disarm-on-quit flag.
+
+---
+
+## linux-v1.0.54 — shared-engine changes that land on macOS too (2026-09-09) — ⚠️ NEEDS A macOS LOOK
+
+PR #5 (@plusemon, merged 2026-08-05) touched `engine/bhserve`, so **macOS inherits all of this
+whether or not the Linux build ships**. A pre-release audit found real defects in it; the fixes are
+in the same shared file. Please sanity-check on a Mac.
+
+**1. `nginx_reload` no longer restarts onto a broken config (the important one).**
+PR #5 added a restart fallback: `nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || warn …`.
+That is actively dangerous, and macOS was fully exposed:
+- `nginx -s reload` parses the whole config **before** signalling, so a bad vhost fails there while
+  the running master keeps serving its last-good config. The fallback then ran `nginx_restart`,
+  which **stops nginx first** and lets `nginx_start` hit the same bad config and call `die` — so a
+  single broken vhost took **every site on the machine offline**, with all output swallowed by the
+  `>/dev/null 2>&1`. This is the 1.0.68 empty-`root` outage class all over again.
+- `nginx_restart` can never return non-zero (`nginx_start` returns 0 via its "already running"
+  guard; the only other exit is `die`), so `&& ok "nginx restarted"` printed **success even when
+  nothing restarted** — including on the macOS GUI's unprivileged path.
+- That same unprivileged path reached `nginx_stop`, whose **unconditional** `rm -f nginx.pid`
+  deleted the pid file even though the stop had failed → `nginx_running` reports "stopped" forever
+  while a root-owned master still holds :80/:443.
+
+Fixed by a shared `_nginx_reload_core` (Linux's override now calls it too, so the guards can't
+drift): syntax-check before considering a restart, never restart when we cannot elevate, run the
+restart in a **subshell** so `die` can't kill the caller's verb, and judge success by
+`nginx_running` rather than an exit code. `nginx_stop` now only drops the pid file once the master
+is actually gone. Verified with a stubbed harness across 5 failure modes — **baseline 5/13
+assertions, fixed 13/13**.
+
+**2. The `[ -t 1 ]` gate is gone from the shared `maybe_reload_nginx`** (PR #5 removed it; Linux was
+unaffected because it has its own override, macOS was not). The old comment said the macOS GUI
+"issues its own privileged restart", so it deliberately skipped the reload when there was no tty.
+Now the reload is always attempted. With the fix above the worst case is a warning — it can no
+longer hang or stop anything — but **please confirm on a Mac that a GUI site-add still applies
+cleanly and doesn't print a spurious warning**, and that the GUI's own privileged restart still
+does the real work.
+
+**3. New `laravel` site type** (`--type laravel`) — document root becomes `<project>/public`, and
+the landing page is written there rather than into the project root. macOS gets this for free.
+Note the follow-on fix: the project root is now recorded in `$BH_HOME/sites-meta/<name>.root`
+whenever it differs from the document root, because `site rm --purge` reads the root back out of
+the **vhost** — which for Laravel is `<project>/public`, so it deleted only `public/`, still
+dropped the database, and reported success.
+
+**4. `site add --root` now requires an absolute path**, matching what `site root` has always
+enforced. A relative path was previously resolved against whatever cwd the engine ran in.

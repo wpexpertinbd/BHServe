@@ -387,6 +387,21 @@ vhost_root_read(){
     | head -1 | sed 's/^"\(.*\)"$/\1/'
 }
 
+# A site's PROJECT root, recorded only when it differs from its DOCUMENT root — Laravel serves
+# from <project>/public. The vhost can only carry the document root (that is what nginx needs),
+# and it is rewritten wholesale by `site php` / `site server` / `secure`, so this is kept beside
+# the vhost rather than inside it. Without it, `site rm --purge` reads <project>/public back out
+# of the vhost and deletes only that, while still dropping the database — and reports success.
+site_meta_root_file(){ echo "$BH_HOME/sites-meta/$1.root"; }
+site_meta_root_write(){
+  mkdir -p "$BH_HOME/sites-meta" 2>/dev/null || true
+  printf '%s\n' "$2" > "$(site_meta_root_file "$1")" 2>/dev/null || true
+}
+site_meta_root_read(){
+  local f; f="$(site_meta_root_file "$1")"
+  [ -f "$f" ] && head -1 "$f" 2>/dev/null || true
+}
+
 render_site_vhost() {
   local name="$1" domain="$2" root="$3" phpkey="$4" server="${5:-nginx}"
   root="$(vhost_root_check "$name" "$root")" || return 1
@@ -1297,14 +1312,21 @@ site_add() {
     *) die "unknown flag: $1";;
   esac; done
   valid_site_name "$name"; valid_site_root "$root"
+  # `site root` has always required an absolute path; `site add --root` must too, or a relative
+  # one (now typeable in the GUI's Location entry) is resolved against whatever cwd the engine
+  # happens to run in — root for a pkexec'd GUI call — and the site is created somewhere random.
+  if [ -n "$root" ]; then
+    case "$root" in /*) ;; *) die "root must be an absolute path" ;; esac
+  fi
   case "$type" in wordpress|php|laravel|others) ;; *) die "--type must be wordpress|php|laravel|others" ;; esac
   local tld; tld="$(jget tld test)"
   local domain="$name.$tld"
   [ -n "$root" ] || root="$(jget sites_root "$HOME/BHServe/www")/$name"
   [ -n "$server" ] || server="$(jget default_web nginx)"
   local phpkey; phpkey="$(php_key "$phpv")"
+  # Laravel serves from <project>/public, so the DOCUMENT root and the PROJECT root differ.
   local vhost_root="$root"
-  [ "$type" = "laravel" ] && vhost_root="$root/public"
+  if [ "$type" = "laravel" ]; then vhost_root="$root/public"; fi
 
   mkdir -p "$vhost_root"
   # Branded default landing page (identical to the Windows build). Quoted heredoc
@@ -1347,6 +1369,9 @@ PHP
   render_fpm_pool "$phpkey" || true
   fpm_start "$phpkey" >/dev/null 2>&1 || true   # ensure the site's PHP pool is up (no 502)
   render_site_vhost "$name" "$domain" "$vhost_root" "$phpkey" "$server"
+  # Remember the project root when it isn't the document root (Laravel), so `site rm --purge`
+  # removes the application and not just its public/ folder.
+  if [ "$vhost_root" != "$root" ]; then site_meta_root_write "$name" "$root"; fi
   # apache_start no-ops when httpd is already up, so the FIRST apache site worked but every
   # LATER one was never loaded (requests fell through to the first vhost). Reload when running.
   if [ "$server" = apache ]; then
@@ -1452,8 +1477,13 @@ site_rm() {
   # capture the doc root BEFORE deleting the vhost (needed for --purge file deletion)
   local conf="$BH_HOME/nginx/sites/$name.conf" root=""
   [ -f "$conf" ] && root="$(vhost_root_read "$conf")"
+  # For a Laravel site the vhost holds <project>/public. Purging that alone would delete the
+  # public folder, still drop the database, and report success — so prefer the recorded project
+  # root when there is one.
+  local metaroot; metaroot="$(site_meta_root_read "$name")"
+  if [ -n "$metaroot" ]; then root="$metaroot"; fi
   rm -f "$BH_HOME/nginx/sites/$name.conf" "$BH_HOME/nginx/sites/$name.conf.disabled" \
-        "$BH_HOME/apache/sites/$name.conf"
+        "$BH_HOME/apache/sites/$name.conf" "$(site_meta_root_file "$name")"
   ok "removed vhost for $name"
   if [ "$purge" = 1 ]; then
     # drop the site's database (named after the site) + its user
@@ -1680,16 +1710,48 @@ nginx_start(){
   grep -q "syntax is ok" <<<"$t" || { printf '%s\n' "$t"; die "nginx config test failed"; }
   $pre "$bin" -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" && ok "nginx started${pre:+ (sudo)}" || no "nginx failed to start"
 }
-nginx_reload(){
+# Graceful reload, with a restart fallback that can never leave you worse off than a warning.
+#
+# `nginx -s reload` parses the WHOLE config before it signals the master, so a broken vhost fails
+# right here while the running master keeps serving its last-good config. Restarting blind in that
+# state is catastrophic: nginx_restart stops nginx first, and nginx_start then hits the same bad
+# config and calls `die` — so every site on the machine goes dark and the message is swallowed.
+# The fallback therefore only runs when the config is VALID and we can actually elevate, and
+# success is judged by whether nginx is really up afterwards — nginx_restart returns 0 even when
+# it did nothing (nginx_start's "already running" guard), so its exit code proves nothing.
+#
+# Linux redefines nginx_reload (it syncs /etc/hosts first) and calls this same core, so the guards
+# live in ONE place — a guard added only to the shared copy would silently not run there.
+_nginx_reload_core(){
   nginx_running || return 0
-  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-  if $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null; then
-    ok "nginx reloaded"
-  else
-    # graceful reload is the primary path; full restart only as a fallback
-    nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || warn "reload failed — run: bhserve restart nginx"
+  local bin pre=""; bin="$(NGINX_BIN)"
+  if needs_root_ports; then pre="sudo"; fi
+  local out=""
+  if out="$($pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)"; then
+    ok "nginx reloaded"; return 0
   fi
+  # Syntax check before we consider touching a working server.
+  local t=""; t="$("$bin" -t -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)" || true
+  if ! grep -q "syntax is ok" <<<"$t"; then
+    printf '%s\n' "$t"
+    warn "nginx config invalid — kept the running config so your sites stay up; fix the error above"
+    return 1
+  fi
+  # Config is fine, so the reload failed for another reason (usually privilege). Only restart if
+  # we can; otherwise say so and leave the running master alone.
+  if [ "$(id -u)" != 0 ] && [ -n "$pre" ] && ! sudo -n true 2>/dev/null; then
+    if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+    warn "couldn't reload nginx (needs privilege) — run: bhserve restart nginx"
+    return 1
+  fi
+  # Subshell so a `die` inside nginx_start can't terminate the caller's whole verb.
+  ( nginx_restart ) >/dev/null 2>&1 || true
+  if nginx_running; then ok "nginx restarted"; return 0; fi
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  warn "nginx is not running — run: bhserve restart nginx"
+  return 1
 }
+nginx_reload(){ _nginx_reload_core; }
 # Auto-apply config changes
 maybe_reload_nginx(){
   nginx_running || return 0
@@ -1707,7 +1769,13 @@ nginx_stop(){
     warn "stale nginx (pid file out of sync) — terminating by config match"
     $pre pkill -f "nginx.*$BH_HOME/nginx/nginx.conf" && ok "nginx stopped" || no "could not stop stale nginx"
   else info "nginx not running"; fi
-  rm -f "$BH_HOME/run/nginx.pid" 2>/dev/null || true
+  # Only drop the pid file once the master is REALLY gone. Removing it after a failed stop (e.g.
+  # unprivileged, so `sudo nginx -s stop` never ran) makes nginx_running report "stopped" forever
+  # while a root-owned master still holds :80/:443 — every later start then no-ops and the GUI
+  # shows nginx down while it is quietly still serving.
+  if ! pgrep -f "nginx: master.*$BH_HOME/nginx/nginx.conf" >/dev/null 2>&1; then
+    rm -f "$BH_HOME/run/nginx.pid" 2>/dev/null || true
+  fi
 }
 
 # Is a php pool running? (by its pid file)

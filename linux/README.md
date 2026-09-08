@@ -25,12 +25,15 @@ sudo dpkg -i ./bhserve_*.deb
 sudo apt-get -f install -y
 ```
 
-Or grab it straight from the terminal (bump the version to the latest release):
+Or grab it straight from the terminal. This resolves the current Linux `.deb` automatically, so it
+keeps working after every release (only the newest release of each OS is kept, so a hard-coded
+version URL goes stale as soon as the next build ships):
 
 ```bash
 cd /tmp
-wget https://github.com/wpexpertinbd/BHServe/releases/download/linux-v1.0.37/bhserve_1.0.37_all.deb
-sudo dpkg -i ./bhserve_1.0.37_all.deb
+curl -fsSL -o bhserve.deb "$(curl -fsSL https://api.github.com/repos/wpexpertinbd/BHServe/releases \
+  | grep -oE 'https://[^\"]+/bhserve_[0-9.]+_all\.deb' | head -1)"
+sudo dpkg -i ./bhserve.deb
 sudo apt-get -f install -y
 ```
 

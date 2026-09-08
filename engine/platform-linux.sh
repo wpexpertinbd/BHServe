@@ -32,6 +32,20 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH
 # set workers/sockets to THEIR uid, and chown anything we create back to them on exit (so
 # the user can still edit their own site files). No standing passwordless sudoers is created.
 _BH_VERB="${1:-}"; _BH_SUB="${2:-}"
+# Remember an explicitly-passed `--root`. The GUI's "Location" field lets `site add` create a
+# directory OUTSIDE sites_root, and `site add` is a privileged verb (pkexec) — so the project
+# folder, its public/ and the landing page would all be left owned by root, and the user could
+# not write into their own project (nor could php-fpm, which runs as them).
+_BH_ARG_ROOT=""
+_bh_capture_arg_root(){
+  local _p="" _a
+  for _a in "$@"; do
+    if [ "$_p" = "--root" ]; then _BH_ARG_ROOT="$_a"; return 0; fi
+    _p="$_a"
+  done
+  return 0
+}
+_bh_capture_arg_root "$@"
 if [ "$(id -u)" = 0 ]; then
   # BHSERVE_OWNER_UID: set by the boot-time system unit (loginitem), where there is no
   # PKEXEC_UID/SUDO_UID — without it a boot `start all` would resolve USER_NAME=root and
@@ -64,7 +78,12 @@ _bh_fix_ownership(){
   case "$_BH_VERB:$_BH_SUB" in
     site:add|pysite:add|nodesite:add)
       local sr; sr="$(jget sites_root "$HOME/BHServe/www" 2>/dev/null)"
-      case "$sr" in "$HOME"/*) [ -d "$sr" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$sr" 2>/dev/null || true ;; esac ;;
+      case "$sr" in "$HOME"/*) [ -d "$sr" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$sr" 2>/dev/null || true ;; esac
+      # A custom --root lives outside sites_root, so the sweep above never reaches it. Restrict to
+      # paths under the user's home for the same reason sites_root is: never chown -R a system dir.
+      case "${_BH_ARG_ROOT:-}" in
+        "$HOME"/*) [ -d "$_BH_ARG_ROOT" ] && chown -R "$USER_NAME":"$GROUP_NAME" "$_BH_ARG_ROOT" 2>/dev/null || true ;;
+      esac ;;
   esac
   return $_rc
 }
@@ -670,16 +689,14 @@ maybe_reload_nginx(){
   fi
 }
 
+# nodesite/pysite add + `secure` call nginx_reload DIRECTLY (not via maybe_reload_nginx), so sync
+# /etc/hosts here too — this is the real choke point every reload passes through. hosts_sync_all is
+# idempotent (no-op + no sudo when nothing changed), so double calls are free.
+# The reload/restart logic itself lives in the shared _nginx_reload_core so the "never restart onto
+# a broken config" guards can't drift between the two copies.
 nginx_reload(){
   hosts_sync_all
-  nginx_running || return 0
-  local bin pre=""; bin="$(NGINX_BIN)"; needs_root_ports && pre="sudo"
-  if $pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>/dev/null; then
-    ok "nginx reloaded"
-  else
-    # graceful reload is the primary path; full restart only as a fallback
-    nginx_restart >/dev/null 2>&1 && ok "nginx restarted" || warn "reload failed — run: bhserve restart nginx"
-  fi
+  _nginx_reload_core
 }
 
 # `bhserve dns` — default: (re)sync /etc/hosts for all sites. `bhserve dns wildcard` —
