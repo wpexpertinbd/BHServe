@@ -200,6 +200,22 @@ svc_stop_any(){
 # Is a brew-services formula currently started?
 brew_svc_running(){ brew services list 2>/dev/null | awk -v f="$1" '$1==f && $2=="started"{e=1} END{exit !e}'; }
 
+# Wait until the database really accepts connections. A bare `sleep` is a race: after a
+# MAJOR upgrade (e.g. 12.3 -> 13.0) InnoDB takes seconds longer to come up, mariadb-upgrade
+# then fails on "can't connect" and db_post_upgrade reports a FALSE failure even though the
+# data is fine (seen live on 12.3.2 -> 13.0.2).
+db_wait_ready(){
+  local cli i
+  cli="$BREW_PREFIX/bin/mariadb"; [ -x "$cli" ] || cli="$BREW_PREFIX/bin/mysql"
+  [ -x "$cli" ] || return 0
+  i=0
+  while [ "$i" -lt 60 ]; do
+    "$cli" -u root -e 'SELECT 1' >/dev/null 2>&1 && return 0
+    i=$((i+1)); sleep 1
+  done
+  return 1
+}
+
 # Standard post-upgrade step for MariaDB/MySQL — the same `mariadb-upgrade` you'd run on a
 # live box: migrates the system / privilege tables to the new server version. No dump — the
 # data directory stays compatible across the upgrade; this just refreshes the metadata.
@@ -209,7 +225,7 @@ db_post_upgrade(){
   [ -n "$up" ] || return 0
   brew_svc_running "$(svc_formula mariadb)" || brew_svc_running "$(svc_formula mysql)" || {
     warn "database not running — once it's up, run: $up"; return 0; }
-  sleep 1
+  db_wait_ready || { warn "database didn't accept connections within 60s — once it's up, run: $up"; return 0; }
   info "running $(basename "$up") (migrate system tables to the new version)…"
   if "$up" >/dev/null 2>&1 || "$up" -u root >/dev/null 2>&1; then ok "$(basename "$up") complete — databases ready"
   else warn "$(basename "$up") reported issues — run it manually: $up"; fi
@@ -240,7 +256,10 @@ cmd_update() {
     local IFS='|' key _f _p _r
     while read -r key _f _p _r; do
       [ -n "$key" ] || continue; svc_installed "$key" || continue
-      update_one "$key"
+      # </dev/null is REQUIRED: brew (and brew services) read stdin, which here is the
+      # `services` stream feeding this loop — without it the first upgrade swallows the
+      # rest and "update all" silently updates ONE service, then reports success.
+      update_one "$key" </dev/null
     done < <(services)
     ok "all services updated to latest stable"
     return

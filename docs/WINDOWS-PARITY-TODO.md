@@ -300,3 +300,51 @@ forces https). **Linux check:** both the apache2 backend AND the OLS backend (`-
 behind nginx needs the equivalent (OLS honors X-Forwarded-Proto via its "Use Client IP in Header"/env
 settings, or set the env in the vhost) or the same loop occurs.
 </details>
+
+---
+
+## #11 — "Update all" must not let the first upgrade swallow the service list (+ DB readiness race)
+
+**Status:** ✅ FIXED on macOS/Linux (shared engine, 2026-10-05) — **Windows: please check your C# equivalent.**
+
+Found while taking a live Mac from nginx 1.31.2→1.31.6, httpd 2.4.68→2.4.69, **MariaDB 12.3.2→13.0.2**
+and every PHP minor to latest. Two separate bugs, both only visible on a real multi-service box:
+
+### (a) `update all` silently updated ONE service, then reported success
+Shared-engine `cmd_update` fed its loop from a process substitution:
+```bash
+while read -r key _f _p _r; do ... update_one "$key"; done < <(services)
+```
+**`brew upgrade` reads stdin** — which here IS the `services` stream. The first upgrade consumed the
+remainder, the loop ended after one iteration, and the engine still printed
+*"all services updated to latest stable"*. On this box that left **6 of 17 managed formulas stale**
+(php@8.2/8.3/8.4, redis, memcached, mailpit) while claiming everything was current — the worst kind of
+bug, because the success message stops anyone looking.
+**Fix:** `update_one "$key" </dev/null`.
+
+**Windows check:** any loop that shells out to a package/installer step while iterating a stream or
+pipeline — and, more importantly, **does your "Update all" verify each service afterwards, or does it
+report success from the loop completing?** Report per-service results, not one blanket success line.
+
+### (b) `mariadb-upgrade` reported a FALSE failure after a MAJOR version jump
+`db_post_upgrade` did `sleep 1` after restarting the DB, then ran `mariadb-upgrade`. On a **major**
+upgrade (12.3→13.0) InnoDB needs longer to come up — the error log showed
+`ready for connections` at `20:02:24`, and the 1-second sleep landed just inside that window. Both
+attempts failed on *can't connect*, so the engine warned *"mariadb-upgrade reported issues"* on a
+database that was completely fine. Run by hand seconds later: exit 0, all 8 phases, `OK`.
+**Fix:** new `db_wait_ready()` polls `SELECT 1` for up to 60s before running the upgrade
+(verified both branches: 22 ms when up, rc=1 when unreachable).
+
+**Windows check:** `Downloader.InstallMariadb()` + whatever runs `mariadb_upgrade.exe` afterwards —
+if it waits a fixed interval rather than polling until the server answers, a major bump will produce the
+same false alarm. ⚠️ Worth caring about because the user's instinct on seeing it is to re-run or roll
+back a database that needs neither.
+
+### Not a bug — confirmed on both sides
+Neither engine pins nginx/Apache/OLS/MariaDB versions, so **no code change is needed when upstream ships
+a new release.** macOS/Linux take whatever brew/apt has; Windows' `Downloader.cs` queries each vendor's
+release API with `MariadbPinned = "12.3.2"` as a *fallback only*. The one pinned version anywhere is
+`PMA_VER` (phpMyAdmin), and 5.2.3 is upstream latest. Keep it that way.
+
+**Result on macOS:** all 17 managed formulas current, 28 client databases intact on 13.0.2, ionCube still
+loading on php@8.1–8.5, and Blesta/WHMCS/FOSSBilling/phpMyAdmin all serving 200.
