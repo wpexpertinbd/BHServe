@@ -38,7 +38,7 @@ struct Service: Codable, Sendable, Identifiable, Equatable {
     /// Short, human label for the row (strips the "PHP "/"nginx version: " noise).
     var shortVersion: String {
         var v = version
-        for p in ["nginx version: ", "Server version: "] where v.hasPrefix(p) {
+        for p in ["nginx version: ", "Server version: ", "mariadb from ", "mysql from "] where v.hasPrefix(p) {
             v = String(v.dropFirst(p.count))
         }
         // keep up to the first parenthesis / comma

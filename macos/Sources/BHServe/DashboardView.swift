@@ -22,6 +22,8 @@ struct DashboardView: View {
         let cols = gridCols(geo.size.width)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                LoginBlockedBanner()
+
                 // Service status cards
                 LazyVGrid(columns: cols, spacing: 14) {
                     StatusCard(title: "Web Server", icon: "globe",

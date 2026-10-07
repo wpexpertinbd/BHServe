@@ -181,6 +181,8 @@ final class AppState {
         do {
             let snap = try await Task.detached { try eng.snapshot() }.value
             if snap != snapshot { snapshot = snap }   // avoid needless re-render (keeps TextField focus steady)
+            let blocked = Self.loginAgentBlocked(enabled: snap.loginitem ?? false)
+            if blocked != loginItemBlocked { loginItemBlocked = blocked }
             errorText = nil
         } catch {
             errorText = error.localizedDescription
@@ -859,6 +861,21 @@ final class AppState {
     // Start-at-login is a plain LaunchAgent managed by the engine (no SMAppService —
     // see retireOldSMAgents). It launches the app via `open --args --background`.
     var loginItemEnabled: Bool { snapshot?.loginitem ?? false }
+
+    /// True when start-at-login is ON in BHServe but macOS refuses to run it: System Settings ›
+    /// General › Login Items › "Allow in the Background" has BHServe switched off. Our plist stays
+    /// installed and the toggle still reads on, yet nothing starts after a reboot — an OS upgrade
+    /// commonly resets this for apps without a Developer ID (seen on macOS 27 beta). We ask macOS
+    /// directly; refreshed in reload() (which polls), so it clears once the user flips the switch.
+    var loginItemBlocked = false
+
+    nonisolated static func loginAgentBlocked(enabled: Bool) -> Bool {
+        guard enabled else { return false }
+        let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/LaunchAgents/com.biswashost.bhserve.login.plist")
+        return SMAppService.statusForLegacyPlist(at: url) == .requiresApproval
+    }
+
+    func openLoginItemsSettings() { SMAppService.openSystemSettingsLoginItems() }
 
     func setLoginItem(_ on: Bool) async {
         await runUser(["loginitem", on ? "enable" : "disable"],

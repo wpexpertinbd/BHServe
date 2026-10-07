@@ -95,11 +95,16 @@ probe_version(){
   # spawning rogue instances that then blocked BHServe's own Apache. `-v` is the safe flag
   # (prints the version, never parses config) — use it exclusively for httpd.
   case "$bin" in *httpd*) printf '%s' "$("$bin" -v 2>&1 | head -1)" | tr -d '\n' | cut -c1-46; return;; esac
-  out="$("$bin" --version 2>&1 | head -1)" || true
+  # Skip PHP startup warnings (e.g. 8.5's "PHP Deprecated: … session.sid_length") that print
+  # BEFORE the version line and were being shown as the version.
+  out="$("$bin" --version 2>&1 | grep -v -E '^(PHP )?(Deprecated|Warning|Notice):|^[[:space:]]*$' | head -1)" || true
   # try, in order: -v, a `version` subcommand (mailpit/fnm/cloudflared), then -version
   _ver_bad "$out" && { out="$("$bin" -v 2>&1 | head -1)" || true; }
   _ver_bad "$out" && { out="$("$bin" version 2>&1 | head -1)" || true; }
   _ver_bad "$out" && { out="$("$bin" -version 2>&1 | head -1)" || true; }
+  # MariaDB 13 starts its line with the FULL binary path ("/opt/homebrew/opt/mariadb/bin/mariadb
+  # from 13.0.2-MariaDB, …"), so the 46-char cut below kept only the path. Shorten it to the name.
+  case "$out" in "$bin"*) out="$(basename "$bin")${out#"$bin"}" ;; esac
   printf '%s' "$out" | tr -d '\n' | cut -c1-46
 }
 

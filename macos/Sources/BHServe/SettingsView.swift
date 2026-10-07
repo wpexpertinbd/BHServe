@@ -69,6 +69,14 @@ struct SettingsView: View {
                 Toggle("Launch BHServe at login", isOn: Binding(
                     get: { state.loginItemEnabled },
                     set: { v in Task { await state.setLoginItem(v) } }))
+                if state.loginItemBlocked {
+                    LabeledContent {
+                        Button("Open Login Items") { state.openLoginItemsSettings() }.controlSize(.small)
+                    } label: {
+                        Label("Blocked by macOS — allow BHServe under Login Items › Allow in the Background",
+                              systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }
+                }
                 Toggle("Start services when BHServe launches", isOn: Binding(
                     get: { state.autostartEnabled },
                     set: { v in Task { await state.setAutostart(v) } }))
