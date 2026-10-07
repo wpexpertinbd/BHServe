@@ -348,3 +348,10 @@ release API with `MariadbPinned = "12.3.2"` as a *fallback only*. The one pinned
 
 **Result on macOS:** all 17 managed formulas current, 28 client databases intact on 13.0.2, ionCube still
 loading on php@8.1–8.5, and Blesta/WHMCS/FOSSBilling/phpMyAdmin all serving 200.
+
+**Linux — needs a release to ship these (shared engine, no code to write):** macOS v1.7.17 (2026-10-08)
+also changed `probe_version` in `engine/bhserve`: it skips PHP startup warnings (8.5's `session.sid_length`
+deprecation used to show *as the version*), and it shortens MariaDB 13's full-path version line to the
+binary name. Together with (a) and (b) above, Linux gets all of it by building `linux-v1.0.55` from master.
+Please smoke-test `bhserve update all` (every service reached) and the version column on a box with
+MariaDB 13 / PHP 8.5.
