@@ -62,7 +62,11 @@ svc_installed(){ local p; p="$(svc_probe "$1")"; [ -n "$p" ] && [ -x "$BREW_PREF
 ENABLED_FILE(){ echo "$BH_HOME/config/enabled"; }
 svc_default_enabled(){
   case "$1" in
+    # dnsmasq is core: without it no *.tld site resolves ("Server not found" on a fresh
+    # install — GitHub #9). It was missing here, so Start All silently skipped DNS.
+    # (macOS only — Linux resolves *.tld via /etc/hosts and keeps dnsmasq opt-in.)
     nginx|mariadb) return 0 ;;
+    dnsmasq) [ "$(uname)" = Darwin ] && return 0 || return 1 ;;
     php@*|php) [ "$1" = "$(php_key default)" ] && return 0 || return 1 ;;
     *) return 1 ;;
   esac
@@ -1557,6 +1561,41 @@ dnsmasq_running(){ pgrep -x dnsmasq >/dev/null 2>&1; }
 # Configure + (re)start dnsmasq so *.tld → 127.0.0.1. Needs root (binds :53, writes
 # /etc/resolver). Invoked privileged (osascript admin) by the app, or via `sudo bhserve dns`.
 # Idempotent: if dnsmasq is already running it just reloads; else it starts it directly.
+DNSMASQ_BREW_DAEMON="/Library/LaunchDaemons/homebrew.mxcl.dnsmasq.plist"
+DNSMASQ_DAEMON_LABEL="com.biswashost.bhserve.dnsmasq"
+DNSMASQ_DAEMON="/Library/LaunchDaemons/$DNSMASQ_DAEMON_LABEL.plist"
+
+# Wait (≤5s) for dnsmasq to come up after launchd starts it.
+dnsmasq_wait(){ local i=0; while [ "$i" -lt 10 ]; do dnsmasq_running && return 0; i=$((i+1)); sleep 0.5; done; return 1; }
+
+# Root only. Install + load our LaunchDaemon for dnsmasq (RunAtLoad + KeepAlive), owned
+# root:wheel 644 as launchd requires. Idempotent: rewrites the plist and reloads it.
+dnsmasq_daemon_install(){
+  local bin="$1"
+  cat > "$DNSMASQ_DAEMON" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$DNSMASQ_DAEMON_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$bin</string>
+    <string>--keep-in-foreground</string>
+    <string>-C</string>
+    <string>$BREW_PREFIX/etc/dnsmasq.conf</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+PLIST
+  chown root:wheel "$DNSMASQ_DAEMON" 2>/dev/null || true
+  chmod 644 "$DNSMASQ_DAEMON"
+  launchctl bootout system "$DNSMASQ_DAEMON" 2>/dev/null || true
+  launchctl bootstrap system "$DNSMASQ_DAEMON" 2>/dev/null || launchctl load -w "$DNSMASQ_DAEMON" 2>/dev/null || true
+}
+
 cmd_dns() {
   need_init
   local tld; tld="$(jget tld test)"
@@ -1581,11 +1620,19 @@ cmd_dns() {
   ok "resolver: /etc/resolver/$tld → 127.0.0.1"
   # 3) start (or reload) dnsmasq. Already running → SIGHUP to reload; else start the daemon.
   local bin; bin="$BREW_PREFIX/sbin/dnsmasq"; [ -x "$bin" ] || bin="$BREW_PREFIX/bin/dnsmasq"
+  # Started as a system LaunchDaemon (not a bare background process) so it survives a reboot —
+  # otherwise *.tld stopped resolving after every restart until DNS was set up again. A Homebrew
+  # daemon (`sudo brew services start dnsmasq`) is reused when present: two would fight over :53.
   if dnsmasq_running; then
     pkill -HUP -x dnsmasq 2>/dev/null || true; ok "dnsmasq reloaded — *.$tld now resolves to 127.0.0.1"
+  elif [ -f "$DNSMASQ_BREW_DAEMON" ]; then
+    launchctl bootstrap system "$DNSMASQ_BREW_DAEMON" 2>/dev/null || true
+    launchctl kickstart -k system/homebrew.mxcl.dnsmasq 2>/dev/null || true
+    dnsmasq_wait && ok "dnsmasq started (Homebrew service) — *.$tld now resolves to 127.0.0.1" \
+      || no "dnsmasq failed to start (is something else on :53? try: sudo lsof -i :53)"
   else
-    "$bin" -C "$BREW_PREFIX/etc/dnsmasq.conf" >/dev/null 2>&1 \
-      && ok "dnsmasq started — *.$tld now resolves to 127.0.0.1" \
+    dnsmasq_daemon_install "$bin"
+    dnsmasq_wait && ok "dnsmasq started (starts at boot) — *.$tld now resolves to 127.0.0.1" \
       || no "dnsmasq failed to start (is something else on :53? try: sudo lsof -i :53)"
   fi
   # flush the macOS DNS cache so the new resolver takes effect immediately
@@ -1596,6 +1643,9 @@ cmd_dns() {
 # Stop the dnsmasq daemon (root). *.tld resolution stops until it's started again.
 dnsmasq_stop(){
   [ "$(id -u)" = 0 ] || { warn "stopping dnsmasq needs admin"; return 0; }
+  # KeepAlive daemons respawn a killed process — unload them first (DNS comes back at next Start)
+  [ -f "$DNSMASQ_DAEMON" ] && launchctl bootout system "$DNSMASQ_DAEMON" 2>/dev/null || true
+  [ -f "$DNSMASQ_BREW_DAEMON" ] && launchctl bootout system "$DNSMASQ_BREW_DAEMON" 2>/dev/null || true
   pkill -x dnsmasq 2>/dev/null || true; ok "dnsmasq stopped"
 }
 
@@ -1857,14 +1907,16 @@ start_all(){
   while read -r key formula probe role; do
     [ -n "$key" ] || continue
     svc_installed "$key" || continue
-    svc_enabled "$key" || continue
+    # DNS that was NEVER set up (no /etc/resolver/<tld>) is always configured, starred or not —
+    # an older saved enabled-list can lack dnsmasq, and without it no site resolves at all.
+    svc_enabled "$key" || { [ "$role" = dns ] && [ "$(uname)" = Darwin ] && [ ! -f "/etc/resolver/$(jget tld test)" ]; } || continue
     # Each start runs in a subshell so a failure (e.g. nginx `die` on a bad vhost)
     # can't abort the whole loop — every other service still gets started.
     case "$role" in
       php) ( fpm_start "$key" ) || warn "$key failed to start (continuing)" ;;
       web) [ "$key" = nginx ] && { ( nginx_start ) || warn "nginx failed to start — check vhost configs (continuing)"; }
            [ "$key" = httpd ] && { ( apache_start ) || warn "apache failed to start (continuing)"; } ;;
-      db|cache|mail) ( brew_svc start "$key" ) || warn "$key failed to start (continuing)" ;;
+      db|cache|mail) ( brew_svc start "$key" ) </dev/null || warn "$key failed to start (continuing)" ;;
       dns) # dnsmasq needs root for :53 — only doable here when start_all itself runs elevated
            if ! dnsmasq_running; then
              if [ "$(id -u)" = 0 ]; then ( cmd_dns ) || warn "dnsmasq failed to start (continuing)"

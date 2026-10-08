@@ -220,6 +220,18 @@ final class AppState {
 
     func installCoreServices() async {
         await runUser(["bootstrap"], note: "installing core services (this can take a few minutes)…")
+        // Bring the stack up right away (one admin prompt): nginx takes :80/:443 and *.test DNS is
+        // configured. Before, setup ended with everything stopped and DNS never set up — new users
+        // got "Server not found" for every .test site (GitHub #9).
+        await reload()
+        if coreInstalled && errorText == nil { await control("start", "all") }
+    }
+
+    /// dnsmasq installed but not running = *.test can't resolve. Setting it up needs root, which the
+    /// password-less helper does NOT cover (nginx only) — so Start All must prompt in that case.
+    var dnsNeedsSetup: Bool {
+        guard let d = snapshot?.services.first(where: { $0.key == "dnsmasq" }) else { return false }
+        return d.installed && !d.running
     }
 
     /// start/stop/restart a service (or "all"). nginx/all/dns need root.
@@ -234,6 +246,7 @@ final class AppState {
         // for :80/:443 but go password-less once the helper is installed.
         let dnsLike = (target == "dnsmasq" || target == "dns")
         let needsPrompt = dnsLike || ((target == "nginx" || target == "all") && !helperInstalled)
+            || (target == "all" && action == "start" && dnsNeedsSetup)
         do {
             try await Task.detached {
                 if needsPrompt { try eng.runPrivileged([action, target]) }
