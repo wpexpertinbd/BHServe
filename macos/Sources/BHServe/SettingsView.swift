@@ -73,7 +73,7 @@ struct SettingsView: View {
                     LabeledContent {
                         Button("Open Login Items") { state.openLoginItemsSettings() }.controlSize(.small)
                     } label: {
-                        Label("Blocked by macOS — allow BHServe under Login Items › Allow in the Background",
+                        Label("Blocked by macOS — under Login Items › Allow in the Background, turn on the BHServe row with the \u{1F50D} icon",
                               systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     }
                 }
