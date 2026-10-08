@@ -1584,6 +1584,8 @@ dnsmasq_daemon_install(){
     <string>--keep-in-foreground</string>
     <string>-C</string>
     <string>$BREW_PREFIX/etc/dnsmasq.conf</string>
+    <string>-7</string>
+    <string>$BREW_PREFIX/etc/dnsmasq.d,*.conf</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -1609,9 +1611,15 @@ cmd_dns() {
   hdr "Configuring *.$tld DNS (dnsmasq)"
   # 1) tell dnsmasq to answer *.tld with 127.0.0.1 (brew dnsmasq reads etc/dnsmasq.d/*.conf)
   mkdir -p "$BREW_PREFIX/etc/dnsmasq.d"
-  printf '# BHServe — resolve *.%s → 127.0.0.1\naddress=/.%s/127.0.0.1\n' "$tld" "$tld" \
+  # listen-address: answer on loopback ONLY — without it a fresh install's dnsmasq also served
+  # (and forwarded for) the whole LAN on :53, the same class of exposure as the MariaDB bind fix.
+  printf '# BHServe — resolve *.%s → 127.0.0.1\naddress=/.%s/127.0.0.1\nport=53\nlisten-address=127.0.0.1\n' "$tld" "$tld" \
     > "$BREW_PREFIX/etc/dnsmasq.d/bhserve.conf"
-  grep -q 'dnsmasq.d' "$BREW_PREFIX/etc/dnsmasq.conf" 2>/dev/null \
+  # Include dnsmasq.d from the main config. Match an ACTIVE conf-dir line only: Homebrew's stock
+  # dnsmasq.conf mentions dnsmasq.d in COMMENTS, which the old `grep -q dnsmasq.d` took as
+  # "already included" — dnsmasq then ran without our rule and every .test was "Server not found"
+  # (GitHub #9). Loading the dir twice (here + a daemon's -7) is harmless — tested.
+  grep -qE '^[[:space:]]*conf-dir=.*dnsmasq\.d' "$BREW_PREFIX/etc/dnsmasq.conf" 2>/dev/null \
     || printf 'conf-dir=%s/etc/dnsmasq.d,*.conf\n' "$BREW_PREFIX" >> "$BREW_PREFIX/etc/dnsmasq.conf"
   ok "dnsmasq config: $BREW_PREFIX/etc/dnsmasq.d/bhserve.conf"
   # 2) route *.tld lookups on macOS to our local resolver
