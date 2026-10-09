@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# Runs (as root) AFTER BHServe.app is written. The in-app updater (and the preinstall step) quit
+# the running copy, and nothing brought it back — users had to reopen BHServe by hand after every
+# update. Reopen it as the user logged in at the screen, never as root. Skipped when installing to
+# another volume, when nobody is logged in (e.g. a command-line install at the login window), or
+# when the path is not the genuine bundle.
+
+[ "${3:-/}" = "/" ] || exit 0
+APP="/Applications/BHServe.app"
+[ -d "$APP" ] && [ ! -L "$APP" ] || exit 0
+ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null)
+[ "$ID" = "com.biswashost.bhserve" ] || exit 0
+
+CUSER=$(/usr/bin/stat -f %Su /dev/console 2>/dev/null)
+case "$CUSER" in
+    ""|root|loginwindow|_mbsetupuser) exit 0 ;;
+esac
+CUID=$(/usr/bin/id -u "$CUSER" 2>/dev/null) || exit 0
+
+/bin/launchctl asuser "$CUID" /usr/bin/sudo -u "$CUSER" /usr/bin/open "$APP" 2>/dev/null || true
+exit 0

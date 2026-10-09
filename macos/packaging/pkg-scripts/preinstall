@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# Runs (as root) BEFORE the new BHServe.app is written. Quits a running copy so a manual .pkg
+# install replaces the live menu-bar app instead of leaving the old version running. Quitting the
+# app does NOT stop nginx/PHP/MariaDB — they run on their own, so sites stay up during the update.
+# Exact executable path (dots escaped), followed only by arguments. Only when installing to the
+# boot volume ($3 = target volume) — another disk's install has nothing running.
+
+[ "${3:-/}" = "/" ] || exit 0
+PAT='^/Applications/BHServe\.app/Contents/MacOS/BHServe( |$)'
+
+/usr/bin/pkill -TERM -f "$PAT" 2>/dev/null || true
+
+i=0
+while [ "$i" -lt 5 ]; do
+    /usr/bin/pgrep -f "$PAT" >/dev/null 2>&1 || exit 0
+    /bin/sleep 1
+    i=$((i + 1))
+done
+
+/usr/bin/pkill -KILL -f "$PAT" 2>/dev/null || true
+exit 0

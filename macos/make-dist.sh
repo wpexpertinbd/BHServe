@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="BHServe"
-VERSION="1.7.20"          # keep in sync with build-app.sh
+VERSION="1.7.21"          # keep in sync with build-app.sh
 IDENT="com.biswashost.bhserve"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
@@ -37,6 +37,7 @@ rm -rf "$PKGTMP"; mkdir -p "$PKGTMP/res"
 # component package (the actual payload)
 pkgbuild --root "$PKGROOT" --install-location / \
   --identifier "$IDENT" --version "$VERSION" --ownership recommended \
+  --scripts packaging/pkg-scripts \
   "$PKGTMP/component.pkg" >/dev/null
 
 # branded Welcome + Conclusion screens (BiswasHost — brand blue #0d6efd)
