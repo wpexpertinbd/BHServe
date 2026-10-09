@@ -894,7 +894,7 @@ formatting. Verified by injecting the two real bugs from community PR #5/#6 and 
 revert → green (`AppState.swift:618 error: expected type after 'is'`; `window.py:441 F821 Undefined
 name 'name'`), with Windows staying green throughout.
 
-## Windows-only user reports (2026-08-20) — no macOS action expected, but worth a glance
+## Windows-only user reports (2026-08-20) — ✅ macOS checked 2026-10-09: VC++/shutdown N/A; "stop all" coverage gap WAS real → fixed
 Two things a Windows user hit that the Mac/Linux builds don't have:
 1. **Missing Microsoft Visual C++ runtime → PHP cannot start at all.** php.net's Windows builds link
    `vcruntime140.dll`; a clean Windows never had it, so php-cgi.exe dies in the OS loader with a modal
@@ -939,7 +939,7 @@ but if the Mac ever gains a self-heal respawn loop, it needs the same disarm-on-
 
 ---
 
-## linux-v1.0.54 — shared-engine changes that land on macOS too (2026-09-09) — ⚠️ NEEDS A macOS LOOK
+## linux-v1.0.54 — shared-engine changes that land on macOS too (2026-09-09) — ✅ macOS VERIFIED 2026-10-09 (see verdicts at the end of this section)
 
 PR #5 (@plusemon, merged 2026-08-05) touched `engine/bhserve`, so **macOS inherits all of this
 whether or not the Linux build ships**. A pre-release audit found real defects in it; the fixes are
@@ -984,3 +984,26 @@ dropped the database, and reported success.
 
 **4. `site add --root` now requires an absolute path**, matching what `site root` has always
 enforced. A relative path was previously resolved against whatever cwd the engine ran in.
+
+### ✅ macOS verdicts (2026-10-09, on a live Mac — macOS 27.0.1)
+- **#1 broken-vhost reload — PASS, live.** Wrote a vhost with an unknown directive into the real
+  `~/.bhserve/nginx/sites/`, ran `bhserve reload nginx`: nginx printed the emerg, the engine warned
+  "kept the running config", the master PID was unchanged and real sites stayed 200. File removed, clean reload.
+- **#2 GUI site-add — WAS noisy for users without password-less control → FIXED.** Simulated (stand-in
+  `sudo` that refuses, as in the GUI with no tty): safe (master untouched) but the Add-site result sheet showed
+  a raw `sudo: a terminal is required…` line + "run: bhserve restart nginx" — for a restart the app performs
+  itself one step later. Fix: the app passes `BHSERVE_NGINX_DEFERRED=1` ONLY on verbs it always follows with
+  `control("restart","nginx")` (site add, secure/resecure/unsecure, site server, pma/adminer/mailpit), and
+  `maybe_reload_nginx` returns early on it. Verbs without the flag (e.g. `nodesite start`) still warn
+  honestly. `_nginx_reload_core` also uses `sudo -n` when there is no tty (never waits on a prompt).
+  Re-tested: flagged add = clean; unflagged reload without sudo = honest warning; password-less reload = OK;
+  new site 200 after the app's restart.
+- **#3 laravel — PASS** (tested for v1.7.17: add / serve / apache switch / php switch / purge).
+- **#4 relative `--root` — PASS** ("root must be an absolute path", no vhost created).
+- **Win-v1.0.72 "stop all must mean ALL" — the Mac HAD the same gap → FIXED in the shared `stop_all`:** it
+  never stopped Cloudflare tunnels, node apps or python apps (a public tunnel stayed up after Stop All). Now
+  stops tunnels first, then running node (fe+be) and python apps, each in a subshell so one failure can't
+  abort the rest; `brew_svc stop` gets `</dev/null`. Harness-tested with stand-in processes: tunnel / node
+  fe+be / python stopped, pid files cleaned, a not-running registered app and an unrelated process untouched.
+  **Linux inherits this** (no `stop_all` override in platform-linux.sh).
+

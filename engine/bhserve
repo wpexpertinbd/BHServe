@@ -1807,7 +1807,9 @@ nginx_start(){
 _nginx_reload_core(){
   nginx_running || return 0
   local bin pre=""; bin="$(NGINX_BIN)"
-  if needs_root_ports; then pre="sudo"; fi
+  # No terminal (GUI) = no one to type a password: `sudo -n` fails at once instead of erroring
+  # "a terminal is required"; in a terminal plain sudo may still prompt as before.
+  if needs_root_ports; then if [ -t 0 ]; then pre="sudo"; else pre="sudo -n"; fi; fi
   local out=""
   if out="$($pre "$bin" -s reload -c "$BH_HOME/nginx/nginx.conf" -p "$BH_HOME/nginx" 2>&1)"; then
     ok "nginx reloaded"; return 0
@@ -1836,6 +1838,10 @@ _nginx_reload_core(){
 nginx_reload(){ _nginx_reload_core; }
 # Auto-apply config changes
 maybe_reload_nginx(){
+  # The macOS app sets this on actions it ALWAYS follows with its own (privileged) nginx restart.
+  # Without it, a user without password-less control saw a raw "sudo: a terminal is required"
+  # line plus "run: bhserve restart nginx" in the Add-site result — for a restart the app then did.
+  [ "${BHSERVE_NGINX_DEFERRED:-}" = 1 ] && return 0
   nginx_running || return 0
   nginx_reload
 }
@@ -1938,13 +1944,32 @@ start_all(){
 # Stop everything that's running (web + all PHP pools + DB/cache/mail daemons).
 stop_all(){
   hdr "Stopping all services"
+  # "All" must include the long-lived processes BHServe spawns itself, not just the daemons:
+  # before this a public Cloudflare tunnel (and node/python apps) kept running after Stop All.
+  # Tunnels first, so nothing stays reachable from the internet while the rest shuts down.
+  # Subshells: a `die` in one stop can't abort the rest (same pattern as start_all).
+  shopt -s nullglob
+  local f n
+  for f in "$BH_HOME"/run/tunnel-*.pid; do
+    n="$(basename "$f" .pid)"; n="${n#tunnel-}"
+    tunnel_running "$n" && { ( tunnel_stop "$n" ) || true; }
+  done
+  for f in "$BH_HOME"/node-sites/*.json; do
+    n="$(njson "$f" name)"; [ -n "$n" ] || continue
+    { node_proc_running "$n" fe || node_proc_running "$n" be; } && { ( nodesite_stop "$n" ) || true; }
+  done
+  for f in "$BH_HOME"/py-sites/*.json; do
+    n="$(njson "$f" name)"; [ -n "$n" ] || continue
+    py_proc_running "$n" && { ( pysite_stop "$n" ) || true; }
+  done
+  shopt -u nullglob
   nginx_stop
   apache_running && apache_stop || true
   local k; for k in $(fpm_keys); do fpm_stop "$k"; done
   local IFS='|' key formula probe role
   while read -r key formula probe role; do
     [ -n "$key" ] || continue
-    case "$role" in db|cache|mail) svc_installed "$key" && brew_svc stop "$key" >/dev/null 2>&1 || true ;; esac
+    case "$role" in db|cache|mail) svc_installed "$key" && brew_svc stop "$key" </dev/null >/dev/null 2>&1 || true ;; esac
   done < <(services)
   ok "all services stopped"
 }

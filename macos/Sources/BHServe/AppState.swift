@@ -668,12 +668,12 @@ final class AppState {
         if let r = root?.trimmingCharacters(in: .whitespaces), !r.isEmpty { args += ["--root", r] }
         let note = type == "wordpress" ? "creating \(clean) + downloading WordPress…" : "adding \(clean)…"
         let tld = snapshot?.config.tld ?? "test"
-        var (ok, steps) = await runCapturing(args, note: note)
+        var (ok, steps) = await runCapturing(args, note: note, env: Self.nginxDeferred)
         // Best-effort HTTPS: issue a trusted cert + re-render the vhost BEFORE the single
         // nginx restart below. A cert failure (e.g. mkcert missing) must NOT fail the add —
         // the site stays added over http.
         if ok && https {
-            let (_, ssteps) = await runCapturing(["secure", "\(clean).\(tld)"], note: "enabling HTTPS for \(clean)…")
+            let (_, ssteps) = await runCapturing(["secure", "\(clean).\(tld)"], note: "enabling HTTPS for \(clean)…", env: Self.nginxDeferred)
             steps += ssteps
         }
         await control("restart", "nginx")   // ONE restart loads the new vhost (+ its SSL)
@@ -864,7 +864,7 @@ final class AppState {
     }
 
     func setSiteServer(_ name: String, _ server: String) async {
-        await runUser(["site", "server", name, server], note: "switching \(name) → \(server)…")
+        await runUser(["site", "server", name, server], note: "switching \(name) → \(server)…", env: Self.nginxDeferred)
         await control("restart", "nginx")
     }
 
@@ -901,12 +901,12 @@ final class AppState {
 
     // ── web tools (phpMyAdmin / Adminer / Mailpit) ──────────────────────────
     func siteExists(_ name: String) -> Bool { snapshot?.sites.contains { $0.name == name } ?? false }
-    func installPma() async { await runUser(["pma", "install"], note: "installing phpMyAdmin…"); await control("restart", "nginx") }
-    func installAdminer() async { await runUser(["adminer", "install"], note: "installing Adminer…"); await control("restart", "nginx") }
-    func setupMailpit() async { await runUser(["mailpit", "setup"], note: "setting up Mailpit…"); await control("restart", "nginx") }
+    func installPma() async { await runUser(["pma", "install"], note: "installing phpMyAdmin…", env: Self.nginxDeferred); await control("restart", "nginx") }
+    func installAdminer() async { await runUser(["adminer", "install"], note: "installing Adminer…", env: Self.nginxDeferred); await control("restart", "nginx") }
+    func setupMailpit() async { await runUser(["mailpit", "setup"], note: "setting up Mailpit…", env: Self.nginxDeferred); await control("restart", "nginx") }
 
     func secure(domain: String) async {
-        await runUser(["secure", domain], note: "securing \(domain)…")
+        await runUser(["secure", domain], note: "securing \(domain)…", env: Self.nginxDeferred)
         // turning HTTPS on re-renders the vhost → nginx needs a reload (root)
         await control("restart", "nginx")
     }
@@ -916,15 +916,20 @@ final class AppState {
     /// then a PRIVILEGED full nginx restart actually applies it (a plain reload leaves stale workers on
     /// the old cert; a restart is what makes it take — the in-verb restart can't get root from the GUI).
     func resecure(domain: String) async {
-        await runUser(["resecure", domain], note: "reinstalling HTTPS for \(domain)…")
+        await runUser(["resecure", domain], note: "reinstalling HTTPS for \(domain)…", env: Self.nginxDeferred)
         await control("restart", "nginx")
     }
 
     /// Remove HTTPS: delete the cert + key and re-render the vhost back to http-only.
     func unsecure(domain: String) async {
-        await runUser(["unsecure", domain], note: "removing HTTPS from \(domain)…")
+        await runUser(["unsecure", domain], note: "removing HTTPS from \(domain)…", env: Self.nginxDeferred)
         await control("restart", "nginx")
     }
+
+    /// For engine verbs the app ALWAYS follows with `control("restart", "nginx")`: the engine skips
+    /// its own unprivileged reload (which, without password-less control, could only fail and print
+    /// sudo noise into the result sheet). Use ONLY where that restart really follows.
+    private static let nginxDeferred = ["BHSERVE_NGINX_DEFERRED": "1"]
 
     private func runUser(_ args: [String], note: String, env: [String: String] = [:]) async {
         guard !busy else { return }
@@ -941,12 +946,12 @@ final class AppState {
     }
 
     /// Like runUser but captures the engine output and returns (ok, parsed steps) for a result sheet.
-    private func runCapturing(_ args: [String], note: String) async -> (ok: Bool, steps: [ActionResult.Step]) {
+    private func runCapturing(_ args: [String], note: String, env: [String: String] = [:]) async -> (ok: Bool, steps: [ActionResult.Step]) {
         guard !busy else { return (false, []) }
         busy = true; lastAction = note; defer { busy = false; lastAction = nil }
         let eng = engine
         do {
-            let out = try await Task.detached { try eng.run(args) }.value
+            let out = try await Task.detached { try eng.run(args, env: env) }.value
             await reload()
             return (true, AppState.parseSteps(out))
         } catch {

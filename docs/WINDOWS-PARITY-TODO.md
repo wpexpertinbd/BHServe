@@ -355,3 +355,17 @@ deprecation used to show *as the version*), and it shortens MariaDB 13's full-pa
 binary name. Together with (a) and (b) above, Linux gets all of it by building `linux-v1.0.55` from master.
 Please smoke-test `bhserve update all` (every service reached) and the version column on a box with
 MariaDB 13 / PHP 8.5.
+
+---
+
+## #12 — shared-engine changes from the macOS parity pass (2026-10-09) — Linux please ship with your next build
+
+- **`stop_all` now stops Cloudflare tunnels, node apps and python apps** (Mac had the same gap Windows fixed
+  in win-v1.0.72; Linux has no override, so it inherits this). Please confirm on Linux that Stop All leaves no
+  `cloudflared` / node / python processes behind.
+- **`maybe_reload_nginx` honours `BHSERVE_NGINX_DEFERRED=1`** (macOS GUI sets it on verbs it always follows
+  with its own privileged restart). Linux GUI never sets it → no behaviour change unless you opt in.
+- **`_nginx_reload_core` uses `sudo -n` when stdin is not a terminal** — never waits on a password prompt in a
+  GUI context. Linux calls the same core; if your GUI relies on pkexec instead of sudo this is a no-op.
+- From v1.7.18 (#9): dnsmasq default-enabled + `/etc/resolver` checks are **Darwin-only**; Linux unchanged.
+
