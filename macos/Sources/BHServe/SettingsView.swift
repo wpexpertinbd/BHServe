@@ -53,7 +53,7 @@ struct SettingsView: View {
                         Button {
                             confirmUpdate = (version, pkg)
                         } label: { Label("Download & Install v\(version)", systemImage: "arrow.down.circle.fill") }
-                        Text("Downloads the new installer, opens it, and quits BHServe so it can update. Reopen when done.")
+                        Text("Downloads the new installer, opens it, and quits BHServe so it can update — BHServe reopens by itself when the install finishes.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 case .failed(let msg):
@@ -170,7 +170,7 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("BHServe will download the installer, open it, and quit so it can update.")
+            Text("BHServe will download the installer, open it, and quit so it can update. It reopens by itself when the install finishes.")
         }
     }
 
