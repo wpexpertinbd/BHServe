@@ -743,7 +743,8 @@ reload in site-add, not just in delete/switch.
 > directive to ALL occurrences (php.ini can define one twice; PHP honors the last). **No mac action** —
 > brew PHP always ships opcache and runs under FPM. (Linux likewise uses FPM + always-present opcache.)
 
-## CHECK — Apache backend needs a catch-all default vhost (Windows fixed in win-v1.0.65)
+## ✅ FIXED on macOS (2026-10-09, after v1.7.19) — Apache backend needs a catch-all default vhost (Windows fixed in win-v1.0.65)
+> **Mac verdict:** reproduced live — `curl -H "Host: some-other-site.test" 127.0.0.1:8080` returned ANOTHER site (Aponjon Care, 200). Shared `render_apache_main` now emits a catch-all `<VirtualHost 127.0.0.1:$APACHE_PORT>` (ServerName `bhserve-default.invalid`, empty docroot under the global deny → plain 403 "No site is served here") BEFORE `IncludeOptional sites/*.conf`. It is regenerated on every apache start, so existing installs pick it up automatically. Verified: unknown Host → 403, aponjoncare still 200 direct + via nginx https, `httpd -t` Syntax OK. Linux already had the same catch-all in its own `render_apache_main`.
 On Windows, switching a site apache→nginx briefly flashed ANOTHER site's content: Apache serves its
 FIRST-listed vhost for an unmatched Host, and during the switch the site's vhost is momentarily gone
 while a lingering nginx worker still proxies to Apache. Windows fix: a catch-all default `<VirtualHost>`
@@ -754,7 +755,8 @@ cross-site flash can happen on a server switch. Consider adding a default-deny v
 `render_apache_main`/config (nginx already has `default_server` on all platforms, so only Apache needs
 it). Low severity (≈1s transient on an admin action), but it's a real cross-site content flash.
 
-## CHECK — "Start at login" toggle may prompt for password TWICE (Linux fixed linux-v1.0.46)
+## ✅ N/A on macOS (checked 2026-10-09) — "Start at login" toggle may prompt for password TWICE (Linux fixed linux-v1.0.46)
+> **Mac verdict:** cannot happen — the Mac toggle runs `loginitem enable|disable` UNPRIVILEGED (per-user LaunchAgent + `launchctl bootstrap gui/$uid`), so there is no password prompt to be pending while a refresh rewrites the binding (see verdict (1) below).
 On Linux the autostart toggle prompted for the polkit password twice on a single ENABLE click: the
 periodic api-refresh calls `switch.set_active(loginitem_state)` while the `loginitem enable` is still
 waiting at the auth prompt (so the state is still false) → the switch flips back OFF → re-fires the
@@ -765,7 +767,8 @@ when the app's state-refresh writes the binding during a pending `osascript … 
 has the same double-prompt — guard the programmatic update the same way (or drive the verb from the
 user gesture only, not the bound state). Windows uses a checkbox that doesn't have this refresh race.
 
-## GUI parity note — install progress dialog (Linux linux-v1.0.46, Windows already has it)
+## ✅ macOS already has it (checked 2026-10-09) — install progress dialog (Linux linux-v1.0.46, Windows already has it)
+> **Mac verdict:** `installService` shows the busy note while brew runs, then an `ActionResult` sheet ("<svc> installed" / "Couldn't install <svc>" + the engine steps) — same role as the Windows/Linux dialog.
 Linux GUI installs now show a modal progress dialog (animated bar + "✓ installed"/"✗ failed" + Close)
 instead of a tiny spinner + 3s toast — matching the Windows install alert. If the macOS install feedback
 is also just a spinner/toast, consider the same dialog for parity (apt/brew installs are slow enough
@@ -797,7 +800,7 @@ per-user operation that should NOT need `osascript … administrator`. If the Ma
 privileged, it has the same class of bug (needless password + wrong context). Verify it runs as the user
 and the toggle reflects state after enable.
 
-## Also fixed on Linux (linux-v1.0.48), macOS likely unaffected but worth a glance
+## ✅ macOS unaffected (verified v1.7.16, verdict (2) below) — Also fixed on Linux (linux-v1.0.48)
 - **Services page flashing + garbage web-server versions:** `probe_version` special-cased `*httpd*`→`-v`
   but Debian's binary is `/usr/sbin/apache2` → fell to `apache2 --version` = a TIMESTAMPED `[core:warn]`
   line that changed every refresh → the list rebuilt every 4s. macOS uses brew `httpd` (matches
