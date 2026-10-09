@@ -790,7 +790,7 @@ that users need a clear "working… / done / failed").
 > *(win-v1.0.69 max_input_vars: already marked covered — shared `render_fpm_pool` emits
 > `php_admin_value[max_input_vars]=10000`; nothing to do.)*
 
-## CHECK — "Start at login" toggle: is the privileged/user context right? (Linux bug fixed linux-v1.0.48)
+## ✅ (verdict 1, v1.7.16) "Start at login" toggle: is the privileged/user context right? (Linux bug fixed linux-v1.0.48)
 On Linux the login toggle ran `loginitem enable` PRIVILEGED (pkexec/root), but `systemctl --user
 enable` must run as the DESKTOP USER — as root it enabled the unit for root, so the api's
 `systemctl --user is-enabled` (as the user) still reported disabled → the toggle prompted for a password
@@ -809,7 +809,7 @@ and the toggle reflects state after enable.
 - **Apache never started on Linux** (render_apache_main wrote brew `/opt/httpd` paths Debian rejects) —
   Linux-specific; macOS uses the brew config as-is.
 
-## linux-v1.0.50 — check the Mac for BOTH bugs (2026-07-23)
+## ✅ (verdict 3, v1.7.16 — N/A, no OLS on Mac) linux-v1.0.50 — check the Mac for BOTH bugs (2026-07-23)
 - **⚠️ SUPERSEDES the 1.0.48 loginitem note above.** Unprivileged `systemctl --user` start-at-login was
   a dead end: the services themselves need root (:80/:443, systemctl), so the user unit just hit an
   invisible password prompt at login and started NOTHING. Linux now uses the launchd-daemon model macOS
@@ -831,7 +831,7 @@ and the toggle reflects state after enable.
   a subdomain's Host reached OLS unmapped → wrong site served. Now maps ALL server_name entries,
   comma-joined. Engine-shared risk if the Mac ever generates OLS maps from nginx vhosts the same way.
 
-## win-v1.0.68 + linux-v1.0.52 — empty document-root corruption (2026-07-23) — SHARED-ENGINE change, mac please verify
+## ✅ (verdict 4, v1.7.16 — verified) win-v1.0.68 + linux-v1.0.52 — empty document-root corruption (2026-07-23)
 Real Windows outage (elephanducky.test): a php/server switch flurry left `root ;` in the nginx vhost →
 **fatal nginx config error → nginx down for EVERY site** ("invalid number of arguments in \"root\"
 directive"). Worse, the corruption is self-perpetuating: every switch re-parses root from the conf,
@@ -844,7 +844,7 @@ to `<sites_root>/<name>` when that folder exists (warn), else refuse the action 
   helper itself). **macOS uses the shared render_site_vhost → gets the guard automatically at its next
   release; please sanity-check a php-switch + server-switch still renders correctly on the Mac.**
 
-## win-v1.0.69 — php.ini max_input_vars=10000 (2026-07-28) — macOS ALREADY COVERED, no action
+## ✅ win-v1.0.69 — php.ini max_input_vars=10000 (2026-07-28) — macOS ALREADY COVERED, no action
 Windows php.ini writer (PhpCgi.EnsureLimits) never set `max_input_vars`, so PHP's default 1000
 truncated big POSTs → phpMyAdmin's export/import page on a many-table DB (Blesta ~418 tables >1000
 form fields) died with "Internal error: TypeError". Added `("max_input_vars","10000")` to the Limits
