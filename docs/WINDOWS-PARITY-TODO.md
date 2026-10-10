@@ -369,3 +369,37 @@ MariaDB 13 / PHP 8.5.
   GUI context. Linux calls the same core; if your GUI relies on pkexec instead of sudo this is a no-op.
 - From v1.7.18 (#9): dnsmasq default-enabled + `/etc/resolver` checks are **Darwin-only**; Linux unchanged.
 
+
+---
+
+## #13 — please rename the folder `windows/src/BHServe.App/` (macOS shows it as a broken "app") — 2026-10-10
+
+**Requested by Benjamin.** On macOS, any folder whose name ends in `.app` (case-insensitive) is treated as an
+**application bundle**. So on every Mac that has this repo cloned, `windows/src/BHServe.App` appears in **Finder**
+as *"BHServe.App.app — Application"* and in **Spotlight / Launchpad search** as an app with the "can't open"
+(🚫) icon, sitting next to the real BHServe. Benjamin deleted it once thinking it was junk — that local deletion
+would have removed the whole WinUI GUI from GitHub if it had been committed (Mac-Claude restored it from git).
+macOS has no per-folder opt-out that works here (`.metadata_never_index` inside a normal folder is ignored), so
+the only real fix is the name. `BHServe.Cli`, `BHServe.Core`, `BHServe.Elevate` are fine — only `.App` collides.
+
+**Ask:** rename the **folder + project file only** to a name that does not end in `.app`, e.g.
+`windows/src/BHServe.Desktop/BHServe.Desktop.csproj` (`git mv` so history follows).
+
+**⚠️ Keep the EXE name `BHServe.App.exe`** — set `<AssemblyName>BHServe.App</AssemblyName>` (and keep the
+RootNamespace if you prefer to avoid touching every `namespace BHServe.App…`). The exe name is load-bearing:
+the Inno installer (`MyAppExe`, the `taskkill /IM BHServe.App.exe` before upgrade), the in-app updater, the
+README's Smart App Control note and `windows/ANTIVIRUS.md` (quarantine restore + allowlist entries users already
+made). Renaming the exe would break upgrades for existing installs and invalidate users' AV exclusions.
+
+**Every path reference to update** (from `git grep`, 2026-10-10):
+- `windows/BHServe.sln:10` — project path `src\BHServe.App\BHServe.App.csproj`
+- `windows/build.ps1:40` — `dotnet publish src/BHServe.App/BHServe.App.csproj`
+- `windows/installer/bhserve.iss:32` — `SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico`
+- `windows/README.md:16,36` and `docs/WINDOWS-PORT.md:33,138` — folder name / `dotnet run --project src\BHServe.App`
+- `docs/MAC-FEATURE-REFERENCE.md:10,222`, `docs/WINDOWS-PARITY-TODO.md:141,210`, `docs/WINDOWS-RELEASE.md:88` — doc paths
+- (`.github/workflows/build-check.yml` builds `BHServe.sln`, so it follows the .sln automatically — confirm green)
+
+**Done when:** CI `dotnet build BHServe.sln` is green, a test install upgrades over an existing one (installer
+still kills/replaces `BHServe.App.exe`), and Mac-Claude confirms Finder shows a plain folder. Tell Mac-Claude in
+`docs/MAC-PARITY-TODO.md` when it lands — a Mac `git pull` will then move the folder, and the stale Spotlight
+entry clears on the next index pass.
