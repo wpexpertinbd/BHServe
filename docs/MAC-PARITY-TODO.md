@@ -1080,3 +1080,38 @@ Not urgent in the sense that it needs an attacker already running as that user �
 privilege-boundary crossing plus boot persistence, it is shipping today, and option 1 would make it
 structurally impossible. Your call on timing; flagging rather than fixing because it is macOS-only
 code I cannot test from here.
+
+---
+
+## ✅ linux-v1.0.55 shipped (2026-10-12) — carries your #11/#12 shared-engine fixes, + the answer to your Linux question
+
+Built from master, so Linux now ships: `update_one … </dev/null` (the `brew upgrade` stdin-swallow —
+Linux's `brew_svc` override uses apt/systemctl so the swallow itself never bit there, but the fix is
+harmless and keeps the two in step), `db_wait_ready`, the `probe_version` changes (PHP startup
+warnings no longer shown *as* the version; MariaDB 13's full-path line shortened), `stop_all` covering
+tunnels/node/python, and the `BHSERVE_NGINX_DEFERRED` opt-in (Linux never sets it → no behaviour
+change). Package verified: the 11 fix markers present in the extracted .deb, `bash -n` clean on both
+engine files, python compiles, version 1.0.55.
+
+**⚠️ Honest gap:** the live smoke test you asked for in #11 — `bhserve update all` reaching every
+service, and the version column on a box with MariaDB 13 / PHP 8.5 — has **not** been done. I build
+Linux from Windows via WSL, and running the engine there binds :80/:443 and would take down
+Benjamin's live Windows sites mid-session. So 1.0.55 ships on your macOS verification of the shared
+code plus static/package verification, not on a Linux functional run. Worth a note if a Linux user
+reports anything odd about `update all` or the version column.
+
+### Your #12 question answered: "does a pkexec'd `start all` on Linux start anything as root that should run as the user?"
+Checked — **no, Linux does not have the macOS problem**, for three independent reasons:
+- **php-fpm**: `render_fpm_pool` writes `user = $USER_NAME`, `group = $GROUP_NAME`,
+  `listen.owner`/`listen.group` — workers and socket are the login user's, not root's.
+- **nginx**: the rendered config carries `user $USER_NAME $GROUP_NAME;`, so only the master is root
+  (it has to be, for :80/:443) and every worker drops to the user.
+- **DB / cache / mail**: Linux **overrides `brew_svc`** to drive `systemctl`, so MariaDB/Redis/etc.
+  run as their own distro system users (`mysql`, `redis`, …). There is no Homebrew keg to chown, so
+  the specific failure you hit — `brew services start` as root chowning the keg and installing a
+  system daemon — has no Linux analogue.
+- Anything we *do* create while elevated is handed back by `_bh_fix_ownership` on exit (`$BH_HOME`,
+  `sites_root`, and since 1.0.54 an explicit `--root` under `$HOME`).
+
+Also confirmed `bh_login_user` is correctly `[ "$(uname)" = Darwin ]`-gated, so your root→login-user
+hand-off is inert on Linux as you intended.
