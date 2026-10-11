@@ -7,6 +7,17 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>BHServe.App</RootNamespace>
+    <!-- The PROJECT is BHServe.Desktop but the EXE must stay BHServe.App.exe. macOS treats any
+         folder ending in ".app" as an application bundle, so the old src/BHServe.App/ folder showed
+         up in Finder/Spotlight on every Mac with this repo cloned as a broken "BHServe.App.app"
+         next to the real app — Benjamin nearly deleted it as junk. The exe name is load-bearing
+         though: the Inno installer's MyAppExe + its `taskkill /IM BHServe.App.exe` before an
+         upgrade, the in-app updater, and the AV exclusions users have already added all reference
+         it, so renaming the exe would break upgrades for existing installs. Without this line the
+         assembly name defaults to the project file name. (BHServe.Cli -> bhserve and
+         BHServe.Elevate -> bhserve-elevate do the same thing.) RootNamespace stays BHServe.App so
+         none of the 107 source files need touching. -->
+    <AssemblyName>BHServe.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <UseWinUI>true</UseWinUI>

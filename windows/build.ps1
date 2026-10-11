@@ -37,7 +37,7 @@ Write-Host "build  publishing app + cli + elevate ($Rid)..." -ForegroundColor Cy
 $publish = Join-Path $PSScriptRoot "publish"
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
 
-dotnet publish src/BHServe.App/BHServe.App.csproj -c $Configuration -r $Rid --self-contained true -p:WindowsAppSDKSelfContained=true "-p:Version=$ver" -o $publish
+dotnet publish src/BHServe.Desktop/BHServe.Desktop.csproj -c $Configuration -r $Rid --self-contained true -p:WindowsAppSDKSelfContained=true "-p:Version=$ver" -o $publish
 dotnet publish src/BHServe.Cli/BHServe.Cli.csproj -c $Configuration -r $Rid --self-contained true "-p:Version=$ver" -o $publish
 dotnet publish src/BHServe.Elevate/BHServe.Elevate.csproj -c $Configuration -r $Rid --self-contained true "-p:Version=$ver" -o $publish
 

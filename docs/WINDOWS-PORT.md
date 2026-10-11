@@ -30,7 +30,7 @@ windows/
   src/
     BHServe.Core/        # services model, vhost render, php-cgi mgr, certs, dns, db
     BHServe.Cli/         # bhserve.exe  (doctor/init/install/site/db/start/stop/…)
-    BHServe.App/         # WinUI 3 GUI  (Dashboard/Services/Sites/DB/Node/Logs/Settings)
+    BHServe.Desktop/     # WinUI 3 GUI  (Dashboard/Services/Sites/DB/Node/Logs/Settings)
   installer/
     bhserve.iss          # Inno Setup script (branded, BiswasHost blue #0d6efd)
   build.ps1              # dotnet publish + makensis/iscc → installer/dist/
@@ -135,7 +135,7 @@ equivalent of the password-less sudoers helper).
 git clone https://github.com/wpexpertinbd/BHServe
 cd BHServe\windows
 dotnet build BHServe.sln
-dotnet run --project src\BHServe.App     # launch the GUI
+dotnet run --project src\BHServe.Desktop     # launch the GUI
 dotnet run --project src\BHServe.Cli -- status   # the CLI
 
 # release

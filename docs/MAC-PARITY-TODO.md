@@ -210,9 +210,9 @@ this never collides with the update prompt). If launched hidden (autostart), ski
   - `EnsureSiteServices(type, php, server)` → `Install(key)` any missing required + `Start(key)` each
     (idempotent; `Start` no-ops if already running).
   - `MissingCore()` → core stack (`nginx`, `php@default`, `mariadb`, `mkcert`) not installed.
-- `windows/src/BHServe.App/Views/SitesPage.xaml.cs` → `Add_Click` calls `EnsureRequirements(...)` before
+- `windows/src/BHServe.Desktop/Views/SitesPage.xaml.cs` → `Add_Click` calls `EnsureRequirements(...)` before
   creating the site (returns false to abort); the dialog lists missing pieces, installs on confirm.
-- `windows/src/BHServe.App/MainWindow.xaml.cs` → `FirstRunThenUpdateCheck()` (waits for XamlRoot, then
+- `windows/src/BHServe.Desktop/MainWindow.xaml.cs` → `FirstRunThenUpdateCheck()` (waits for XamlRoot, then
   `OfferFirstRunSetup()` else the update check) + `OfferFirstRunSetup()` (prompt → progress dialog →
   `Install("all")` + `Start("all")` → done/partial result).
 - Engine already has `Install("all")` = core stack (nginx + php@default + mariadb + mkcert) on both platforms.
@@ -234,8 +234,8 @@ this never collides with the update prompt). If launched hidden (autostart), ski
 - Minor: have `secure` print `secured: https://<domain>` so the result UI can show the https URL.
 
 **Windows source to diff against**
-- `windows/src/BHServe.App/Views/SitesPage.xaml` — `<CheckBox x:Name="SslBox" Content="HTTPS" IsChecked="True">` in the add-site bar.
-- `windows/src/BHServe.App/Views/SitesPage.xaml.cs`:
+- `windows/src/BHServe.Desktop/Views/SitesPage.xaml` — `<CheckBox x:Name="SslBox" Content="HTTPS" IsChecked="True">` in the add-site bar.
+- `windows/src/BHServe.Desktop/Views/SitesPage.xaml.cs`:
   - `Add_Click` — reads `SslBox.IsChecked`; after `Engine.SiteAdd(...)` succeeds, runs a 2nd
     `RunCaptured(() => Engine.Secure($"{name}.{Config.Load().Tld}"))`, appends its output.
     Best-effort (site stays added on cert failure).
@@ -260,7 +260,7 @@ this never collides with the update prompt). If launched hidden (autostart), ski
   download+install flow.
 
 **Windows source to diff against**
-- `windows/src/BHServe.App/MainWindow.xaml.cs`:
+- `windows/src/BHServe.Desktop/MainWindow.xaml.cs`:
   - fields `_pendingUpdate` (`Updater.Result?`), `_updateTimer` (`DispatcherTimer`, `Interval = TimeSpan.FromHours(24)`).
   - ctor: `_ = CheckForUpdateOnLaunch();` + `_updateTimer.Tick += (_,_) => _ = CheckForUpdateOnLaunch(); _updateTimer.Start();`
   - `CheckForUpdateOnLaunch()` — `if (!Config.Load().AutoUpdate) return;` → `Updater.Check()` → Settings
@@ -268,7 +268,7 @@ this never collides with the update prompt). If launched hidden (autostart), ski
   - `ShowUpdatePromptIfPending()` — `ContentDialog` "Update now / Later" → `Updater.DownloadAndRun(asset)`;
     clears `_pendingUpdate` (once per session); whole show wrapped in try/catch.
   - `ShowFromTray()` — calls `ShowUpdatePromptIfPending()` after showing (surfaces a prompt found while hidden).
-- `windows/src/BHServe.App/Services/Updater.cs` — `Check()` → `record Result(bool UpdateAvailable,
+- `windows/src/BHServe.Desktop/Services/Updater.cs` — `Check()` → `record Result(bool UpdateAvailable,
   string Latest, string? AssetUrl, string? Notes, string? Error)`; `CurrentVersion`; `DownloadAndRun(url)`
   (downloads installer, launches it, then `App.ForceQuit()`).
 - `windows/src/BHServe.Core/Config.cs` — `auto_update` bool, **default `true`** (the gate).
@@ -348,7 +348,7 @@ server + document root + "replace this file" hint + biswashost.com link; `phpinf
 `?phpinfo=1`). **The PHP/HTML file is identical cross-platform — copy it verbatim from Windows.**
 
 **Windows source to diff against**
-- Editor/Terminal: `windows/src/BHServe.App/Views/SiteListControl.xaml` (two `MenuFlyoutItem`s) +
+- Editor/Terminal: `windows/src/BHServe.Desktop/Views/SiteListControl.xaml` (two `MenuFlyoutItem`s) +
   `SiteListControl.xaml.cs` → `CodeEditor_Click` / `Terminal_Click` + `FindEditor()` / `OnPath()`.
 - Default page: `windows/src/BHServe.Core/Engine.cs` → `const string DefaultIndexPhp` (the whole page)
   + its write in `SiteAdd` (`File.WriteAllText(.../index.php, DefaultIndexPhp)` when no index exists).
@@ -437,7 +437,7 @@ self-explanatory so users know nginx alone serves PHP and Apache is a `.htaccess
   dead site). Windows fix: `RequiredServices` returns `{nginx, apache}` for `server=apache`. The Mac's
   `AppState.siteRequirements`/`ensureSiteServices` should do the same.
 
-**Windows source to diff against:** `windows/src/BHServe.App/Views/SitesPage.xaml` (ComboBox labels +
+**Windows source to diff against:** `windows/src/BHServe.Desktop/Views/SitesPage.xaml` (ComboBox labels +
 `Tag` for the real value) + `SitesPage.xaml.cs` (`SelectedServer` reads `Tag`); `BHServe.Core/Engine.cs`
 `RequiredServices` (nginx+apache for Apache) + `DefaultIndexPhp` (generic page). Linux equivalent:
 `linux/app/bhserve/window.py` (descriptive DropDown strings + tooltip, value stays index-mapped).
@@ -1010,3 +1010,73 @@ enforced. A relative path was previously resolved against whatever cwd the engin
   fe+be / python stopped, pid files cleaned, a not-running registered app and an unrelated process untouched.
   **Linux inherits this** (no `stop_all` override in platform-linux.sh).
 
+
+---
+
+## ✅ WINDOWS-PARITY #13 LANDED (2026-10-12) — `windows/src/BHServe.App/` is now `windows/src/BHServe.Desktop/`
+
+Your Finder/Spotlight "broken BHServe.App.app" is gone after a `git pull` (the stale Spotlight entry
+clears on the next index pass). Benjamin confirmed he was seeing the double listing, which is what
+prompted it.
+
+**The exe is still `BHServe.App.exe`** — `<AssemblyName>BHServe.App</AssemblyName>` is now pinned in
+the csproj, because without it the assembly name defaults to the project file name. `RootNamespace`
+stays `BHServe.App`, so none of the 107 files using that namespace changed. Verified: `dotnet build
+BHServe.sln` 0 errors, a full `build.ps1` published `BHServe.App.exe` (no `BHServe.Desktop.exe`
+anywhere) and Inno Setup compiled cleanly. No Windows release needed — repo layout only, the shipped
+artefact is identical, so upgrades and users' AV exclusions are unaffected.
+
+Doc paths updated on our side including the eight `windows/src/BHServe.App/...` references in THIS
+file. If you have a local branch, expect a conflict only on those path strings.
+
+---
+
+## ⚠️ SECURITY — the dnsmasq LaunchDaemon runs a USER-WRITABLE binary as root (found 2026-10-12) — macOS only
+
+Flagged by an automated security pass on `engine/bhserve` while I was working in the repo. I verified
+it by reading the code rather than forwarding the scanner output, and **it looks real**. It is
+entirely in the Darwin path (Linux overrides `cmd_dns` and has zero `launchctl`), so this is yours.
+
+**What the code does** (`dnsmasq_daemon_install`, engine/bhserve:1581):
+installs `/Library/LaunchDaemons/com.biswashost.bhserve.dnsmasq.plist` — a **system** daemon, so it
+runs as **root** — with `RunAtLoad` + `KeepAlive`, and `ProgramArguments`:
+
+- `$bin` → `$BREW_PREFIX/sbin/dnsmasq` (or `bin/`)
+- `-C $BREW_PREFIX/etc/dnsmasq.conf`
+- `-7 $BREW_PREFIX/etc/dnsmasq.d,*.conf`
+
+The plist itself is correctly `chown root:wheel` + `chmod 644` — but that protects the *pointer*, not
+the *targets*. `$BREW_PREFIX` is Homebrew's prefix (`/opt/homebrew`), which is **owned by the
+installing admin user by design** — not having to sudo is Homebrew's whole point.
+
+**Why that matters:** anything already running as that user can overwrite
+`/opt/homebrew/sbin/dnsmasq`, or just drop a file into `/opt/homebrew/etc/dnsmasq.d/`, **with no
+password prompt** — and launchd then executes it **as root at every boot**. That converts
+user-level code execution into persistent root. The persistence is the nastier half: it survives
+reboots and there is no visible prompt at any point.
+
+**Reach:** not opt-in any more. `start_all`'s `dns` role calls `cmd_dns` whenever it runs elevated
+(engine/bhserve:1944), and per WINDOWS-PARITY #12 v1.7.18 made dnsmasq default-enabled — so this is
+on ordinary installs from v1.7.18 onward, not just people who ran a wildcard-DNS verb.
+
+**On the scanner's suggested `UserName=nobody` — don't; it won't work.** dnsmasq must start as root
+to bind :53 and drops privileges itself afterwards (`-u`). Setting `UserName` makes launchd start it
+as `nobody`, which then can't bind the port. It also wouldn't fix this anyway: the *exec* is still
+root, so a tampered binary still gets root.
+
+Two fixes that do work, in order of preference:
+1. **Don't use a privileged port at all (cleanest — removes the root daemon entirely).** macOS
+   resolver files accept a port: `/etc/resolver/test` can be `nameserver 127.0.0.1` + `port 5353`.
+   dnsmasq then binds `127.0.0.1:5353` and can run as a plain **LaunchAgent under the user** — no
+   root daemon, no LPE, and nothing to harden. Worth checking whether `/etc/resolver` honours
+   `port` on current macOS before committing to it.
+2. **Keep root, but point it only at root-owned paths.** Copy the dnsmasq binary and a generated
+   config into e.g. `/Library/Application Support/BHServe/` as `root:wheel` (755 / 644) at install
+   time and reference only those in `ProgramArguments`; **drop the `-7 …/dnsmasq.d,*.conf` include**,
+   since a user-writable drop-in directory reopens the same hole. Add dnsmasq's own `-u nobody` so
+   it still drops privileges after binding. Re-copy when brew upgrades dnsmasq.
+
+Not urgent in the sense that it needs an attacker already running as that user — but it is a genuine
+privilege-boundary crossing plus boot persistence, it is shipping today, and option 1 would make it
+structurally impossible. Your call on timing; flagging rather than fixing because it is macOS-only
+code I cannot test from here.

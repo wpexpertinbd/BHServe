@@ -29,7 +29,7 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible arm64
 ArchitecturesInstallIn64BitMode=x64compatible arm64
 WizardStyle=modern
-SetupIconFile=..\src\BHServe.App\Assets\AppIcon.ico
+SetupIconFile=..\src\BHServe.Desktop\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\{#MyAppExe}
 ; The tray GUI hides-to-tray when asked to close, which fools Windows' Restart Manager (it sees the
 ; window vanish, assumes the app closed, but the process is still alive and holding BHServe.App.exe /

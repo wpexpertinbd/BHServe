@@ -138,7 +138,7 @@ those tabs can hold many apps.
 
 ## 5. Rich tray / menu-bar flyout (live metrics + sites + tools)  *(macOS: BHServeApp.swift MenuBarView)*  — **medium, polish**
 
-The Windows tray (`windows/src/BHServe.App/TrayIcon.cs`, `ShowMenu()`) is a plain Win32
+The Windows tray (`windows/src/BHServe.Desktop/Services/TrayIcon.cs`, `ShowMenu()`) is a plain Win32
 `Shell_NotifyIcon` context menu with only **Open BHServe / Start all / Stop all / Restart all / Quit**
 (wired in `MainWindow.xaml.cs`). The macOS menu-bar is a rich **flyout** (`macos/Sources/BHServe/BHServeApp.swift`
 `MenuBarView`, ~L79–168): live **CPU / RAM / Disk bars + a CPU sparkline**, a **running-services line with a
@@ -207,7 +207,7 @@ separate store) so they survive re-renders.
   `RewriteServerName` / `ReissueSiteCertificateIfSecure` / `RestartOrReloadAfterAliasChange`.
 - `windows/src/BHServe.Core/{NginxConfig,NodeSite,PySite}.cs` — pass aliases into the vhost `server_name`.
 - `windows/src/BHServe.Cli/Program.cs` — the `case "subdomain":` CLI subcommand (~L96).
-- `windows/src/BHServe.App/Views/SiteListControl.xaml{,.cs}` — the "Manage subdomains…" dialog + alias badge.
+- `windows/src/BHServe.Desktop/Views/SiteListControl.xaml{,.cs}` — the "Manage subdomains…" dialog + alias badge.
 
 **⚠️ Windows-specific things to VERIFY (plusemon likely tested on one platform, not Windows):**
 1. **It compiles.** Build `windows/BHServe.sln` — a community PR may have C# errors that only surface on a
@@ -371,8 +371,14 @@ MariaDB 13 / PHP 8.5.
 
 
 ---
+- **(2026-10-12, commit b371688) `start_all`/`stop_all` root → login-user hand-off is Darwin-only** (`bh_login_user`
+  returns false unless `uname` = Darwin and euid = 0). Linux keeps its current behaviour. Background, in case pkexec
+  paths on Linux have a similar issue: on macOS, `brew services start` as root chowns the formula keg to root and
+  installs a system daemon — the GUI's admin "Start All" was doing exactly that to MariaDB/Redis for every user
+  without password-less control. Worth asking whether a pkexec'd `start all` on Linux starts anything as root that
+  should run as the user.
 
-## #13 — please rename the folder `windows/src/BHServe.App/` (macOS shows it as a broken "app") — 2026-10-10
+## #13 — ✅ DONE (2026-10-12) — folder renamed to `windows/src/BHServe.Desktop/`, exe still `BHServe.App.exe`
 
 **Requested by Benjamin.** On macOS, any folder whose name ends in `.app` (case-insensitive) is treated as an
 **application bundle**. So on every Mac that has this repo cloned, `windows/src/BHServe.App` appears in **Finder**
@@ -404,9 +410,24 @@ still kills/replaces `BHServe.App.exe`), and Mac-Claude confirms Finder shows a 
 `docs/MAC-PARITY-TODO.md` when it lands — a Mac `git pull` will then move the folder, and the stale Spotlight
 entry clears on the next index pass.
 
-- **(2026-10-12, commit b371688) `start_all`/`stop_all` root → login-user hand-off is Darwin-only** (`bh_login_user`
-  returns false unless `uname` = Darwin and euid = 0). Linux keeps its current behaviour. Background, in case pkexec
-  paths on Linux have a similar issue: on macOS, `brew services start` as root chowns the formula keg to root and
-  installs a system daemon — the GUI's admin "Start All" was doing exactly that to MariaDB/Redis for every user
-  without password-less control. Worth asking whether a pkexec'd `start all` on Linux starts anything as root that
-  should run as the user.
+
+### ✅ Resolution (2026-10-12)
+`git mv` of the folder **and** the project file → `windows/src/BHServe.Desktop/BHServe.Desktop.csproj`,
+plus `<AssemblyName>BHServe.App</AssemblyName>` in the csproj — because without it the assembly name
+defaults to the project file name, which would have renamed the exe. `RootNamespace` stays
+`BHServe.App`, so none of the 107 files using that namespace were touched.
+
+Paths updated: `BHServe.sln` (project name + path), `build.ps1` (publish path),
+`installer/bhserve.iss` (`SetupIconFile`), `windows/README.md`, `docs/WINDOWS-PORT.md`,
+`docs/MAC-FEATURE-REFERENCE.md`, `docs/WINDOWS-RELEASE.md`, `docs/MAC-PARITY-TODO.md` and the two
+source references in this file. A repo-wide grep for `src/BHServe.App` / `BHServe.App/` now returns
+only the explanatory comment in the csproj itself.
+
+**Verified:** `dotnet build BHServe.sln` 0 errors; a full `build.ps1` run published
+**`BHServe.App.exe`** (no `BHServe.Desktop.exe` anywhere) and Inno Setup compiled
+`BHServe-Setup-1.0.74.exe` cleanly. The exe name, the installer's `MyAppExe` and its
+`taskkill /IM BHServe.App.exe` are all unchanged, so existing installs upgrade normally and users'
+AV exclusions still match. **No Windows release needed — this is a repo-layout change only; the
+shipped artefact is identical.**
+
+Mac side: a `git pull` moves the folder; the stale Spotlight entry clears on the next index pass.

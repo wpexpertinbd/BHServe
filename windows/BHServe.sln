@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.Core", "src\BHServe
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.Cli", "src\BHServe.Cli\BHServe.Cli.csproj", "{B2222222-2222-2222-2222-222222222222}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.App", "src\BHServe.App\BHServe.App.csproj", "{C3333333-3333-3333-3333-333333333333}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BHServe.Desktop", "src\BHServe.Desktop\BHServe.Desktop.csproj", "{C3333333-3333-3333-3333-333333333333}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{7B708222-6088-493A-AB43-82E75801A588}"
 EndProject

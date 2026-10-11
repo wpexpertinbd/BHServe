@@ -13,7 +13,7 @@ windows/
   BHServe.sln
   src/BHServe.Core/   shared brains (paths, models, php-cgi mgr, engine) — net8.0
   src/BHServe.Cli/    bhserve.exe — transparent CLI over Core           — net8.0
-  src/BHServe.App/    WinUI 3 GUI (unpackaged)                          — net8.0-windows
+  src/BHServe.Desktop/    WinUI 3 GUI (unpackaged)                          — net8.0-windows
   installer/          Inno Setup script → BHServe-Setup.exe
   build.ps1           dotnet publish + iscc
 ```
@@ -33,7 +33,7 @@ dotnet build BHServe.sln
 dotnet run --project src\BHServe.Cli -- init      # try the CLI
 dotnet run --project src\BHServe.Cli -- status
 # the GUI (run from Visual Studio for the best XAML/debug experience, or:)
-dotnet run --project src\BHServe.App
+dotnet run --project src\BHServe.Desktop
 ```
 
 ### Status

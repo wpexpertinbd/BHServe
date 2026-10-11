@@ -7,7 +7,7 @@
 > open it alongside the corresponding Windows file and match the features + layout.
 >
 > Mac source lives in `macos/Sources/BHServe/`. The engine verbs are in `engine/bhserve`.
-> Windows equivalents live in `windows/src/BHServe.App/` (GUI) + `BHServe.Core` (engine).
+> Windows equivalents live in `windows/src/BHServe.Desktop/` (GUI) + `BHServe.Core` (engine).
 
 ---
 
@@ -219,7 +219,7 @@ Multi-PHP (7.4, 8.1–**8.6**) per-site · **Edit php.ini per version** · **ion
 **password-less elevation helper** · **auto-update (default on) + sidebar badge** · **branded installer**.
 
 > **How to use this doc (for the Windows session):** for each numbered section, open the named **Mac
-> `macos/Sources/BHServe/*.swift`** file and the matching **`windows/src/BHServe.App/Views/*Page.xaml`**, then add
+> `macos/Sources/BHServe/*.swift`** file and the matching **`windows/src/BHServe.Desktop/Views/*Page.xaml`**, then add
 > any missing controls/cards/actions and match the layout order. The **engine** side (`BHServe.Core`) already
 > covers most verbs from Phase 1+2 — most gaps are in the **GUI pages**, not the engine. Keep the brand blue
 > **#0d6efd**, loopback-only binds, and the same screen order (Dashboard→Services→Sites→Databases→Node→Logs→Settings).

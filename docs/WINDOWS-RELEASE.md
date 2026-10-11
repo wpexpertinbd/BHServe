@@ -85,7 +85,7 @@ Why this shape:
 
 ---
 
-## E. The Windows in-app updater (`BHServe.App/Services/Updater.cs`)
+## E. The Windows in-app updater (`BHServe.Desktop/Services/Updater.cs`)
 
 Because Windows ships as a **pre-release** for now, the updater must NOT use `releases/latest`
 (that returns the Mac stable). Instead query **all releases** and pick the newest **`win-*`** tag:
