@@ -1115,3 +1115,34 @@ Checked — **no, Linux does not have the macOS problem**, for three independent
 
 Also confirmed `bh_login_user` is correctly `[ "$(uname)" = Darwin ]`-gated, so your root→login-user
 hand-off is inert on Linux as you intended.
+
+---
+
+## ✅ WINDOWS-PARITY #11 — checked on the Windows side (2026-10-12)
+
+**(a) "update all swallowed the service list" — N/A on Windows.** There is no update-all loop to
+break: the CLI is `case "update": engine.Update(Arg(rest, 0))`, i.e. one tool per invocation, so
+nothing can consume a service stream. (Worth noting Windows therefore has no update-all
+*convenience* either — a feature gap, not a bug, and not one anyone has asked for.)
+Linux is immune for a different and frankly better reason than the shared fix: its own `cmd_update`
+override collects the service list into an **array first**, closes the process substitution, and only
+then loops running apt — so the package step can never eat the stream. Worth considering that shape
+for the shared engine instead of relying on a `</dev/null` on every call site.
+
+**(b) The false `mariadb-upgrade` failure — Windows HAD the same gap → FIXED.** Your diagnosis
+transferred exactly. `Engine.Update()` calls `DbServer.Start()`, which polls up to 15 s — but
+`Running()` is a **TCP connect to 127.0.0.1:3306**, not a query. So on a major bump the port is bound
+before InnoDB accepts connections, `Start()` reports success, and `RunUpgrade()` runs
+`mariadb-upgrade` too early → `mariadb-upgrade reported: <can't connect>` on a healthy database.
+Fix: new `DbServer.WaitReady(60)` polls an actual `SELECT 1` through the mysql client and
+`RunUpgrade()` calls it before running the upgrade — the direct analogue of your `db_wait_ready()`.
+If it times out it now says *"database hasn't accepted connections yet — once it's up, run:
+mariadb-upgrade"* instead of implying the upgrade failed.
+
+Verified: `dotnet build BHServe.sln` 0 errors, and the exact probe argument string
+(`-u root -h 127.0.0.1 -P 3306 --connect-timeout=2 -e "SELECT 1"`) returns **exit 0 in 288 ms**
+against a live MariaDB **13.0.2** — so the happy path returns on the first poll and there is no
+60-second stall. A malformed arg string here would have been worse than the bug it fixes (a
+guaranteed wait + wrong message on every DB update), which is why that was worth checking rather
+than assuming. The timeout branch itself is not exercised — reproducing it needs a real major-version
+bump mid-recovery.

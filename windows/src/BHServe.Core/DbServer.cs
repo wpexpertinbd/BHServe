@@ -138,6 +138,27 @@ public static class DbServer
     /// <summary>Parameterless start (provisioning) — brings up the default installed engine.</summary>
     public static (bool ok, string msg) Start() => Running() ? (true, "database already running") : Start(DefaultEngine());
 
+    /// <summary>Wait until the server actually ANSWERS A QUERY — not merely until its port is open.
+    /// Running() is a TCP connect to :3306, and on a MAJOR version bump (MariaDB 12.3 → 13.0) the
+    /// port is bound seconds before InnoDB finishes recovery and starts accepting connections.
+    /// Start() polls Running(), so it can hand back "started" while a query still fails. Mirrors the
+    /// shared engine's db_wait_ready() (macOS hit exactly this: both mariadb-upgrade attempts failed
+    /// on "can't connect" and the engine warned about a database that was completely fine — and the
+    /// user's instinct on seeing that is to roll back something that needs nothing).</summary>
+    public static bool WaitReady(int timeoutSeconds = 60)
+    {
+        var cli = Tools.MysqlClientExe();
+        if (cli is null) return true;   // nothing to probe with — don't block the caller
+        var pw = Config.Load().RootPassword;
+        var args = $"-u root -h 127.0.0.1 -P {Port} {(pw.Length > 0 ? $"-p{pw} " : "")}--connect-timeout=2 -e \"SELECT 1\"";
+        for (var i = 0; i < timeoutSeconds; i++)
+        {
+            if (RunWait(cli, args).code == 0) return true;
+            System.Threading.Thread.Sleep(1000);
+        }
+        return false;
+    }
+
     /// <summary>Reconcile the data dir's system tables with the (just-installed) new engine binary —
     /// the standard post-upgrade step. MariaDB needs mariadb-upgrade; MySQL 8+/9 self-upgrades on
     /// start, so it's a no-op there. The data dir is never dumped/rebuilt — this only fixes the
@@ -147,6 +168,9 @@ public static class DbServer
         if (engine != "mariadb" || !Running()) return "";
         var exe = Tools.MariadbUpgradeExe();
         if (exe is null) return "";
+        // The port being open is not the same as the server being ready — see WaitReady.
+        if (!WaitReady())
+            return $"database hasn't accepted connections yet — once it's up, run: {Path.GetFileName(exe)}";
         var pw = Config.Load().RootPassword;
         var (code, outp) = RunWait(exe, $"-u root -h 127.0.0.1 -P {Port} {(pw.Length > 0 ? $"-p{pw} " : "")}");
         return code == 0 ? "system tables upgraded (mariadb-upgrade)"
