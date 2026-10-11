@@ -420,8 +420,9 @@ defaults to the project file name, which would have renamed the exe. `RootNamesp
 Paths updated: `BHServe.sln` (project name + path), `build.ps1` (publish path),
 `installer/bhserve.iss` (`SetupIconFile`), `windows/README.md`, `docs/WINDOWS-PORT.md`,
 `docs/MAC-FEATURE-REFERENCE.md`, `docs/WINDOWS-RELEASE.md`, `docs/MAC-PARITY-TODO.md` and the two
-source references in this file. A repo-wide grep for `src/BHServe.App` / `BHServe.App/` now returns
-only the explanatory comment in the csproj itself.
+source references in this file. Every path that feeds a build, publish, installer compile or CI run
+now points at the new folder; the old name survives only in the csproj's explanatory comment and in
+historical narrative in the parity docs (including the "Ask" above), which affect nothing.
 
 **Verified:** `dotnet build BHServe.sln` 0 errors; a full `build.ps1` run published
 **`BHServe.App.exe`** (no `BHServe.Desktop.exe` anywhere) and Inno Setup compiled

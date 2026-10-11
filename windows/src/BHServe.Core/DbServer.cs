@@ -51,7 +51,7 @@ public static class DbServer
             FileName = exe, Arguments = args, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
-        var p = ChildProc.Start(psi)!;
+        using var p = ChildProc.Start(psi)!;   // dispose: each call otherwise leaks a handle + 2 pipes
         var outp = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
         p.WaitForExit();
         return (p.ExitCode, outp);
@@ -150,13 +150,52 @@ public static class DbServer
         var cli = Tools.MysqlClientExe();
         if (cli is null) return true;   // nothing to probe with — don't block the caller
         var pw = Config.Load().RootPassword;
-        var args = $"-u root -h 127.0.0.1 -P {Port} {(pw.Length > 0 ? $"-p{pw} " : "")}--connect-timeout=2 -e \"SELECT 1\"";
-        for (var i = 0; i < timeoutSeconds; i++)
+        // WALL-CLOCK deadline, not an iteration count: each probe costs its own connect timeout plus
+        // the sleep, so "60 iterations" was really ~180s of elapsed time.
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+        while (true)
         {
-            if (RunWait(cli, args).code == 0) return true;
+            if (ProbeAnswersQuery(cli, pw)) return true;
+            if (DateTime.UtcNow >= deadline) return false;
             System.Threading.Thread.Sleep(1000);
         }
-        return false;
+    }
+
+    /// <summary>One readiness probe: does the server answer `SELECT 1`?
+    /// Deliberately NOT routed through RunWait:
+    /// - The password goes in via <c>MYSQL_PWD</c>, never argv. RunWait passes a single Arguments
+    ///   STRING, so `-p{pw}` splits on whitespace — a root password of "correct horse" would send
+    ///   `-pcorrect` plus a stray `horse` and could never authenticate, so this loop would burn its
+    ///   whole budget and report "not ready" about a perfectly healthy server. It also keeps the
+    ///   password off the child's visible command line.
+    /// - The wait is BOUNDED and the child is killed if it overruns. RunWait's WaitForExit() has no
+    ///   timeout, so a client that connects and then stalls would hang the caller forever.
+    /// - Both pipes are drained concurrently and discarded; reading stdout fully and only then stderr
+    ///   (as RunWait does) can deadlock if the child fills stderr first — and this client does write
+    ///   to stderr (the passwordless-login SSL warning).</summary>
+    private static bool ProbeAnswersQuery(string cli, string pw)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = cli,
+            Arguments = $"-u root -h 127.0.0.1 -P {Port} --connect-timeout=2 -e \"SELECT 1\"",
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(cli)!,
+        };
+        if (pw.Length > 0) psi.Environment["MYSQL_PWD"] = pw;
+        try
+        {
+            using var p = ChildProc.Start(psi);
+            if (p is null) return false;
+            p.OutputDataReceived += static (_, _) => { };   // drain + discard, concurrently
+            p.ErrorDataReceived  += static (_, _) => { };
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+            if (!p.WaitForExit(5000)) { try { p.Kill(true); } catch { } return false; }
+            return p.ExitCode == 0;
+        }
+        catch { return false; }
     }
 
     /// <summary>Reconcile the data dir's system tables with the (just-installed) new engine binary —
@@ -168,9 +207,14 @@ public static class DbServer
         if (engine != "mariadb" || !Running()) return "";
         var exe = Tools.MariadbUpgradeExe();
         if (exe is null) return "";
-        // The port being open is not the same as the server being ready — see WaitReady.
-        if (!WaitReady())
-            return $"database hasn't accepted connections yet — once it's up, run: {Path.GetFileName(exe)}";
+        // The port being open is not the same as the server being ready — see WaitReady. If it never
+        // becomes ready we still RUN the upgrade: waiting exists to avoid a FALSE failure, not to
+        // replace a real diagnosis. Returning a "not ready" string here instead would be worse than
+        // the bug it fixes — Engine.Update prints ANY non-empty return through Ok(), so a wrong saved
+        // root password (every probe fails identically) would have printed as a success line while the
+        // system-table upgrade silently never happened. Running it surfaces mariadb-upgrade's own
+        // error text, which is what we had before the wait was added.
+        WaitReady();
         var pw = Config.Load().RootPassword;
         var (code, outp) = RunWait(exe, $"-u root -h 127.0.0.1 -P {Port} {(pw.Length > 0 ? $"-p{pw} " : "")}");
         return code == 0 ? "system tables upgraded (mariadb-upgrade)"
