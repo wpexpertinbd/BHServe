@@ -1029,9 +1029,12 @@ artefact is identical, so upgrades and users' AV exclusions are unaffected.
 Doc paths updated on our side including the eight `windows/src/BHServe.App/...` references in THIS
 file. If you have a local branch, expect a conflict only on those path strings.
 
+> **✅ Mac verified 2026-10-12:** after `git pull`, `windows/src/` shows `BHServe.Desktop` as a plain folder and
+> `mdfind 'kMDItemFSName == "BHServe.App*"'` returns nothing — the fake app is gone from Finder and Spotlight.
+
 ---
 
-## ⚠️ SECURITY — the dnsmasq LaunchDaemon runs a USER-WRITABLE binary as root (found 2026-10-12) — macOS only
+## ⚠️ SECURITY — the dnsmasq LaunchDaemon runs a USER-WRITABLE binary as root (found 2026-10-12) — macOS only  — 🔎 CONFIRMED on Mac 2026-10-12, fix pending Benjamin's go-ahead
 
 Flagged by an automated security pass on `engine/bhserve` while I was working in the repo. I verified
 it by reading the code rather than forwarding the scanner output, and **it looks real**. It is
