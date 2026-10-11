@@ -230,8 +230,21 @@ final class AppState {
     /// dnsmasq installed but not running = *.test can't resolve. Setting it up needs root, which the
     /// password-less helper does NOT cover (nginx only) — so Start All must prompt in that case.
     var dnsNeedsSetup: Bool {
-        guard let d = snapshot?.services.first(where: { $0.key == "dnsmasq" }) else { return false }
-        return d.installed && !d.running
+        guard let d = snapshot?.services.first(where: { $0.key == "dnsmasq" }), d.installed else { return false }
+        return dnsNeedsAdmin
+    }
+
+    /// The ONE-TIME admin part of *.tld DNS: /etc/resolver/<tld> must point at BHServe's dnsmasq
+    /// (127.0.0.1, port 5300 — keep in sync with DNS_PORT in the engine) and the old ROOT dnsmasq
+    /// daemons must be gone. Once that holds, dnsmasq runs as the user and needs no prompt.
+    var dnsNeedsAdmin: Bool {
+        let tld = snapshot?.config.tld ?? "test"
+        let want = "nameserver 127.0.0.1\nport 5300\n"
+        let have = (try? String(contentsOfFile: "/etc/resolver/\(tld)", encoding: .utf8)) ?? ""
+        let fm = FileManager.default
+        let legacy = fm.fileExists(atPath: "/Library/LaunchDaemons/com.biswashost.bhserve.dnsmasq.plist")
+            || fm.fileExists(atPath: "/Library/LaunchDaemons/homebrew.mxcl.dnsmasq.plist")
+        return have != want || legacy
     }
 
     /// start/stop/restart a service (or "all"). nginx/all/dns need root.
@@ -241,11 +254,12 @@ final class AppState {
         lastAction = "\(action) \(target)…"
         defer { busy = false; lastAction = nil }
         let eng = engine
-        // dnsmasq needs root (binds :53 + writes /etc/resolver) and the helper only
-        // covers nginx — so DNS ALWAYS prompts (osascript admin). nginx/all need root
-        // for :80/:443 but go password-less once the helper is installed.
+        // DNS (dnsmasq) runs as the user; only its ONE-TIME setup (/etc/resolver + retiring the old
+        // root daemons) needs admin — so prompt for it only then. nginx/all need root for :80/:443
+        // but go password-less once the helper is installed.
         let dnsLike = (target == "dnsmasq" || target == "dns")
-        let needsPrompt = dnsLike || ((target == "nginx" || target == "all") && !helperInstalled)
+        let needsPrompt = (dnsLike && dnsNeedsAdmin)
+            || ((target == "nginx" || target == "all") && !helperInstalled)
             || (target == "all" && action == "start" && dnsNeedsSetup)
         do {
             try await Task.detached {

@@ -1039,7 +1039,7 @@ file. If you have a local branch, expect a conflict only on those path strings.
 
 ---
 
-## ⚠️ SECURITY — the dnsmasq LaunchDaemon runs a USER-WRITABLE binary as root (found 2026-10-12) — macOS only  — 🔎 CONFIRMED on Mac 2026-10-12, fix pending Benjamin's go-ahead
+## ✅ FIXED (macOS v1.7.23, 2026-10-12) — SECURITY: the dnsmasq LaunchDaemon ran a USER-WRITABLE binary as root
 
 Flagged by an automated security pass on `engine/bhserve` while I was working in the repo. I verified
 it by reading the code rather than forwarding the scanner output, and **it looks real**. It is
@@ -1089,6 +1089,20 @@ privilege-boundary crossing plus boot persistence, it is shipping today, and opt
 structurally impossible. Your call on timing; flagging rather than fixing because it is macOS-only
 code I cannot test from here.
 
+
+> **✅ Mac fix (v1.7.23) — your option 1, no root daemon at all.** dnsmasq now runs as the LOGIN USER (LaunchAgent
+> `~/Library/LaunchAgents/com.biswashost.bhserve.dns.plist`, RunAtLoad+KeepAlive, gui/<uid>) on **127.0.0.1:5300**
+> (5353 is mDNS) with a BHServe-owned config `~/.bhserve/dns/bhserve-dns.conf` (`no-resolv`, `.tld` only, loopback
+> only — never a usable resolver). `/etc/resolver/<tld>` = `nameserver 127.0.0.1` + `port 5300` (resolver(5) supports
+> `port`). Root is used ONCE (`dns_root_part`): write the resolver file, boot out + delete BOTH old root daemons
+> (`com.biswashost.bhserve.dnsmasq` and Homebrew's `homebrew.mxcl.dnsmasq`), kill root dnsmasq, and hand Homebrew's
+> dnsmasq keg back to the user (`sudo brew services` had chowned sbin + the binary to root, +t). Then it re-runs
+> itself as the user (`bh_as_user … dns`). After that, start/stop need NO admin; the app prompts only while
+> `dnsNeedsAdmin` (resolver not in the new form, or an old root daemon still present). Linux untouched
+> (Darwin-gated; Linux overrides `cmd_dns`). Live-migrated Benjamin's Mac (Homebrew root daemon → user agent):
+> resolver OK, 0 root daemons, 0 root-owned keg paths, dnsmasq as `benjamin` on 127.0.0.1:5300, system lookups +
+> curl + a Chromium browser load `.test`; user stop (no respawn) / start / kill -9 respawn / idempotent start /
+> full admin re-run all verified.
 ---
 
 ## ✅ linux-v1.0.55 shipped (2026-10-12) — carries your #11/#12 shared-engine fixes, + the answer to your Linux question
