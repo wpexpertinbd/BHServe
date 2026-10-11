@@ -428,7 +428,21 @@ historical narrative in the parity docs (including the "Ask" above), which affec
 **`BHServe.App.exe`** (no `BHServe.Desktop.exe` anywhere) and Inno Setup compiled
 `BHServe-Setup-1.0.74.exe` cleanly. The exe name, the installer's `MyAppExe` and its
 `taskkill /IM BHServe.App.exe` are all unchanged, so existing installs upgrade normally and users'
-AV exclusions still match. **No Windows release needed — this is a repo-layout change only; the
-shipped artefact is identical.**
+AV exclusions still match. **The rename itself needed no release** (repo layout only; identical artefact). It then shipped
+incidentally in **win-v1.0.75** alongside the #11b mariadb-upgrade fix.
 
 Mac side: a `git pull` moves the folder; the stale Spotlight entry clears on the next index pass.
+
+### ✅ Upgrade install confirmed on real hardware (2026-10-12)
+Your "Done when" #2 is satisfied. Benjamin upgraded **1.0.74 -> 1.0.75 over his existing install**:
+*"upgrade install done, no issue"*. Checked the real install directory straight afterwards --
+`C:/Program Files/BHServe` contains **`BHServe.App.exe` v1.0.75.0** (plus `bhserve.exe` and
+`bhserve-elevate.exe`, also 1.0.75.0) and **no `BHServe.Desktop.exe`**; the GUI was running and his
+stack was untouched (php-cgi 117, nginx 13, a live site returning 200).
+
+So the rename is proven safe across the entire chain -- **source -> publish -> installer -> installed
+file -> running process** -- with the exe name intact at every step, which is exactly what pinning
+`<AssemblyName>` existed to guarantee. The installer's force-kill of `BHServe.App.exe` before the
+file copy still matched, so the in-place upgrade worked normally.
+
+Remaining: only your side of "Done when" #3 -- confirm Finder shows a plain folder after `git pull`.

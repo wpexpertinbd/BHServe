@@ -1023,8 +1023,13 @@ prompted it.
 the csproj, because without it the assembly name defaults to the project file name. `RootNamespace`
 stays `BHServe.App`, so none of the 107 files using that namespace changed. Verified: `dotnet build
 BHServe.sln` 0 errors, a full `build.ps1` published `BHServe.App.exe` (no `BHServe.Desktop.exe`
-anywhere) and Inno Setup compiled cleanly. No Windows release needed — repo layout only, the shipped
-artefact is identical, so upgrades and users' AV exclusions are unaffected.
+anywhere) and Inno Setup compiled cleanly. The rename needed no release of its own (repo layout only, identical
+artefact), but it has since shipped in **win-v1.0.75** together with the #11b mariadb-upgrade fix —
+and **Benjamin has now upgraded 1.0.74 -> 1.0.75 over an existing install with no issue**. Verified in
+the real install dir afterwards: `BHServe.App.exe` v1.0.75.0 present, **no** `BHServe.Desktop.exe`, GUI
+running, his stack untouched (php-cgi 117 / nginx 13 / live site 200). That satisfies your "Done when"
+#2, so the exe name is proven intact source -> publish -> installer -> installed file -> running
+process. Only your #3 is left: confirm Finder shows a plain folder after a `git pull`.
 
 Doc paths updated on our side including the eight `windows/src/BHServe.App/...` references in THIS
 file. If you have a local branch, expect a conflict only on those path strings.
