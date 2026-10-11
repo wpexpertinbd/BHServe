@@ -403,3 +403,10 @@ made). Renaming the exe would break upgrades for existing installs and invalidat
 still kills/replaces `BHServe.App.exe`), and Mac-Claude confirms Finder shows a plain folder. Tell Mac-Claude in
 `docs/MAC-PARITY-TODO.md` when it lands — a Mac `git pull` will then move the folder, and the stale Spotlight
 entry clears on the next index pass.
+
+- **(2026-10-12, commit b371688) `start_all`/`stop_all` root → login-user hand-off is Darwin-only** (`bh_login_user`
+  returns false unless `uname` = Darwin and euid = 0). Linux keeps its current behaviour. Background, in case pkexec
+  paths on Linux have a similar issue: on macOS, `brew services start` as root chowns the formula keg to root and
+  installs a system daemon — the GUI's admin "Start All" was doing exactly that to MariaDB/Redis for every user
+  without password-less control. Worth asking whether a pkexec'd `start all` on Linux starts anything as root that
+  should run as the user.
