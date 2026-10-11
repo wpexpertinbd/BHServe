@@ -1913,9 +1913,44 @@ brew_svc(){ # action key
 
 # Start every installed + enabled (auto-start) service. Order follows the registry
 # (PHP pools → nginx → apache → DBs), so sockets exist before nginx proxies them.
+# ── Root → login-user hand-off (macOS) ───────────────────────────────────────
+# The GUI's admin prompt runs `start|stop all` as ROOT. Only nginx (:80/:443) and DNS need that.
+# Everything else must run as the logged-in user: `brew services start` as root installs a
+# /Library/LaunchDaemons system daemon AND chowns the formula's keg/opt/bin to root ("will require
+# manual removal using sudo rm on brew upgrade") — which broke MariaDB updates for every user without
+# password-less control (GitHub #9 follow-up). PHP-FPM/Apache as root also leave root-owned files in
+# ~/.bhserve. So as root we re-run ourselves as the user (inside their launchd session, so brew
+# services lands in gui/<uid>) for the user part, then do only the root part here.
+bh_self(){ local p="${BASH_SOURCE[0]}"; [ "${p#/}" != "$p" ] || p="$PWD/$p"; echo "$p"; }
+bh_login_user(){
+  [ "$(uname)" = Darwin ] && [ "$(id -u)" = 0 ] || return 1
+  local u; u="$(helper_target_user)"
+  case "$u" in ""|root|loginwindow|_mbsetupuser) return 1 ;; esac
+  id -u "$u" >/dev/null 2>&1 || return 1
+  echo "$u"
+}
+# Run an engine verb as the login user with the root-only roles skipped.
+bh_as_user(){
+  local u="$1"; shift
+  /bin/launchctl asuser "$(id -u "$u")" /usr/bin/sudo -u "$u" -H \
+    /usr/bin/env BHSERVE_SKIP_ROOT_ROLES=1 BHSERVE_HOME="$BH_HOME" /bin/bash "$(bh_self)" "$@"
+}
+
 start_all(){
-  hdr "Starting enabled services"
+  local lu
+  if lu="$(bh_login_user)"; then
+    bh_as_user "$lu" start all || warn "some services failed to start as $lu (continuing)"
+    hdr "Starting nginx + DNS (admin)"
+    BHSERVE_ROOT_ROLES_ONLY=1 _start_all_core
+    return 0
+  fi
+  _start_all_core
+}
+_start_all_core(){
+  local rootonly="${BHSERVE_ROOT_ROLES_ONLY:-}" skiproot="${BHSERVE_SKIP_ROOT_ROLES:-}"
+  [ -n "$rootonly" ] || hdr "Starting enabled services"
   # ensure the default PHP pool conf exists so a fresh install has something to start
+  if [ -z "$rootonly" ]; then
   [ -n "$(fpm_keys)" ] || render_fpm_pool "$(php_key default)" >/dev/null 2>&1 || true
   # start every PHP version an enabled site needs (sockets must exist before nginx
   # proxies them), even if that version isn't starred for auto-start.
@@ -1925,6 +1960,7 @@ start_all(){
     fpm_running "$pk" && continue
     ( fpm_start "$pk" ) || warn "$pk failed to start (continuing)"
   done
+  fi
   local IFS='|' key formula probe role
   while read -r key formula probe role; do
     [ -n "$key" ] || continue
@@ -1932,6 +1968,9 @@ start_all(){
     # DNS that was NEVER set up (no /etc/resolver/<tld>) is always configured, starred or not —
     # an older saved enabled-list can lack dnsmasq, and without it no site resolves at all.
     svc_enabled "$key" || { [ "$role" = dns ] && [ "$(uname)" = Darwin ] && [ ! -f "/etc/resolver/$(jget tld test)" ]; } || continue
+    # Root part = nginx + DNS only; user part = everything else (see bh_as_user).
+    if [ -n "$rootonly" ]; then { [ "$key" = nginx ] || [ "$role" = dns ]; } || continue; fi
+    if [ -n "$skiproot" ]; then { [ "$key" = nginx ] || [ "$role" = dns ]; } && continue; fi
     # Each start runs in a subshell so a failure (e.g. nginx `die` on a bad vhost)
     # can't abort the whole loop — every other service still gets started.
     case "$role" in
@@ -1947,10 +1986,21 @@ start_all(){
     esac
   done < <(services)
   # bring Apache up if any site uses it, even when httpd isn't in the enabled set
-  have_apache_sites && apache_start >/dev/null 2>&1 || true
+  [ -n "$rootonly" ] || { have_apache_sites && apache_start >/dev/null 2>&1 || true; }
 }
 # Stop everything that's running (web + all PHP pools + DB/cache/mail daemons).
 stop_all(){
+  local lu
+  if lu="$(bh_login_user)"; then
+    # user part first (tunnels/apps/PHP/Apache/brew services), then nginx as root.
+    bh_as_user "$lu" stop all || warn "some services failed to stop as $lu (continuing)"
+    nginx_stop
+    ok "all services stopped"
+    return 0
+  fi
+  _stop_all_core
+}
+_stop_all_core(){
   hdr "Stopping all services"
   # "All" must include the long-lived processes BHServe spawns itself, not just the daemons:
   # before this a public Cloudflare tunnel (and node/python apps) kept running after Stop All.
@@ -1971,7 +2021,7 @@ stop_all(){
     py_proc_running "$n" && { ( pysite_stop "$n" ) || true; }
   done
   shopt -u nullglob
-  nginx_stop
+  [ -n "${BHSERVE_SKIP_ROOT_ROLES:-}" ] || nginx_stop
   apache_running && apache_stop || true
   local k; for k in $(fpm_keys); do fpm_stop "$k"; done
   local IFS='|' key formula probe role
