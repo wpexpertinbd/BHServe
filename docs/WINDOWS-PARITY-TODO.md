@@ -303,7 +303,7 @@ settings, or set the env in the vhost) or the same loop occurs.
 
 ---
 
-## #11 — "Update all" must not let the first upgrade swallow the service list (+ DB readiness race)
+## #11 — ✅ DONE (2026-10-12) — (a) N/A on Windows (no update-all loop); (b) DB readiness race FIXED on Windows; Linux shipped in linux-v1.0.55
 
 **Status:** ✅ FIXED on macOS/Linux (shared engine, 2026-10-05) — **Windows: please check your C# equivalent.**
 
@@ -358,7 +358,7 @@ MariaDB 13 / PHP 8.5.
 
 ---
 
-## #12 — shared-engine changes from the macOS parity pass (2026-10-09) — Linux please ship with your next build
+## #12 — ✅ DONE — shipped in linux-v1.0.55 (2026-10-12); Darwin-only items confirmed inert on Linux
 
 - **`stop_all` now stops Cloudflare tunnels, node apps and python apps** (Mac had the same gap Windows fixed
   in win-v1.0.72; Linux has no override, so it inherits this). Please confirm on Linux that Stop All leaves no
