@@ -60,9 +60,11 @@ struct ResultSheet: View {
         .onExitCommand { dismiss() }   // Esc always closes, whichever button is the default
     }
 
-    /// Room for the output list: the screen minus the sheet's title, buttons and window chrome.
+    /// Room for the output list: the SMALLEST connected screen minus the sheet's title, buttons and
+    /// window chrome — NSScreen.main follows keyboard focus, not this window, so on two displays the
+    /// sheet could still run off a shorter one (Codex review).
     static var listMaxHeight: CGFloat {
-        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        let screen = NSScreen.screens.map(\.visibleFrame.height).min() ?? 700
         return max(160, min(460, screen - 320))
     }
 }

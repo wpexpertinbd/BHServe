@@ -86,16 +86,10 @@ struct ContentView: View {
                 if !state.busy { await state.reload() }
             }
         }
-        .alert("Engine error", isPresented: Binding(
-            get: { state.errorText != nil },
-            set: { if !$0 { state.errorText = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(state.errorText ?? "")
-        }
-        // Success/failure notice after add-site / install (shown over any tab).
-        .sheet(item: Binding(get: { state.actionResult }, set: { state.actionResult = $0 })) { r in
+        // ONE scrolling result window for everything the engine reports: install / add-site outcomes
+        // and errors (errors used to be an alert that could grow taller than the screen).
+        .sheet(item: Binding(get: { state.actionResult ?? state.errorResult },
+                             set: { if $0 == nil { state.actionResult = nil; state.errorText = nil } })) { r in
             ResultSheet(result: r)
         }
         // Proactive "Update now / Later" prompt when a newer version is found.

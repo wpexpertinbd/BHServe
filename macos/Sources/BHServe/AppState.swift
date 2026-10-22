@@ -9,7 +9,21 @@ final class AppState {
     var snapshot: Snapshot?
     var databases: [Database] = []
     var rootStatus = ""   // "set" | "blank" | "unavailable" | ""
-    var errorText: String?
+    var errorText: String? {
+        didSet {
+            // Shown in the same scrolling ResultSheet as installs/site adds — NOT a macOS alert:
+            // an alert cannot scroll, and a long engine error made it 2030 pt tall on an 878 pt
+            // screen with OK far below the edge (tested). Stable value, so the sheet isn't re-presented.
+            if let e = errorText, e != oldValue {
+                let parsed = AppState.parseSteps(e)
+                errorResult = ActionResult(title: "Something went wrong", success: false,
+                                           steps: parsed.isEmpty ? [.init(done: false, text: e)] : parsed, url: nil)
+            } else if errorText == nil {
+                errorResult = nil
+            }
+        }
+    }
+    var errorResult: ActionResult?
     var busy = false
     var lastAction: String?
 
