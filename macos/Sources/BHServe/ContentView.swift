@@ -88,8 +88,12 @@ struct ContentView: View {
         }
         // ONE scrolling result window for everything the engine reports: install / add-site outcomes
         // and errors (errors used to be an alert that could grow taller than the screen).
+        // Closing clears only what was SHOWN: an error that arrived meanwhile (e.g. the nginx restart
+        // after an add-site failed) is then presented next instead of being lost (Codex review, P1).
         .sheet(item: Binding(get: { state.actionResult ?? state.errorResult },
-                             set: { if $0 == nil { state.actionResult = nil; state.errorText = nil } })) { r in
+                             set: { if $0 == nil {
+                                 if state.actionResult != nil { state.actionResult = nil } else { state.errorText = nil }
+                             } })) { r in
             ResultSheet(result: r)
         }
         // Proactive "Update now / Later" prompt when a newer version is found.
