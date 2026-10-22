@@ -484,3 +484,18 @@ existing `cookie` configs on start. phpMyAdmin stays loopback-only, so this expo
 > phpMyAdmin folder — the web server serves any non-`.php` file there as plain text, so `config.inc.php.new`
 > leaked the root password while it existed (proved with a probe file → 200 + raw text). Write the temp file
 > outside the web root (same volume) and rename it into place.
+
+> **#14 UPDATE (2026-10-22, macOS v1.7.26) — use SIGN-ON mode, not `config` mode.** Benjamin: with `config` auth
+> "Log out" never logged out — phpMyAdmin's `AuthenticationConfig::readCredentials()` returns the saved login on
+> EVERY request. Now (like cPanel/CWP): server 1 `auth_type 'signon'`, `SignonSession 'BHServeSignon'`,
+> `SignonURL 'bhserve-signon.php'` (sets `PMA_single_signon_user/password` in that session, redirects in),
+> `LogoutURL 'bhserve-logout.php'` (phpMyAdmin's own logout does NOT clear the sign-on session — this page
+> destroys it + expires the cookie, then offers "Log in again" / "Log in as another user"); server 2 = cookie
+> auth for any other DB user. Two traps found in a real browser (curl never shows either):
+> 1. **Set `SignonCookieParams` to exactly what the sign-on script uses** (path /, secure on HTTPS, httponly,
+>    SameSite Lax) — phpMyAdmin re-sends the cookie with its own defaults otherwise.
+> 2. **phpMyAdmin's "not signed in" 302 carries `Cache-Control: private, max-age=10800`** — the browser keeps it
+>    3 h, so after Log out it replays index.php?server=1 → sign-on WITHOUT asking the server; if the sign-on
+>    script redirects back to that same URL the browser loops (ERR_TOO_MANY_REDIRECTS). Redirect to a UNIQUE URL
+>    each time (`index.php?server=1&bhs=<random>`) and send `Cache-Control: no-store` from both BHServe pages.
+> Verified in a real browser: open → auto-login; Log out → really out; Log in again; another user → login form.
