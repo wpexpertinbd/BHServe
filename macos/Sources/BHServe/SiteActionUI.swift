@@ -13,24 +13,37 @@ struct ResultSheet: View {
                 Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.largeTitle).foregroundStyle(result.success ? .green : .red)
                 Text(result.title).font(.title2.bold())
+                Spacer(minLength: 8)
+                // Always-visible close in the corner (requested 2026-10-22), in addition to Done/Esc.
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain).help("Close")
             }
             if let url = result.url, let u = URL(string: url) {
                 Link(url, destination: u).font(.callout)
             }
             if !result.steps.isEmpty {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(result.steps) { s in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: s.done ? "checkmark" : "circle.fill")
-                                .font(s.done ? .caption.weight(.bold) : .system(size: 5))
-                                .foregroundStyle(s.done ? .green : .secondary)
-                                .frame(width: 13).padding(.top, s.done ? 2 : 6)
-                            Text(s.text).font(.callout).foregroundStyle(s.done ? .primary : .secondary)
-                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                // Scrolls INSIDE the sheet, capped to the screen: a long brew install log (php@8.5's
+                // caveats…) used to grow the sheet past the bottom of a MacBook Air screen, hiding the
+                // Done button with no way to close it (real user report, 2026-10-22).
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(result.steps) { s in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: s.done ? "checkmark" : "circle.fill")
+                                    .font(s.done ? .caption.weight(.bold) : .system(size: 5))
+                                    .foregroundStyle(s.done ? .green : .secondary)
+                                    .frame(width: 13).padding(.top, s.done ? 2 : 6)
+                                Text(s.text).font(.callout).foregroundStyle(s.done ? .primary : .secondary)
+                                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
+                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxHeight: ResultSheet.listMaxHeight)
+                .fixedSize(horizontal: false, vertical: true)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
             }
             HStack {
@@ -44,6 +57,13 @@ struct ResultSheet: View {
             }
         }
         .padding(20).frame(width: 500)
+        .onExitCommand { dismiss() }   // Esc always closes, whichever button is the default
+    }
+
+    /// Room for the output list: the screen minus the sheet's title, buttons and window chrome.
+    static var listMaxHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(160, min(460, screen - 320))
     }
 }
 
