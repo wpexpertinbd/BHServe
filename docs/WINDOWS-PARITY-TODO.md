@@ -446,3 +446,36 @@ file -> running process** -- with the exe name intact at every step, which is ex
 file copy still matched, so the in-place upgrade worked normally.
 
 Remaining: only your side of "Done when" #3 -- confirm Finder shows a plain folder after `git pull`.
+
+---
+
+## #14 — phpMyAdmin AUTO-LOGIN on every OS (2026-10-22) — Windows: please port · Linux: please verify + ship
+
+**Benjamin's decision (option "always auto-login"):** *"we use auto login in live server then why not this local
+server"*. phpMyAdmin was never set to log in automatically on ANY platform — every config wrote
+`auth_type = 'cookie'`, which always shows the login form (`AllowNoPassword` only allows an EMPTY password to
+be typed). The "sometimes root is pre-filled, sometimes blank" he saw is just phpMyAdmin's remembered-username
+cookie expiring. XAMPP / MAMP / Laragon all auto-login; BHServe now does too.
+
+**macOS (shared engine — done, commit on master, ships in the next macOS release):**
+- `pma_write_config` writes `auth_type 'config'`, `user 'root'`, `password` = the saved root password (blank when
+  none), keeps the existing `blowfish_secret`, writes `.new` + rename, file `0600` (FPM runs as the login user).
+- `db root-passwd` now saves the password to `$BH_HOME/config/db-root.pw` (0600; deleted when cleared) and
+  rewrites the phpMyAdmin config, so auto-login keeps working after a root password is set.
+- `pma_heal_config` (called from `start_all`'s user part) upgrades any old `cookie` config automatically.
+- The password goes into a PHP single-quoted string: escape `\` then `'`. Verified: PHP reads
+  `p'a\ss$w"o rd` back exactly; `php -l` clean; live Mac: no cookies → straight into phpMyAdmin.
+
+**Linux — inherits all of the above** (no `pma_*` / `db_root_passwd` override in platform-linux.sh). Please confirm
+on Linux: the FPM pool that serves phpmyadmin runs as the login user (the config is 0600 now), and a fresh
+`bhserve pma install` + an existing install after `start all` both open without a login form.
+
+**Windows — `windows/src/BHServe.Core/Downloader.cs` ~line 608 (`config.inc.php` writer):** you already have
+`Config.Load().RootPassword`. Change to:
+```
+$cfg['Servers'][$i]['auth_type'] = 'config';
+$cfg['Servers'][$i]['user']      = 'root';
+$cfg['Servers'][$i]['password']  = '<RootPassword, escaped: \ → \\ then ' → \'>';
+```
+keep host 127.0.0.1 / port 3306 and the secret, rewrite the file whenever the root password changes, and heal
+existing `cookie` configs on start. phpMyAdmin stays loopback-only, so this exposes nothing beyond this PC.
