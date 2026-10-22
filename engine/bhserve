@@ -2778,7 +2778,10 @@ small{display:block;margin-top:18px;color:var(--muted)}
 PHP
   ) && chmod 600 "$tmp" "$son" "$sout" \
     && mv "$son" "$dir/bhserve-signon.php" && mv "$sout" "$dir/bhserve-logout.php" \
-    && mv "$tmp" "$dir/config.inc.php" && ok "phpMyAdmin: automatic sign-on as root, real Log out (socket: $sock)"
+    && mv "$tmp" "$dir/config.inc.php" \
+    || { rm -f "$tmp" "$son" "$sout"; warn "couldn't write phpMyAdmin's sign-on files — run: bhserve pma install"; return 1; }
+  # Report success only when it really happened (Codex review: a failed mv used to be swallowed).
+  ok "phpMyAdmin: automatic sign-on as root, real Log out (socket: $sock)"
   bh_give_to_login_user "$dir/config.inc.php" "$dir/bhserve-signon.php" "$dir/bhserve-logout.php"
 }
 
@@ -2795,7 +2798,8 @@ pma_heal_config(){
   local f="$BH_HOME/apps/phpmyadmin/config.inc.php"
   # Upgrade 'cookie' (login form every time) and v1.7.25's 'config' (Log out never stuck) to sign-on.
   [ -f "$f" ] || return 0
-  if ! grep -q "\['auth_type'\]      = 'signon'" "$f" || [ ! -f "$BH_HOME/apps/phpmyadmin/bhserve-signon.php" ]; then
+  if ! grep -q "\['auth_type'\]      = 'signon'" "$f" || [ ! -f "$BH_HOME/apps/phpmyadmin/bhserve-signon.php" ] \
+     || [ ! -f "$BH_HOME/apps/phpmyadmin/bhserve-logout.php" ]; then
     pma_write_config >/dev/null 2>&1 || true
   fi
 }
