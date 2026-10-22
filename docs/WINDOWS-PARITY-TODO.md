@@ -479,3 +479,8 @@ $cfg['Servers'][$i]['password']  = '<RootPassword, escaped: \ → \\ then ' → 
 ```
 keep host 127.0.0.1 / port 3306 and the secret, rewrite the file whenever the root password changes, and heal
 existing `cookie` configs on start. phpMyAdmin stays loopback-only, so this exposes nothing beyond this PC.
+
+> **#14 addendum (Codex review, verified on Mac):** never write a temp/backup copy of `config.inc.php` INSIDE the
+> phpMyAdmin folder — the web server serves any non-`.php` file there as plain text, so `config.inc.php.new`
+> leaked the root password while it existed (proved with a probe file → 200 + raw text). Write the temp file
+> outside the web root (same volume) and rename it into place.
