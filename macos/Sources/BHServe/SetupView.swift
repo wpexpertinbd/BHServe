@@ -27,9 +27,13 @@ struct SetupView: View {
                         Button {
                             state.openHomebrewInstaller()
                         } label: { Label("Install Homebrew", systemImage: "terminal") }
-                        Button("Re-check") { Task { await state.reload() } }
+                        Button("Re-check") { Task { await state.reload(); await state.checkShellPath() } }
                             .buttonStyle(.bordered)
                     }
+                }
+
+                if !state.pathShadows.isEmpty {
+                    PathShadowCard(shadows: state.pathShadows)
                 }
 
                 SetupStep(number: 2, title: "Core services",
@@ -63,11 +67,46 @@ struct SetupView: View {
         }
         .task {
             await state.reload()
+            await state.checkShellPath()
             while !Task.isCancelled {           // poll so it advances after Terminal finishes
                 try? await Task.sleep(for: .seconds(3))
                 if !state.busy { await state.reload() }
             }
         }
+    }
+}
+
+/// Another local server (XAMPP, MAMP…) has its own git/curl ahead of macOS's in the Terminal PATH.
+struct PathShadowCard: View {
+    let shadows: [ShellPathCheck.Shadow]
+
+    private var dirs: [String] { Array(Set(shadows.map(\.dir))).sorted() }
+    private var serverName: String {
+        let all = dirs.joined(separator: " ").lowercased()
+        if all.contains("xampp") { return "XAMPP" }
+        if all.contains("mamp") { return "MAMP" }
+        return "another app"
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.title3)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(serverName)'s tools come before macOS's own in your Terminal").font(.headline)
+                Text("Your Terminal uses \(shadows.map(\.tool).joined(separator: " and ")) from:")
+                    .font(.callout).foregroundStyle(.secondary)
+                ForEach(dirs, id: \.self) { d in
+                    Text(d).font(.callout.monospaced()).textSelection(.enabled)
+                }
+                Text("BHServe's Install Homebrew button already works around this. But please stop \(serverName)'s Apache and MySQL before continuing: BHServe uses the same ports (80, 443, 3306). To fix your Terminal for good, remove that folder from the PATH line in ~/.zshrc (or ~/.zprofile), then open a new Terminal window.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.orange.opacity(0.35)))
     }
 }
 

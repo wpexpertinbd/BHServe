@@ -209,13 +209,28 @@ final class AppState {
     /// Open Terminal and run the official Homebrew installer (interactive — handles
     /// sudo + Command Line Tools with full visibility).
     func openHomebrewInstaller() {
-        let cmd = #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
+        // Clean PATH for this one command: Homebrew's installer uses the FIRST git/curl in PATH, and
+        // another local server's tools (XAMPP/MAMP bin ahead of /usr/bin) broke it with "Failed to
+        // query latest Homebrew/brew Git tag". The user's shell config is left untouched.
+        let cmd = #"PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/bash -c "$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#
         let esc = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let osa = "tell application \"Terminal\"\nactivate\ndo script \"\(esc)\"\nend tell"
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         p.arguments = ["-e", osa]
         try? p.run()
+    }
+
+    /// Another local server's git/curl ahead of macOS's own in the user's Terminal PATH (see
+    /// ShellPathCheck). Shown on the setup screen; refreshed on appear and on Re-check.
+    var pathShadows: [ShellPathCheck.Shadow] = []
+
+    func checkShellPath() async {
+        let found = await Task.detached { () -> [ShellPathCheck.Shadow] in
+            guard let path = ShellPathCheck.loginShellPATH() else { return [] }
+            return ShellPathCheck.shadows(path: path)
+        }.value
+        if found != pathShadows { pathShadows = found }
     }
 
     func installCoreServices() async {
